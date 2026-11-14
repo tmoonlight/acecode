@@ -58,7 +58,7 @@ import { sessionDisplayTitle, withNewSessionDisplayTitles } from '../lib/session
 import { useSessionTitleAnimation } from '../lib/useSessionTitleAnimation.js';
 import { SessionTitleText } from './SessionTitleText.jsx';
 import { pushTrayMenu } from '../lib/desktopTrayMenu.js';
-import { desktopTaskbarBadge, desktopTaskbarBadgeAvailable } from '../lib/desktopTaskbarBadge.js';
+import { desktopTaskbarBadge } from '../lib/desktopTaskbarBadge.js';
 import { usePreference } from '../lib/usePreference.js';
 import { applySidebarSessionStatuses, mergeSidebarSessionStatuses, sidebarNodeKey, sidebarSessionRoots, sidebarSessionStatusRows, sidebarTreeDropTarget, validSidebarTreeDrop } from '../lib/sidebarSessionTree.js';
 import { reorderSidebarSelection, sidebarSelectionKey } from '../lib/sidebarSessionSelection.js';
@@ -87,8 +87,13 @@ import {
   optimisticReadStatus,
   optimisticUnreadStatus,
   statusCursor,
-  workspaceHasUnread,
 } from '../lib/sessionStatus.js';
+import {
+  applyWorkspaceStatusMembership,
+  removeWorkspaceStatusMembers,
+  workspaceAttentionIndicator,
+  workspaceAttentionSummary,
+} from '../lib/sidebarWorkspaceAttention.js';
 import {
   allowSidebarSessionListRevealExpansion,
   allowSidebarWorkspaceAutoExpand,
@@ -1568,10 +1573,12 @@ function WorkspaceGroup({
   onRemoteControlSurgeCompleted,
   expandedSessionGroups,
   onToggleSessionGroup,
+  attention = { inProgress: false, unread: false },
 }) {
   const [editing, setEditing] = useState(false);
   const [draft,   setDraft]   = useState(ws.name);
-  const hasUnread = workspaceHasUnread(sessions);
+  const hasUnread = attention.unread;
+  const attentionIndicator = workspaceAttentionIndicator(attention, { expanded });
   const projectedSessions = sidebarSessionProjection(
     sessions,
     sessionListVisibleLimit,
@@ -1722,24 +1729,36 @@ function WorkspaceGroup({
           </span>
         )}
         <span data-sidebar-workspace-actions="true" className="flex items-center justify-end gap-1 shrink-0">
-          {hasUnread && <span className="w-1.5 h-1.5 rounded-full shrink-0 bg-ok shadow-[0_0_4px_var(--ace-ok)]" title="有未读任务" />}
           <button
             data-sidebar-workspace-menu="true"
             type="button"
             onClick={openWorkspaceContextMenu}
-            className="ace-sidebar-workspace-action w-5 h-6 rounded hover:bg-surface-hi flex items-center justify-center shrink-0 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 transition"
+            className="ace-sidebar-workspace-action w-5 h-6 rounded hover:bg-surface-hi flex items-center justify-center shrink-0 opacity-0 group-hover:opacity-100 focus:opacity-100 transition"
             title="工作区菜单"
             aria-label="工作区菜单"
           ><VsIcon name="workspaceMenu" size={18} /></button>
-          <button
-            data-sidebar-workspace-new-task="true"
-            type="button"
-            onPointerDown={preserveHomeComposerFocus}
-            onClick={(e) => { e.stopPropagation(); onNewSession(ws); }}
-            className="ace-sidebar-workspace-action w-6 h-6 rounded hover:bg-surface-hi flex items-center justify-center shrink-0 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 transition"
-            title="在此工作区新建任务"
-            aria-label="在此工作区新建任务"
-          ><VsIcon name="newSession" size={18} /></button>
+          {/* 新建任务位平时显示汇总状态,悬停或键盘聚焦时换成按钮(globals.css 里的 ace-sidebar-workspace-attention)。 */}
+          <span className="relative flex shrink-0">
+            {attentionIndicator && (
+              <span
+                data-sidebar-workspace-attention={attentionIndicator}
+                className="ace-sidebar-workspace-attention pointer-events-none absolute inset-0 flex items-center justify-center"
+              >
+                {attentionIndicator === 'in_progress'
+                  ? <span className="ace-spinner h-3 w-3 shrink-0" role="status" aria-label="进行中" />
+                  : <span className="w-1.5 h-1.5 rounded-full shrink-0 bg-ok shadow-[0_0_4px_var(--ace-ok)]" role="img" aria-label="有未读任务" />}
+              </span>
+            )}
+            <button
+              data-sidebar-workspace-new-task="true"
+              type="button"
+              onPointerDown={preserveHomeComposerFocus}
+              onClick={(e) => { e.stopPropagation(); onNewSession(ws); }}
+              className="ace-sidebar-workspace-action w-6 h-6 rounded hover:bg-surface-hi flex items-center justify-center shrink-0 opacity-0 group-hover:opacity-100 transition"
+              title="在此工作区新建任务"
+              aria-label="在此工作区新建任务"
+            ><VsIcon name="newSession" size={18} /></button>
+          </span>
         </span>
       </div>
       {expanded && (
@@ -1942,6 +1961,8 @@ export function Sidebar({
   }
   const [sessions,    setSessions]    = useStructuralState([]);
   const [statusBySession, setStatusBySession] = useStructuralState(() => new Map());
+  // 每个工作区有哪些主任务(来自状态快照),折叠的工作区没加载会话行也能汇总状态。
+  const [workspaceStatusMembers, setWorkspaceStatusMembers] = useStructuralState(() => new Map());
   const [pinnedByWorkspace, setPinnedByWorkspace] = useState(() => new Map());
   const [pinnedOrderItems, setPinnedOrderItems] = useState([]);
   const [sessionLoadingWorkspaces, setSessionLoadingWorkspaces] = useStructuralState(() => new Set());
@@ -2902,9 +2923,9 @@ export function Sidebar({
         return next;
       });
       desktopTaskbarBadge.retainWorkspaces(withActive.map((w) => w.hash));
-      withActive
-        .filter((w) => desktopTaskbarBadgeAvailable() || w.active || w.hash === '__local__' || expandedHashes.has(w.hash) || pinnedWorkspaceHashes.has(w.hash) || w.hash === revealWorkspaceHash)
-        .forEach((w) => connection.subscribeWorkspaceStatus(w.hash));
+      // 全部工作区都订阅状态:折叠的工作区不加载会话行,它的进行中 / 未读汇总只能靠
+      // 订阅时 daemon 推的状态快照(WebSocket 消息,不占浏览器的 HTTP 连接)。
+      withActive.forEach((w) => connection.subscribeWorkspaceStatus(w.hash));
 
       const visibleWorkspaces = withActive.filter((w) => w.active || w.hash === '__local__' || expandedHashes.has(w.hash) || pinnedWorkspaceHashes.has(w.hash) || w.hash === revealWorkspaceHash);
       const visibleWorkspaceHashes = visibleWorkspaces.map((w) => w.hash).filter(Boolean);
@@ -3094,6 +3115,7 @@ export function Sidebar({
       }
 
       desktopTaskbarBadge.removeSession(id);
+      setWorkspaceStatusMembers((prev) => removeWorkspaceStatusMembers(prev, [id]));
       // Replace the page in one render, including its backfill row. Removing
       // locally first makes every subsequent workspace move up and then down.
       if (!await refreshArchivedScope(pinScope)) {
@@ -3447,6 +3469,7 @@ export function Sidebar({
           };
         }));
       }
+      setWorkspaceStatusMembers((prev) => applyWorkspaceStatusMembership(prev, msg));
       desktopTaskbarBadge.handleMessage(msg);
     };
     connection.addEventListener('message', handler);
@@ -3539,6 +3562,7 @@ export function Sidebar({
     applySessionBatchPins(outcome);
     if (!archived.length) return;
     archived.forEach(entry => desktopTaskbarBadge.removeSession(entry.session.id));
+    setWorkspaceStatusMembers(prev => removeWorkspaceStatusMembers(prev, archived.map(entry => entry.session.id)));
     const scopes = sessionBatchScopes(archived);
     scopes.forEach(scope => invalidateArchiveLists(scope));
     const refreshed = await Promise.all(scopes.map(scope => refreshArchivedScope(scope)));
@@ -4424,6 +4448,12 @@ export function Sidebar({
                       expanded={expanded.has(ws.hash)}
                       onToggle={onToggle}
                       sessions={items}
+                      attention={workspaceAttentionSummary({
+                        rows: items,
+                        memberIds: workspaceStatusMembers.get(ws.hash),
+                        statusMap: statusBySession,
+                        pinnedIds: pinnedByWorkspace.get(ws.hash),
+                      })}
                       sessionListVisibleLimit={expandedSessionLists.get(ws.hash)}
                       sessionListTotal={sessionFullyLoadedWorkspaces.has(ws.hash) ? sidebarSessionRoots(items).length : sessionListTotals.get(ws.hash)}
                       expandedSessionGroups={expandedSessionGroups}

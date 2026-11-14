@@ -108,13 +108,51 @@ try {
   const transcript = page.locator('[data-conversation-find-root]');
   await transcript.getByText('target.js', { exact: true }).click();
   await page.locator('[data-desktop-preview-path="src/deep/target.js"]').waitFor();
+  const quote = page.getByRole('button', { name: '引用到聊天', exact: true });
+  const composer = page.locator('[data-main-composer="true"]');
+  const referenceTag = composer.getByText(/^target\.js(?::1)?$/);
+  const confirmQuote = async action => {
+    await action.waitFor();
+    assert.equal(await referenceTag.count(), 0, 'the menu alone does not add a reference');
+    await action.click();
+    await referenceTag.waitFor();
+    await composer.getByRole('button', { name: '移除引用上下文', exact: true }).click();
+    await referenceTag.waitFor({ state: 'detached' });
+  };
   if (process.argv.includes('--desktop')) {
     const editor = page.locator('[data-ace-editable-preview-text]');
     await editor.fill('export const draft = 99;\n');
+    await editor.press('Control+Home');
+    await editor.press('Shift+ArrowRight');
+    await confirmQuote(quote);
     await page.keyboard.press('Control+BracketLeft');
     await waitPulse(0);
     assert.equal(await editor.inputValue(), 'export const draft = 99;\n');
     await editor.fill('export const answer = 42;\n');
+  } else {
+    const line = page.locator('.ace-line-code[data-source-line="1"]');
+    const bounds = await line.evaluate(cell => {
+      const range = document.createRange();
+      range.selectNodeContents(cell);
+      return range.getBoundingClientRect().toJSON();
+    });
+    const y = bounds.top + bounds.height / 2;
+    const dragLine = async () => {
+      await page.mouse.move(bounds.left + 1, y);
+      await page.mouse.down();
+      await page.mouse.move(bounds.right - 1, y, { steps: 10 });
+    };
+    await dragLine();
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    assert.ok(await page.evaluate(() => !!window.getSelection().toString().trim()));
+    assert.equal(await referenceTag.count(), 0, 'dragging leaves the composer empty');
+    await page.mouse.up();
+    await confirmQuote(quote);
+    await dragLine();
+    await page.mouse.up();
+    await quote.waitFor();
+    await page.mouse.click(bounds.left + bounds.width / 2, y, { button: 'right' });
+    await confirmQuote(page.getByRole('menuitem', { name: '引用到聊天', exact: true }));
   }
   // Start from a different list tab and a collapsed list, with no loaded parents.
   await page.locator('.ace-side-panel').getByRole('tab', { name: '变更', exact: true }).click();

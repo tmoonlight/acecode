@@ -156,39 +156,27 @@ function composerContextKey(item, index = 0) {
 function ComposerSelectionCard({
   item,
   annotationPresentations = null,
-  pinned = false,
-  onPin,
   onRemove,
 }) {
   const presentation = contextPresentation(item, annotationPresentations);
   const sourcePath = item?.source?.path || item?.path || presentation.label;
-  const actionTitle = pinned ? '移除引用' : '固定引用';
-  const actionLabel = pinned ? '移除引用上下文' : '固定引用上下文';
   return (
     <div
-      className={[
-        'group h-6 max-w-[260px] shrink-0 rounded-md border px-1.5 flex items-center gap-1 text-[11px] font-sans leading-none',
-        pinned ? 'border-border bg-surface text-fg' : 'border-accent-soft bg-accent-bg text-fg',
-      ].join(' ')}
+      className="group h-6 max-w-[260px] shrink-0 rounded-md border border-border bg-surface px-1.5 flex items-center gap-1 text-[11px] font-sans leading-none text-fg"
       title={presentation.title}
     >
       <button
         type="button"
         className="w-[14px] h-[14px] shrink-0 rounded-full flex items-center justify-center hover:bg-surface-hi text-fg-mute hover:text-fg"
         onMouseDown={(event) => event.preventDefault()}
-        onClick={() => {
-          if (pinned) onRemove?.();
-          else onPin?.();
-        }}
-        title={actionTitle}
-        aria-label={actionLabel}
+        onClick={onRemove}
+        title="移除引用"
+        aria-label="移除引用上下文"
       >
-        <VsIcon name={pinned ? 'close' : 'pin'} size={11} className="ace-selection-context-icon" />
+        <VsIcon name="close" size={11} className="ace-selection-context-icon" />
       </button>
       <FileTypeIcon path={sourcePath} size={11} className="ace-selection-context-icon opacity-90" />
-      <span className={['truncate text-fg', pinned ? '' : 'opacity-80'].filter(Boolean).join(' ')}>
-        {presentation.label}
-      </span>
+      <span className="truncate text-fg">{presentation.label}</span>
       <SelectionAnnotationBadge
         number={presentation.annotationNumber}
         annotations={presentation.annotations}
@@ -248,7 +236,6 @@ export const InputBar = forwardRef(function InputBar({
   onSelectExpert,
   onRemoveExpert,
   onOpenExpertComponents,
-  selectionPreview = null, onPinSelectionPreview,
   pathReferenceApi = null, cwd = '', currentSessionId = '', draftRevision = 0, showSessionTime = true,
   fileDropManagedExternally = false, onFileDragActiveChange,
   sessionControls = null,
@@ -1851,18 +1838,11 @@ export const InputBar = forwardRef(function InputBar({
             ))}
           </div>
         )}
-        {(selectionPreview || selectionContextItems.length > 0 || browserContextItems.length > 0) && (
+        {(selectionContextItems.length > 0 || browserContextItems.length > 0) && (
           <div className={clsx(
             'px-3 pt-2 flex flex-wrap items-center gap-1.5',
             isHero && 'px-4',
           )}>
-            {selectionPreview ? (
-              <ComposerSelectionCard
-                item={selectionPreview}
-                annotationPresentations={annotationPresentations}
-                onPin={() => onPinSelectionPreview?.(selectionPreview)}
-              />
-            ) : null}
             {selectionContextItems.map((item, index) => {
               const key = composerContextKey(item, index);
               return (
@@ -1870,7 +1850,6 @@ export const InputBar = forwardRef(function InputBar({
                   key={key}
                   item={item}
                   annotationPresentations={annotationPresentations}
-                  pinned
                   onRemove={() => onRemoveContext?.(key)}
                 />
               );

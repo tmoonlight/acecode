@@ -75,6 +75,18 @@ run('ready Mermaid images are native preview buttons backed by sanitized SVG det
   assert.match(styles, /cursor: zoom-in/);
 });
 
+// 场景:模型画了比对话栏宽的 Mermaid 图(多分组的流程图、十几个参与者的时序图)。
+// 期望:行内只缩不放 —— 窄图保持原始尺寸,宽图等比缩到栏宽;高度不写死,跟着宽度按比例走。
+// 回归:图片按原始宽高硬写(max-width: none + 内联 height),宽图超出对话栏,只能横向拖动滚动条。
+run('wide Mermaid diagrams shrink to the chat column instead of scrolling sideways', () => {
+  const renderer = source('lib/mermaidRenderer.js');
+  const styles = source('styles/globals.css');
+  assert.match(renderer, /image\.style\.width = `\$\{result\.width\}px`/);
+  assert.doesNotMatch(renderer, /image\.style\.height\s*=/);
+  assert.match(styles, /\.ace-mermaid-preview-trigger\s*\{[^}]*max-width: 100%/);
+  assert.match(styles, /\.ace-mermaid-svg\s*\{[^}]*height: auto;[^}]*max-width: 100%/);
+});
+
 run('shared context menu intercepts ordinary browser right clicks and gates native-only actions', () => {
   const component = source('components/DesktopContextMenu.jsx');
   assert.match(component, /const candidateTargets = contextTargetsFromElement\(rawTarget\)/);

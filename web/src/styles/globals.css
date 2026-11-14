@@ -2428,6 +2428,18 @@ body {
   cursor: wait;
   opacity: 0.5;
 }
+/* 工作区行的「新建任务」位平时显示汇总状态(进行中转圈 / 未读绿点),悬停或键盘聚焦时
+   换成按钮。只认 :focus-visible:鼠标点行折叠后焦点还留在行上,用 :focus-within 的话
+   汇总状态会一直被按钮盖住,直到点别处。 */
+.ace-sidebar-workspace-row:is(:focus-visible, :has(:focus-visible)) .ace-sidebar-workspace-action {
+  opacity: 1;
+}
+.ace-sidebar-workspace-attention {
+  transition: opacity 150ms ease;
+}
+.ace-sidebar-workspace-row:is(:hover, :focus-visible, :has(:focus-visible)) .ace-sidebar-workspace-attention {
+  opacity: 0;
+}
 /* 会话行右侧是一个槽位,不是两栏:静止时显示日期(或「权限请求 / 等待回复」
    徽标),hover / 键盘聚焦时整块换成置顶与归档图标。两者互斥,所以静止态不给
    图标预留宽度,标题能多占一截。实际定时 / 工作树会话的来源标记与归档共用
@@ -3510,6 +3522,7 @@ body {
 .ace-mermaid-preview-trigger {
   display: block;
   width: max-content;
+  max-width: 100%;
   padding: 0;
   border: 0;
   outline: 0;
@@ -3521,11 +3534,12 @@ body {
   outline: 2px solid var(--ace-accent);
   outline-offset: -2px;
 }
+/* 只缩不放:窄图按原始尺寸,宽图等比缩到对话栏宽;点开预览(ImageLightbox)缩放平移看细节。 */
 .ace-mermaid-svg {
   display: block;
   width: auto;
   height: auto;
-  max-width: none;
+  max-width: 100%;
   max-height: none;
   margin: 0 auto;
   pointer-events: none;
@@ -8199,6 +8213,11 @@ div.ace-markdown-opaque > div.ace-markdown-opaque-rendered {
     opacity: 1;
     width: 44px;
     height: 44px;
+  }
+  /* 触屏上按钮常显,汇总状态退到按钮右上角,不盖住图标。 */
+  .ace-sidebar-workspace-row [data-sidebar-workspace-actions] .ace-sidebar-workspace-attention {
+    inset: 2px 2px auto auto;
+    opacity: 1;
   }
   .ace-settings-window-actions button { min-width: 44px; min-height: 44px; }
   [data-permission-card] button, [role="menu"] [role^="menuitem"] { min-height: 44px; }

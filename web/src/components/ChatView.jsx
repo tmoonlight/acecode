@@ -386,7 +386,6 @@ import {
   selectionAnnotationPresentationMap,
   selectionContextFingerprint,
   selectionContextFromWindowSelection,
-  selectionContextLocationKey,
   selectionContextsFromTranscriptItems,
   upsertSelectionContext,
 } from '../lib/selectionChatContext.js';
@@ -1013,7 +1012,6 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
   useEffect(() => {
     setComposerSwarmChoice((choice) => reconcileSwarmChoice(choice, transcriptSwarmMode));
   }, [transcriptSwarmMode]);
-  const [selectionPreview, setSelectionPreview] = useState(null);
   const [selectionAction, setSelectionAction] = useState(null);
   const [composerSubmitting, setComposerSubmitting] = useState(false);
   const retrySubmissionRef = useRef(null);
@@ -1035,7 +1033,6 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
     attachmentReservationsRef.current = createComposerAttachmentReservations();
   }
   const restoreComposerFocusAfterSubmitRef = useRef(false);
-  const selectionPreviewFingerprintRef = useRef('');
   // 排队状态归 store 所有,渲染层只订阅。原来是 useState 镜像 + 一个可变引用
   // 的双写:被动 effect 把旧渲染快照写回引用,这中间提交的排队变更会被吞掉
   // (排队消息丢失或已取消的重新出现)。同 sessionTranscript 的实时状态修复。
@@ -1535,8 +1532,6 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
     });
     setComposerContexts([]);
     setSelectionAction(null);
-    selectionPreviewFingerprintRef.current = '';
-    setSelectionPreview(null);
     clearPreviewSelection();
   }, [clearAttachmentReservations]);
 
@@ -2116,6 +2111,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
   }, []);
 
   const pinSelectionContext = useCallback((context) => {
+    if (context?.type !== 'selection') return false;
     const localId = context?.local_id || context?.id || nextSelectionContextId();
     const normalized = normalizeComposerContext({
       ...context,
@@ -2129,8 +2125,6 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
       id: normalized.id || localId,
     };
     setComposerContexts((items) => upsertSelectionContext(items, pinned));
-    selectionPreviewFingerprintRef.current = '';
-    setSelectionPreview(null);
     setSelectionAction(null);
     clearPreviewSelection();
     requestAnimationFrame(() => inputRef.current?.focus());
@@ -2146,18 +2140,17 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
     });
   }, [pinSelectionContext]);
 
-  const dismissSelectionAction = useCallback(() => {
-    selectionPreviewFingerprintRef.current = '';
-    setSelectionPreview(null);
+  const dismissSelectionAction = useCallback(({ preserveSelection = false } = {}) => {
     setSelectionAction(null);
-    clearPreviewSelection();
+    if (!preserveSelection) clearPreviewSelection();
   }, []);
 
+  const selectionActionsOpen = selectionAction?.mode === 'actions';
   useEffect(() => {
     let raf = 0;
     let pendingActionTrigger = null;
     let pendingSelectionTarget = null;
-    const updatePreview = () => {
+    const updateSelectionAction = () => {
       raf = 0;
       const actionTrigger = pendingActionTrigger;
       const selectionTarget = pendingSelectionTarget || document.activeElement;
@@ -2174,16 +2167,12 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
         : null;
       const actionRect = actionTrigger?.rect || rangeRect;
       if (!next || !rangeRect) {
-        selectionPreviewFingerprintRef.current = '';
-        setSelectionPreview((prev) => (prev ? null : prev));
         setSelectionAction((prev) => (prev?.mode === 'annotation' ? prev : null));
         return;
       }
       const fingerprint = selectionContextFingerprint(next);
-      selectionPreviewFingerprintRef.current = fingerprint;
-      setSelectionPreview(next);
       setSelectionAction((prev) => {
-        if (actionTrigger?.show && actionRect) {
+        if (actionTrigger && actionRect) {
           return {
             key: fingerprint,
             context: next,
@@ -2196,21 +2185,21 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
         return prev?.mode === 'annotation' ? prev : null;
       });
     };
-    const schedulePreviewUpdate = (actionTrigger = null, selectionTarget = null) => {
-      if (actionTrigger) pendingActionTrigger = actionTrigger;
-      if (selectionTarget) pendingSelectionTarget = selectionTarget;
+    const scheduleActionUpdate = (actionTrigger, selectionTarget) => {
+      if (pendingActionTrigger && !actionTrigger) return;
+      pendingActionTrigger = actionTrigger;
+      pendingSelectionTarget = selectionTarget;
       if (raf) cancelAnimationFrame(raf);
-      raf = requestAnimationFrame(updatePreview);
+      raf = requestAnimationFrame(updateSelectionAction);
     };
-    const handleSelectionChange = () => schedulePreviewUpdate(null, document.activeElement);
+    const handleSelectionChange = () => scheduleActionUpdate(null, document.activeElement);
     const handleMouseUp = (event) => {
       if (event.button !== 0) return;
       const target = event.target?.nodeType === Node.ELEMENT_NODE
         ? event.target
         : event.target?.parentElement;
       if (!target?.closest?.(SELECTION_PREVIEW_SELECTOR)) return;
-      schedulePreviewUpdate({
-        show: true,
+      scheduleActionUpdate({
         anchor: 'pointer',
         rect: selectionPointerViewportRect(event),
       }, target);
@@ -2220,16 +2209,17 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
         ? event.target
         : event.target?.parentElement;
       if (!event.shiftKey || !target?.closest?.(SELECTION_PREVIEW_SELECTOR)) return;
-      schedulePreviewUpdate({
-        show: true,
+      scheduleActionUpdate({
         anchor: 'selection',
         rect: null,
       }, target);
     };
-    const handleSelect = (event) => schedulePreviewUpdate(null, event.target);
+    const handleSelect = (event) => scheduleActionUpdate(null, event.target);
 
-    document.addEventListener('selectionchange', handleSelectionChange);
-    document.addEventListener('select', handleSelect, true);
+    if (selectionActionsOpen) {
+      document.addEventListener('selectionchange', handleSelectionChange);
+      document.addEventListener('select', handleSelect, true);
+    }
     document.addEventListener('mouseup', handleMouseUp, true);
     document.addEventListener('keyup', handleKeyUp, true);
     return () => {
@@ -2239,16 +2229,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
       document.removeEventListener('mouseup', handleMouseUp, true);
       document.removeEventListener('keyup', handleKeyUp, true);
     };
-  }, []);
-
-  const pinnedSelectionLocationKeys = useMemo(() => {
-    const keys = new Set();
-    for (const context of composerContexts) {
-      const key = selectionContextLocationKey(context);
-      if (key) keys.add(key);
-    }
-    return keys;
-  }, [composerContexts]);
+  }, [selectionActionsOpen]);
 
   const sentSelectionContexts = useMemo(
     () => selectionContextsFromTranscriptItems(rawItems),
@@ -2265,22 +2246,14 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
     [previewSelectionContexts],
   );
 
-  const visibleSelectionPreview = useMemo(() => {
-    if (!selectionPreview) return null;
-    const key = selectionContextLocationKey(selectionPreview);
-    return key && pinnedSelectionLocationKeys.has(key) ? null : selectionPreview;
-  }, [pinnedSelectionLocationKeys, selectionPreview]);
-
   const composerInputProps = useMemo(() => ({
     attachments: composerAttachments,
     composerContent,
     contexts: composerContexts,
     annotationPresentations: selectionAnnotationPresentations,
-    selectionPreview: visibleSelectionPreview,
     onMediaFiles: handleMediaFiles,
     onRemoveAttachment: removeComposerAttachment,
     onRemoveContext: removeComposerContext,
-    onPinSelectionPreview: pinSelectionContext,
     onLargeTextPaste: handleLargeTextPaste,
     onReplacePasteBlock: replacePasteBlockText,
     onRetryPasteUpload: retryPasteUpload,
@@ -2298,13 +2271,11 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
     changeComposerSwarmMode,
     handleLargeTextPaste,
     handleMediaFiles,
-    pinSelectionContext,
     removeComposerAttachment,
     removeComposerContext,
     replacePasteBlockText,
     retryPasteUpload,
     selectionAnnotationPresentations,
-    visibleSelectionPreview,
   ]);
 
   useEffect(() => {

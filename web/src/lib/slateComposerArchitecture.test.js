@@ -221,7 +221,7 @@ run('image previews retain image rendering, file-link metadata, and existing tra
   const inputBar = source('components/InputBar.jsx');
   const composer = source('components/RichComposer.jsx');
   const previewStart = inputBar.indexOf('{imageAttachments.length > 0');
-  const previewEnd = inputBar.indexOf('{(selectionPreview', previewStart);
+  const previewEnd = inputBar.indexOf('{onRetryAttachment &&', previewStart);
   const preview = inputBar.slice(previewStart, previewEnd);
 
   assert.ok(previewStart >= 0);

@@ -5,12 +5,15 @@ import { colorContrast } from './colorContrast.js';
 
 import {
   createMermaidRenderAdapter,
+  escapeMermaidSequenceText,
   inspectMermaidSource,
   installMermaidRenderer,
   isSafeMermaidResourceValue,
   MAX_MERMAID_SOURCE_BYTES,
   mermaidConfig,
   mermaidTheme,
+  neutralizeMermaidMarkup,
+  prepareMermaidRenderSource,
   readMermaidSvgDimensions,
   sanitizeMermaidSvg,
 } from './mermaidRenderer.js';
@@ -136,7 +139,7 @@ await test('source gate accepts exactly the intended five Mermaid families', () 
   assert.equal(inspectMermaidSource('gitGraph\ncommit').reason, 'unsupported-family');
 });
 
-await test('source gate accepts only attribute-free Mermaid label line breaks', () => {
+await test('source gate passes attribute-free Mermaid label line breaks through unchanged', () => {
   for (const lineBreak of ['<br>', '<br/>', '<br />', '<BR/>']) {
     const source = `flowchart TD\nA[first${lineBreak}second] --> B`;
     assert.deepEqual(inspectMermaidSource(source), {
@@ -152,17 +155,121 @@ await test('source gate accepts only attribute-free Mermaid label line breaks', 
     source: reportedLabelBreakFlowchart,
   });
 
-  const unsafeHtml = [
-    'flowchart TD\nA[first<br class="x">second] --> B',
-    'flowchart TD\nA[first<br onclick="x">second] --> B',
-    'flowchart TD\nA[first<br/><img src=x>second] --> B',
-    'flowchart TD\nA[first<script>second</script>] --> B',
-    'flowchart TD\nA[first</br>second] --> B',
-    'flowchart TD\nA[first&lt;br&gt;second] --> B',
+  // 已经编码过的 HTML 尖括号仍然拒绝:改写只处理原文里的 `<`,不去猜实体背后的意图。
+  assert.equal(
+    inspectMermaidSource('flowchart TD\nA[first&lt;br&gt;second] --> B').reason,
+    'html',
+  );
+});
+
+// 场景:讲代码的图在标签里写 `<cachePath>`、`List<String>`、`i<n`,甚至 `<script>` 这类原文。
+// 期望:闸门不再整张拒绝;交给 Mermaid 的文本里除了不带属性的 `<br>` 之外,所有能被当成标签的 `<`
+// 都改写成 `#lt;`,配成一对的连 `>` 一起改成 `#gt;`,连线箭头 `-->` 不受影响。
+// 回归:以前这些图整张退回 Mermaid 源码,用户看到的是一堆没画出来的文字。
+await test('tag-shaped label text is neutralized into Mermaid entity codes instead of rejected', () => {
+  const cases = [
+    ['flowchart TD\nA[i<n] --> B[List<String>]', 'flowchart TD\nA[i#lt;n] --> B[List#lt;String#gt;]'],
+    ['flowchart TD\nA -- a<b --> B', 'flowchart TD\nA -- a#lt;b --> B'],
+    ['flowchart TD\nA[first<br class="x">second] --> B', 'flowchart TD\nA[first#lt;br class="x"#gt;second] --> B'],
+    ['flowchart TD\nA[first</br>second] --> B', 'flowchart TD\nA[first#lt;/br#gt;second] --> B'],
+    ['flowchart TD\nA[safe<br/><img src=x>] --> B', 'flowchart TD\nA[safe<br/>#lt;img src=x#gt;] --> B'],
+    ['flowchart TD\nA[<script>x</script>] --> B', 'flowchart TD\nA[#lt;script#gt;x#lt;/script#gt;] --> B'],
+    ['classDiagram\nclass Repo {\n  +load() Map<K,V>\n}', 'classDiagram\nclass Repo {\n  +load() Map#lt;K,V#gt;\n}'],
   ];
-  for (const source of unsafeHtml) {
-    assert.equal(inspectMermaidSource(source).reason, 'html', source);
+  for (const [source, expected] of cases) {
+    assert.deepEqual(inspectMermaidSource(source).ok, true, source);
+    assert.equal(neutralizeMermaidMarkup(source), expected, source);
   }
+
+  // 不变式:不管原文怎么嵌套、带不带属性、有没有收尾,改写后都找不到 `<字母` 或 `</字母`(`<br>` 除外)。
+  const hostile = [
+    'flowchart TD\nA[<img src=x onerror=alert(1)>] --> B',
+    'flowchart TD\nA[<a <script>x] --> B',
+    'flowchart TD\nA[<svg/onload=alert(1)>] --> B',
+    'flowchart TD\nA[x<br onclick="y">z<BR/>w] --> B',
+    'sequenceDiagram\nAlice->>Bob: <iframe src=//x></iframe>',
+  ];
+  for (const source of hostile) {
+    const neutral = neutralizeMermaidMarkup(source).replace(/<br[ \t]*\/?>/gi, '');
+    assert.equal(/<\/?[A-Za-z]/.test(neutral), false, source);
+    assert.equal(inspectMermaidSource(source).ok, true, source);
+  }
+});
+
+// 场景:时序图消息 / 注释里写了 CSS 或代码,带 `;`(`width:100%;height:auto`)或 `#`(`C#`、`#1`)。
+// 期望:只改消息、注释和 loop / alt 分组标题里的文字:`;` → `#59;`、`#` → `#35;`,已有实体码原样保留;
+// 同一行出现「style…:…#…;」时行尾垫一个 `;`,给 Mermaid 预处理删(否则它会吃掉实体码的分号)。
+// participant 别名等其它语句和其它图类型不动。
+// 回归:`;` 让 Mermaid 把后半句当成新语句报语法错误,整张时序图退回源码;`#` 之后的文字被悄悄截掉。
+await test('sequence message text escapes semicolons and hashes before Mermaid', () => {
+  const source = [
+    'sequenceDiagram',
+    'participant C as c;d',
+    'Alice->>Bob: a;b #1 #59; C#',
+    'Note over Alice: img style="width:100%;height:auto"',
+    'loop n; #2',
+    'Alice-)Bob: done',
+    'end',
+  ].join('\n');
+  assert.equal(escapeMermaidSequenceText(source), [
+    'sequenceDiagram',
+    'participant C as c;d',
+    'Alice->>Bob: a#59;b #35;1 #59; C#35;',
+    'Note over Alice: img style="width:100%#59;height:auto";',
+    'loop n#59; #35;2',
+    'Alice-)Bob: done',
+    'end',
+  ].join('\n'));
+
+  assert.equal(prepareMermaidRenderSource(source, 'sequence'), escapeMermaidSequenceText(source));
+  const flowchart = 'flowchart TD\nA[a;b] --> B';
+  assert.equal(prepareMermaidRenderSource(flowchart, 'flowchart'), flowchart);
+});
+
+// 场景:用户反馈的两张图(名字已换成通用写法)。状态图的连线标签里有 `src=file://cachePath<br/>…`;
+// 时序图的注释里有 `"file://<cachePath>"` 和 `style="width:100%;height:auto"`,消息里有
+// `exec("javascript:Editor.insertImage('<URLEncode html>')")`。
+// 期望:闸门放行;时序图原文过不了官方解析器(分号),改写后能过;状态图不需要改写(它的解析要
+// DOMPurify,Node 里没有 DOM 跑不了,只核对闸门和改写结果)。
+// 回归:状态图因为 `file://` 被判成外部资源、时序图因为 `<cachePath>` 被判成 HTML,整张退回源码。
+await test('reported code-heavy state and sequence diagrams reach the official parser', async () => {
+  const state = [
+    'stateDiagram-v2',
+    '    [*] --> local: pick image',
+    '    local --> uploading: insertImage<br/>src=file://cachePath<br/>data-state=uploading',
+    '    uploading --> ready: uploaded<br/>data-preview=?id=saveUrl<br/>src still file://',
+    '    uploading --> failed: upload failed<br/>data-state=failed',
+    '    ready --> final: send<br/>src=?id=saveUrl',
+    '    failed --> final: keep src file://',
+    '    final --> [*]',
+  ].join('\n');
+  const sequence = [
+    'sequenceDiagram',
+    '    participant TM as Worker(FILE)',
+    '    participant RE as RichEditor (Java)',
+    '    participant RO as Editor (JS)',
+    '    TM->>TM: id = "img_<timestamp>_<random>"',
+    '    TM->>TM: copy localPath → getCacheDir()/body_img/<id>.jpg',
+    '    TM->>TM: fileUrl = "file://" + cachePath',
+    '    RE->>RO: exec("javascript:Editor.insertImage(\'<URLEncode html>\')")',
+    '    Note over RO: img:<br/>src="file://<cachePath>"<br/>data-id="<id>"<br/>style="width:100%;height:auto"',
+    '    alt preview != null',
+    '        RO->>RO: imgs[data-id=id].setAttribute(\'data-state\',\'ready\')',
+    '    else preview == null',
+    '        RO->>RO: imgs[data-id=id].setAttribute(\'data-state\',\'failed\')',
+    '    end',
+  ].join('\n');
+
+  assert.deepEqual(inspectMermaidSource(state), { ok: true, family: 'state', source: state });
+  assert.equal(prepareMermaidRenderSource(state, 'state'), state);
+
+  assert.deepEqual(inspectMermaidSource(sequence), { ok: true, family: 'sequence', source: sequence });
+  mermaid.initialize(mermaidConfig('light'));
+  assert.equal(await mermaid.parse(sequence, { suppressErrors: true }), false);
+  assert.deepEqual(
+    await mermaid.parse(prepareMermaidRenderSource(sequence, 'sequence'), { suppressErrors: true }),
+    { diagramType: 'sequence', config: {} },
+  );
 });
 
 await test('source gate accepts official static Mermaid styling unchanged', () => {
@@ -210,6 +317,23 @@ await test('source gate rejects interaction and unsafe CSS before Mermaid', () =
     inspectMermaidSource('flowchart TD\nA --> B\nstyle A fill:url(#paint)').reason,
     'external-resource',
   );
+
+  // 场景:样式语句里的 url() 与标签里调用 getUrl() / saveUrl (...) 的代码文字。
+  // 期望:style / classDef / linkStyle 里的 url( 照旧拒绝;标签文字里的不拒绝。
+  // 回归:时序图消息 `entity.saveUrl ("/data/x")` 被当成 CSS url(),整张退回源码。
+  for (const source of [
+    'flowchart TD\nA --> B\nclassDef hot fill:URL(x.svg)',
+    'flowchart TD\nA --> B\nlinkStyle 0 stroke:url(x.svg)',
+    'stateDiagram-v2\n[*] --> A\n  style A fill:url(x.svg)',
+  ]) {
+    assert.equal(inspectMermaidSource(source).reason, 'external-resource', source);
+  }
+  for (const source of [
+    'sequenceDiagram\nG-->>H: entity.saveUrl ("/data/uploadtemp/x")',
+    'flowchart TD\nA[getUrl()] --> B[new URL(path)]',
+  ]) {
+    assert.equal(inspectMermaidSource(source).ok, true, source);
+  }
 });
 
 await test('source gate rejects directives, active syntax, unsafe HTML, and resources', () => {
@@ -217,8 +341,8 @@ await test('source gate rejects directives, active syntax, unsafe HTML, and reso
     '---\nconfig:\n  theme: dark\n---\nflowchart TD\nA --> B',
     '%%{init: {"theme": "dark"}}%%\nflowchart TD\nA --> B',
     'flowchart TD\nA@{ img: "https://example.test/x.png" }',
-    'flowchart TD\nA[<img src=x>] --> B',
     'flowchart TD\nA --> B\nclick A "https://example.test"',
+    'flowchart TD\nA --> B\nstyle A fill:url(https://example.test/x.svg)',
     'flowchart TD\nA[$$x^2$$] --> B',
     'sequenceDiagram\nAlice->>Bob: ![image](asset.png)',
   ];
@@ -431,7 +555,9 @@ await test('render adapter applies the background correction for the requested t
   assert.equal(blockFills((await render(samples.sequence, 'light')).svg)[0][1], 'rgb(255, 250, 220)');
 });
 
-await test('render adapter submits safe label breaks and gates other HTML before Mermaid', async () => {
+// 场景:标签里既有安全的 `<br/>`,又有 `<img src=x>` 这类标签原文。
+// 期望:`<br/>` 原样交给 Mermaid;其它标签改写成实体码后才交给 Mermaid,原始源码不变。
+await test('render adapter submits safe label breaks and neutralizes other HTML before Mermaid', async () => {
   const calls = [];
   const runtime = {
     initialize() { calls.push(['initialize']); },
@@ -449,9 +575,15 @@ await test('render adapter submits safe label breaks and gates other HTML before
   assert.equal(calls.find((call) => call[0] === 'parse')[1], reportedLabelBreakFlowchart);
   assert.equal(calls.find((call) => call[0] === 'render')[2], reportedLabelBreakFlowchart);
 
-  const before = calls.length;
-  assert.equal(await render('flowchart TD\nA[safe<br/><img src=x>unsafe] --> B', 'light'), null);
-  assert.equal(calls.length, before);
+  calls.length = 0;
+  assert.equal((await render('flowchart TD\nA[safe<br/><img src=x>unsafe] --> B', 'light')).width, 160);
+  const neutral = 'flowchart TD\nA[safe<br/>#lt;img src=x#gt;unsafe] --> B';
+  assert.equal(calls.find((call) => call[0] === 'parse')[1], neutral);
+  assert.equal(calls.find((call) => call[0] === 'render')[2], neutral);
+
+  calls.length = 0;
+  assert.equal(await render('flowchart TD\nA[first&lt;br&gt;second] --> B', 'light'), null);
+  assert.equal(calls.length, 0);
 });
 
 await test('render adapter submits the exact styled HTTP flowchart and gates unsafe styles', async () => {
@@ -575,7 +707,9 @@ await test('renderer refreshes background-only changes without looping on its ow
     await tick();
     page.image().emit('load');
     assert.equal(page.frame.getAttribute('data-mermaid-theme'), 'light');
-    assert.deepEqual(page.image().style, { width: '160px', height: '80px' });
+    // 只写原始宽度,高度交给 CSS 按比例算,宽图才能整体缩到对话栏宽。
+    assert.deepEqual(page.image().style, { width: '160px' });
+    assert.equal(page.image().height, 80);
 
     for (const [attribute, node] of [
       ['style', page.panel], ['class', page.panel], ['data-color-theme', page.root],

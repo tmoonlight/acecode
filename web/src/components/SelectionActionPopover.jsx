@@ -50,7 +50,8 @@ export function SelectionActionPopover({
     if (!snapshot) return undefined;
     const handlePointerDown = (event) => {
       if (rootRef.current?.contains(event.target)) return;
-      onCancel?.();
+      // The context menu captures the selected passage after this secondary press.
+      onCancel?.({ preserveSelection: event.button === 2 && mode === 'actions' });
     };
     const handleResize = () => onCancel?.();
     const handleScroll = (event) => {
@@ -65,7 +66,7 @@ export function SelectionActionPopover({
       document.removeEventListener('scroll', handleScroll, true);
       window.removeEventListener('resize', handleResize);
     };
-  }, [onCancel, snapshot]);
+  }, [mode, onCancel, snapshot]);
 
   if (!snapshot || typeof document === 'undefined') return null;
 

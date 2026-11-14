@@ -18,6 +18,61 @@ const SOURCE_SELECTOR = '[data-mermaid-source="true"]';
 const TARGET_SELECTOR = '[data-mermaid-render-target="true"]';
 const SAFE_MERMAID_LABEL_BREAK = /<br[ \t]*\/?>/gi;
 
+// 标签里像 HTML 标签的文字(`<cachePath>`、`List<String>`、`<img src=x>`)交给 Mermaid 之前改写成
+// 它自己的实体码 `#lt;` / `#gt;`:Mermaid 拿到的源码里除了 `<br>` 不再有能被当成标签的 `<`,图上
+// 照原样显示尖括号。以前这类图整张退回源码,而讲代码的图几乎都带这种文字。能配成一对的 `<...>`
+// 连右尖括号一起改(flowchart 会吞掉标签里裸的 `>`);右尖括号前是 `-` `=` `.` 的不算一对,那多半是
+// 连线箭头 `-->`。构建会拒绝 lookbehind,这里只能用前瞻写。
+const MERMAID_MARKUP_TOKEN = /<br[ \t]*\/?>|<(\/?[A-Za-z](?:[^<>[\](){}|\r\n]*[^-=.<>[\](){}|\r\n])?)>|<(?=\/?[A-Za-z])/gi;
+
+export function neutralizeMermaidMarkup(source) {
+  return String(source || '').replace(MERMAID_MARKUP_TOKEN, (match, inner) => {
+    if (inner !== undefined) return `#lt;${inner}#gt;`;
+    return match === '<' ? '#lt;' : match;
+  });
+}
+
+// 时序图的消息、注释和 loop / alt 这类分组标题里,`;` 被 Mermaid 当成换行(后半句成了一条语法错误
+// 的新语句,整张图画不出来),`#` 之后的内容被当成注释悄悄截掉。这几处文字里的 `;` `#` 改写成实体码,
+// 已经是实体码的(`#59;`、`#lt;`)原样保留。
+const SEQUENCE_BLOCK_STATEMENT = /^(\s*(?:loop|alt|else|opt|par|and|critical|option|break)\b)(.*)$/i;
+const SEQUENCE_TEXT_HEAD = /^\s*note\b|--?[>x)|\\/]/i;
+// Mermaid 预处理会把同一行里「style…:…#…;」(classDef 同理)的最后一个分号删掉,给样式里的颜色值
+// 让路,行里插进去的实体码会被它吃掉分号。时序图行尾多一个 `;` 只是一条空语句,先垫一个给它删。
+const MERMAID_STYLE_SEMICOLON_STRIP = /(?:style|classDef).*:\S*#.*;/;
+
+function escapeSequenceText(text) {
+  return text.replace(/#\w+;|[#;]/g, (match) => {
+    if (match === '#') return '#35;';
+    if (match === ';') return '#59;';
+    return match;
+  });
+}
+
+export function escapeMermaidSequenceText(source) {
+  return String(source || '').split('\n').map((line) => {
+    let head;
+    let text;
+    const block = line.match(SEQUENCE_BLOCK_STATEMENT);
+    if (block) {
+      [, head, text] = block;
+    } else {
+      const colon = line.indexOf(':');
+      if (colon < 0 || !SEQUENCE_TEXT_HEAD.test(line.slice(0, colon))) return line;
+      head = line.slice(0, colon + 1);
+      text = line.slice(colon + 1);
+    }
+    const escaped = head + escapeSequenceText(text);
+    return MERMAID_STYLE_SEMICOLON_STRIP.test(escaped) ? `${escaped};` : escaped;
+  }).join('\n');
+}
+
+// 真正交给 Mermaid 的文本。复制按钮、退回显示和导出仍用原始源码。
+export function prepareMermaidRenderSource(source, family) {
+  const neutral = neutralizeMermaidMarkup(source);
+  return family === 'sequence' ? escapeMermaidSequenceText(neutral) : neutral;
+}
+
 const ALLOWED_SVG_ELEMENTS = new Set([
   'circle',
   'clippath',
@@ -92,7 +147,9 @@ export function inspectMermaidSource(value) {
 
   if (/%%\s*\{/.test(source)) return rejected('directive');
   if (/@\s*\{/.test(source)) return rejected('generalized-shape');
-  const htmlSafetySource = source.replace(SAFE_MERMAID_LABEL_BREAK, '');
+  // 标签形状的文字不再拒绝,渲染前由 neutralizeMermaidMarkup 改写成实体码;这里按改写后的文本
+  // 自检一遍,保证交给 Mermaid 的内容里除了 `<br>` 没有标签。
+  const htmlSafetySource = neutralizeMermaidMarkup(source).replace(SAFE_MERMAID_LABEL_BREAK, '');
   if (/<\/?[A-Za-z][^>\r\n]*>/i.test(htmlSafetySource)
       || /&(?:lt|gt|#0*60|#x0*3c);/i.test(source)) {
     return rejected('html');
@@ -100,9 +157,11 @@ export function inspectMermaidSource(value) {
   if (/!\s*\[/.test(source) || /\][ \t]*\(/.test(source)) return rejected('markdown-link');
   if (/\$\$/.test(source)) return rejected('math-label');
   if (/\bfa[blrs]?:fa-[\w-]+/i.test(source)) return rejected('icon-label');
-  if (/(?:^|[^\w])(?:https?|ftp|file|data|blob|mailto|tel|about|chrome|resource|javascript|vbscript)\s*:/i.test(source)
-      || /\/\/[^\s]/.test(source)
-      || /url\s*\(/i.test(source)) {
+  // 标签文字里的 `file://`、`javascript:`、`https://` 只是文字:能生成链接 / 外部资源的写法(click、
+  // href、link、Markdown 链接、`@{ img }`、图标)上下各有专门的拒绝,渲染结果还要过 sanitizeMermaidSvg
+  // (属性值里带协议或 `//` 整张作废)并且只以 <img> 显示。这里只拦样式语句里的 url();标签里的
+  // `getUrl()`、`saveUrl (...)` 是代码文字,不算。
+  if (/^\s*(?:style|classDef|linkStyle)\b[^\n]*url\s*\(/im.test(source)) {
     return rejected('external-resource');
   }
   if (/(?:expression\s*\(|-moz-binding\b|behavior\s*:|@(?:import|font-face|namespace|supports|media|document|page)\b)/i.test(source)) {
@@ -313,10 +372,11 @@ export function createMermaidRenderAdapter({
     try {
       const engine = runtime || await loadMermaidRuntime();
       engine.initialize(mermaidConfig(theme));
-      const parsed = await engine.parse(inspected.source, { suppressErrors: true });
+      const renderSource = prepareMermaidRenderSource(inspected.source, inspected.family);
+      const parsed = await engine.parse(renderSource, { suppressErrors: true });
       if (parsed === false) return null;
       const id = `ace-mermaid-${nextRenderId++}`;
-      const rendered = await engine.render(id, inspected.source);
+      const rendered = await engine.render(id, renderSource);
       return sanitizeMermaidSvg(rendered?.svg, { DOMParserType, XMLSerializerType, theme });
     } catch {
       return null;
@@ -432,9 +492,9 @@ export function installMermaidRenderer(
     });
     image.className = 'ace-mermaid-svg';
     image.alt = 'Mermaid diagram';
-    // Use the SVG viewBox dimensions at 1:1, independent of the container size.
+    // 宽度用 SVG viewBox 的原始尺寸(SVG 的百分比宽度不是图片固有尺寸,不写会被放大到栏宽);
+    // 高度交给 CSS 按比例算:比对话栏宽的图整体等比缩到栏宽,不出横向滚动条,细节点开预览再放大。
     image.style.width = `${result.width}px`;
-    image.style.height = `${result.height}px`;
     image.width = Math.ceil(result.width);
     image.height = Math.ceil(result.height);
     image.decoding = 'async';

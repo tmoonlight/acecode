@@ -334,6 +334,7 @@ import './sidebarListDivider.test.js';
 import './sidebarSessions.test.js';
 import './sidebarWorkspaceSessions.test.js';
 import './sidebarWorkspaceRefresh.test.js';
+import './sidebarWorkspaceAttention.test.js';
 import './sidebarAuxiliaryFetch.test.js';
 import './sidebarTitleMarquee.test.js';
 import './sidebarTitleMarqueeArchitecture.test.js';
