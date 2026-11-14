@@ -9,6 +9,7 @@ import {
 import { AnchoredMenu } from './AnchoredMenu.jsx';
 import { VsIcon } from './Icon.jsx';
 import { isAndroidApp } from '../lib/mobileShell.js';
+import { openSessionSharing } from '../lib/sharingEvents.js';
 
 export function SidebarQuickMenu({
   sidebarWidth,
@@ -101,6 +102,10 @@ export function SidebarQuickMenu({
               </Fragment>
             );
           })}
+          <button type="button" role="menuitem" onClick={() => { setOpen(false); openSessionSharing({}); }}
+            className="w-full h-8 px-2 rounded-md flex items-center gap-2 text-[13px] text-fg-2 hover:bg-surface-hi hover:text-fg text-left">
+            <span className="w-5 shrink-0 flex items-center justify-center"><VsIcon name="link" size={18} /></span>分享与连接
+          </button>
         </AnchoredMenu>
       )}
     </>

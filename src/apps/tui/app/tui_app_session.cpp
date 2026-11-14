@@ -1,4 +1,6 @@
 #include "tui/app/tui_app.hpp"
+#include "peers/peer_tools.hpp"
+#include "utils/paths.hpp"
 #include "tui/app/tui_services.hpp"
 #include "tui/app/tui_screen_host.hpp"
 #include "tui/app/tui_submitter.hpp"
@@ -153,6 +155,8 @@ void TuiApp::initialize_subagents() {
             ThreadService::Deps{
                 &subagent_host.registry(), &subagent_host.client()});
         register_codex_thread_tools(tools, std::move(thread_deps));
+        services_->peer_store = std::make_shared<peers::PeerStore>(resolve_data_dir(get_run_mode()));
+        peers::register_peer_tools(tools, services_->peer_store);
         register_mesh_agent_tools(tools, subagent_host.mesh(), config);
     }
 }

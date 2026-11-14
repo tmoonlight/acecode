@@ -1,0 +1,1014 @@
+[
+  {
+    "method": "POST",
+    "path": "/api/config/model-order"
+  },
+  {
+    "method": "GET",
+    "path": "/api/models"
+  },
+  {
+    "method": "GET",
+    "path": "/api/health"
+  },
+  {
+    "method": "GET",
+    "path": "/api/model-pool-status"
+  },
+  {
+    "method": "GET",
+    "path": "/api/usage"
+  },
+  {
+    "method": "GET",
+    "path": "/api/history"
+  },
+  {
+    "method": "POST",
+    "path": "/api/history"
+  },
+  {
+    "method": "GET",
+    "path": "/api/desktop-office"
+  },
+  {
+    "method": "GET",
+    "path": "/api/workspaces"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/workspaces/order"
+  },
+  {
+    "method": "POST",
+    "path": "/api/workspaces"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/workspaces/invite-test"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/workspaces/invite-test"
+  },
+  {
+    "method": "POST",
+    "path": "/api/workspaces/pick-folder"
+  },
+  {
+    "method": "GET",
+    "path": "/api/projects/defaults"
+  },
+  {
+    "method": "POST",
+    "path": "/api/projects"
+  },
+  {
+    "method": "POST",
+    "path": "/api/open-in-explorer"
+  },
+  {
+    "method": "GET",
+    "path": "/api/workspaces/invite-test/sessions"
+  },
+  {
+    "method": "GET",
+    "path": "/api/workspaces/invite-test/session-sidebar"
+  },
+  {
+    "method": "GET",
+    "path": "/api/session-sidebar"
+  },
+  {
+    "method": "POST",
+    "path": "/api/workspaces/invite-test/session-sidebar"
+  },
+  {
+    "method": "POST",
+    "path": "/api/session-sidebar"
+  },
+  {
+    "method": "POST",
+    "path": "/api/workspaces/invite-test/sessions"
+  },
+  {
+    "method": "POST",
+    "path": "/api/sessions"
+  },
+  {
+    "method": "POST",
+    "path": "/api/workspaces/invite-test/sessions/invite-test/resume"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/workspaces/invite-test/sessions/invite-test"
+  },
+  {
+    "method": "GET",
+    "path": "/api/session-search/sessions"
+  },
+  {
+    "method": "GET",
+    "path": "/api/session-search/user-messages"
+  },
+  {
+    "method": "POST",
+    "path": "/api/session-search/requests/invite-test/cancel"
+  },
+  {
+    "method": "GET",
+    "path": "/api/sessions"
+  },
+  {
+    "method": "POST",
+    "path": "/api/sessions/invite-test/resume"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/sessions/invite-test"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/sessions/invite-test/archive"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/sessions/invite-test/archive"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/sessions/invite-test/title"
+  },
+  {
+    "method": "GET",
+    "path": "/api/sessions/invite-test/draft"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/sessions/invite-test/draft"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/sessions/invite-test/todos"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/workspaces/invite-test/draft"
+  },
+  {
+    "method": "POST",
+    "path": "/api/workspaces/invite-test/draft/attachments"
+  },
+  {
+    "method": "POST",
+    "path": "/api/sessions/invite-test/attachments"
+  },
+  {
+    "method": "GET",
+    "path": "/api/sessions/invite-test/messages"
+  },
+  {
+    "method": "GET",
+    "path": "/api/sessions/invite-test/runtime"
+  },
+  {
+    "method": "GET",
+    "path": "/api/sessions/invite-test/trajectory"
+  },
+  {
+    "method": "POST",
+    "path": "/api/sessions/invite-test/export-markdown"
+  },
+  {
+    "method": "POST",
+    "path": "/api/sessions/invite-test/messages/retry"
+  },
+  {
+    "method": "POST",
+    "path": "/api/sessions/invite-test/messages"
+  },
+  {
+    "method": "POST",
+    "path": "/api/sessions/invite-test/turn/steer"
+  },
+  {
+    "method": "POST",
+    "path": "/api/sessions/invite-test/turn/interrupt"
+  },
+  {
+    "method": "POST",
+    "path": "/api/sessions/invite-test/turn/steer/send-now"
+  },
+  {
+    "method": "POST",
+    "path": "/api/sessions/invite-test/turn/steer/withdraw"
+  },
+  {
+    "method": "POST",
+    "path": "/api/sessions/invite-test/questions/interject"
+  },
+  {
+    "method": "POST",
+    "path": "/api/sessions/invite-test/follow-up-prompt"
+  },
+  {
+    "method": "POST",
+    "path": "/api/sessions/invite-test/side-question"
+  },
+  {
+    "method": "POST",
+    "path": "/api/sessions/invite-test/side-chat/send"
+  },
+  {
+    "method": "GET",
+    "path": "/api/sessions/invite-test/attachments/invite-test/blob"
+  },
+  {
+    "method": "POST",
+    "path": "/api/sessions/invite-test/commands"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/sessions/invite-test/expert"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/sessions/invite-test/expert"
+  },
+  {
+    "method": "GET",
+    "path": "/api/sessions/invite-test/permissions"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/sessions/invite-test/permissions"
+  },
+  {
+    "method": "POST",
+    "path": "/api/sessions/invite-test/fork"
+  },
+  {
+    "method": "POST",
+    "path": "/api/sessions/invite-test/file-checkpoints/invite-test/restore"
+  },
+  {
+    "method": "GET",
+    "path": "/api/sessions/invite-test/background-tasks"
+  },
+  {
+    "method": "GET",
+    "path": "/api/sessions/invite-test/background-tasks/invite-test/output"
+  },
+  {
+    "method": "POST",
+    "path": "/api/sessions/invite-test/background-tasks/invite-test/stop"
+  },
+  {
+    "method": "POST",
+    "path": "/api/sessions/invite-test/background"
+  },
+  {
+    "method": "GET",
+    "path": "/api/sessions/invite-test/outputs"
+  },
+  {
+    "method": "GET",
+    "path": "/api/workspaces/invite-test/opencode-import"
+  },
+  {
+    "method": "POST",
+    "path": "/api/workspaces/invite-test/opencode-import"
+  },
+  {
+    "method": "GET",
+    "path": "/api/workspaces/invite-test/opencode-import/invite-test"
+  },
+  {
+    "method": "GET",
+    "path": "/api/workspaces/invite-test/pinned-sessions"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/workspaces/invite-test/pinned-sessions"
+  },
+  {
+    "method": "GET",
+    "path": "/api/no-workspace/pinned-sessions"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/no-workspace/pinned-sessions"
+  },
+  {
+    "method": "GET",
+    "path": "/api/pinned-sessions/order"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/pinned-sessions/order"
+  },
+  {
+    "method": "POST",
+    "path": "/api/session-batch"
+  },
+  {
+    "method": "GET",
+    "path": "/api/files"
+  },
+  {
+    "method": "GET",
+    "path": "/api/files/content"
+  },
+  {
+    "method": "POST",
+    "path": "/api/files/export"
+  },
+  {
+    "method": "GET",
+    "path": "/api/files/blob"
+  },
+  {
+    "method": "GET",
+    "path": "/api/files/editable"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/files/editable"
+  },
+  {
+    "method": "GET",
+    "path": "/api/fs/roots"
+  },
+  {
+    "method": "GET",
+    "path": "/api/fs/list"
+  },
+  {
+    "method": "GET",
+    "path": "/api/git/info"
+  },
+  {
+    "method": "POST",
+    "path": "/api/git/checkout"
+  },
+  {
+    "method": "GET",
+    "path": "/api/git/changes"
+  },
+  {
+    "method": "GET",
+    "path": "/api/git/diff"
+  },
+  {
+    "method": "GET",
+    "path": "/api/commands"
+  },
+  {
+    "method": "GET",
+    "path": "/api/experts"
+  },
+  {
+    "method": "GET",
+    "path": "/api/experts/invite-test"
+  },
+  {
+    "method": "GET",
+    "path": "/api/experts/invite-test/avatar"
+  },
+  {
+    "method": "POST",
+    "path": "/api/experts"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/experts/invite-test"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/experts/invite-test"
+  },
+  {
+    "method": "GET",
+    "path": "/api/experts/capabilities"
+  },
+  {
+    "method": "GET",
+    "path": "/api/skills/root"
+  },
+  {
+    "method": "GET",
+    "path": "/api/config/skill-paths"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/config/skill-paths"
+  },
+  {
+    "method": "GET",
+    "path": "/api/skills"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/skills/invite-test"
+  },
+  {
+    "method": "GET",
+    "path": "/api/skills/invite-test/body"
+  },
+  {
+    "method": "POST",
+    "path": "/api/models"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/models/invite-test"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/models/invite-test"
+  },
+  {
+    "method": "POST",
+    "path": "/api/models/reasoning/refresh"
+  },
+  {
+    "method": "POST",
+    "path": "/api/models/test"
+  },
+  {
+    "method": "POST",
+    "path": "/api/models/probe"
+  },
+  {
+    "method": "GET",
+    "path": "/api/models/catalog"
+  },
+  {
+    "method": "GET",
+    "path": "/api/models/catalog/invite-test"
+  },
+  {
+    "method": "POST",
+    "path": "/api/models/catalog/refresh"
+  },
+  {
+    "method": "GET",
+    "path": "/api/config/default-model"
+  },
+  {
+    "method": "POST",
+    "path": "/api/config/default-model"
+  },
+  {
+    "method": "GET",
+    "path": "/api/sessions/invite-test/model"
+  },
+  {
+    "method": "POST",
+    "path": "/api/sessions/invite-test/model/reload"
+  },
+  {
+    "method": "POST",
+    "path": "/api/sessions/invite-test/model"
+  },
+  {
+    "method": "POST",
+    "path": "/api/sessions/invite-test/reasoning"
+  },
+  {
+    "method": "POST",
+    "path": "/api/copilot/auth/device"
+  },
+  {
+    "method": "POST",
+    "path": "/api/grok/auth/device"
+  },
+  {
+    "method": "GET",
+    "path": "/api/ui/onboarding/desktop"
+  },
+  {
+    "method": "POST",
+    "path": "/api/ui/onboarding/desktop/dismiss"
+  },
+  {
+    "method": "GET",
+    "path": "/api/config/desktop-multi-instance"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/config/desktop-multi-instance"
+  },
+  {
+    "method": "GET",
+    "path": "/api/config/ui-preferences"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/config/ui-preferences"
+  },
+  {
+    "method": "POST",
+    "path": "/api/themes/import/preview"
+  },
+  {
+    "method": "POST",
+    "path": "/api/themes/import"
+  },
+  {
+    "method": "GET",
+    "path": "/api/themes"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/config/upgrade"
+  },
+  {
+    "method": "POST",
+    "path": "/api/themes/<id>/install"
+  },
+  {
+    "method": "GET",
+    "path": "/api/themes/job"
+  },
+  {
+    "method": "POST",
+    "path": "/api/themes/job/cancel"
+  },
+  {
+    "method": "POST",
+    "path": "/api/themes/first-run"
+  },
+  {
+    "method": "GET",
+    "path": "/api/themes/eva-01"
+  },
+  {
+    "method": "GET",
+    "path": "/api/themes/eva-01/images/thumbnail"
+  },
+  {
+    "method": "POST",
+    "path": "/api/themes/<id>/export"
+  },
+  {
+    "method": "GET",
+    "path": "/api/themes/exports/<job_id>"
+  },
+  {
+    "method": "POST",
+    "path": "/api/themes/exports/<job_id>/cancel"
+  },
+  {
+    "method": "GET",
+    "path": "/api/themes/exports/<job_id>/download"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/themes/<id>"
+  },
+  {
+    "method": "GET",
+    "path": "/api/config/ui-locale"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/config/ui-locale"
+  },
+  {
+    "method": "GET",
+    "path": "/api/config/remote-web"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/config/remote-web"
+  },
+  {
+    "method": "GET",
+    "path": "/api/config/custom-instructions"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/config/custom-instructions"
+  },
+  {
+    "method": "GET",
+    "path": "/api/config/summary-generation"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/config/summary-generation"
+  },
+  {
+    "method": "GET",
+    "path": "/api/config/computer-use"
+  },
+  {
+    "method": "POST",
+    "path": "/api/config/computer-use/permissions"
+  },
+  {
+    "method": "GET",
+    "path": "/api/config/speech-recognition"
+  },
+  {
+    "method": "POST",
+    "path": "/api/config/speech-recognition/test"
+  },
+  {
+    "method": "POST",
+    "path": "/api/speech-recognition/transcriptions/<id>"
+  },
+  {
+    "method": "GET",
+    "path": "/api/config/image-generation"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/config/image-generation"
+  },
+  {
+    "method": "POST",
+    "path": "/api/config/image-generation/test"
+  },
+  {
+    "method": "GET",
+    "path": "/api/config/memory"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/config/memory"
+  },
+  {
+    "method": "GET",
+    "path": "/api/memory"
+  },
+  {
+    "method": "GET",
+    "path": "/api/memory/invite-test/invite-test"
+  },
+  {
+    "method": "POST",
+    "path": "/api/memory/reset"
+  },
+  {
+    "method": "GET",
+    "path": "/api/config/tool-rewrites"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/config/tool-rewrites"
+  },
+  {
+    "method": "POST",
+    "path": "/api/agent-browser/visits"
+  },
+  {
+    "method": "GET",
+    "path": "/api/agent-browser/top-sites"
+  },
+  {
+    "method": "POST",
+    "path": "/api/agent-browser/top-sites/dismiss"
+  },
+  {
+    "method": "GET",
+    "path": "/api/config/tool-preamble"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/config/tool-preamble"
+  },
+  {
+    "method": "GET",
+    "path": "/api/config/image-compression"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/config/image-compression"
+  },
+  {
+    "method": "GET",
+    "path": "/api/config/inline-visuals"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/config/inline-visuals"
+  },
+  {
+    "method": "GET",
+    "path": "/api/config/sandbox"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/config/sandbox"
+  },
+  {
+    "method": "GET",
+    "path": "/api/security/exec-rules"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/security/exec-rules"
+  },
+  {
+    "method": "GET",
+    "path": "/api/security/audit"
+  },
+  {
+    "method": "GET",
+    "path": "/api/security/audit/summary"
+  },
+  {
+    "method": "GET",
+    "path": "/api/security/audit/export"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/security/audit"
+  },
+  {
+    "method": "GET",
+    "path": "/api/config/connectors"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/config/connectors"
+  },
+  {
+    "method": "GET",
+    "path": "/api/config/default-permission-mode"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/config/default-permission-mode"
+  },
+  {
+    "method": "GET",
+    "path": "/api/config/upgrade"
+  },
+  {
+    "method": "GET",
+    "path": "/api/update/status"
+  },
+  {
+    "method": "POST",
+    "path": "/api/update/start"
+  },
+  {
+    "method": "POST",
+    "path": "/api/feedback/desktop"
+  },
+  {
+    "method": "GET",
+    "path": "/api/update/job"
+  },
+  {
+    "method": "GET",
+    "path": "/api/update/jobs/invite-test"
+  },
+  {
+    "method": "POST",
+    "path": "/api/update/jobs/invite-test/cancel"
+  },
+  {
+    "method": "GET",
+    "path": "/api/mcp"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/mcp"
+  },
+  {
+    "method": "GET",
+    "path": "/api/mcp/schema"
+  },
+  {
+    "method": "POST",
+    "path": "/api/mcp/toggle"
+  },
+  {
+    "method": "POST",
+    "path": "/api/mcp/reload"
+  },
+  {
+    "method": "GET",
+    "path": "/api/feedback/desktop/recent-sessions"
+  },
+  {
+    "method": "GET",
+    "path": "/api/pty/shells"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/console/config"
+  },
+  {
+    "method": "GET",
+    "path": "/api/config/toolchains"
+  },
+  {
+    "method": "POST",
+    "path": "/api/config/toolchains/detect"
+  },
+  {
+    "method": "GET",
+    "path": "/api/console/config"
+  },
+  {
+    "method": "POST",
+    "path": "/api/console/config/detect"
+  },
+  {
+    "method": "POST",
+    "path": "/api/dialog/pick-folder"
+  },
+  {
+    "method": "POST",
+    "path": "/api/dialog/pick-file"
+  },
+  {
+    "method": "GET",
+    "path": "/api/config/data-dir"
+  },
+  {
+    "method": "POST",
+    "path": "/api/config/data-dir/migrate"
+  },
+  {
+    "method": "GET",
+    "path": "/api/config/data-dir/migration"
+  },
+  {
+    "method": "POST",
+    "path": "/api/config/data-dir/cleanup"
+  },
+  {
+    "method": "POST",
+    "path": "/api/pty"
+  },
+  {
+    "method": "GET",
+    "path": "/api/pty"
+  },
+  {
+    "method": "POST",
+    "path": "/api/pty/transfer-owner"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/pty/invite-test"
+  },
+  {
+    "method": "POST",
+    "path": "/api/pty/invite-test/resize"
+  },
+  {
+    "method": "POST",
+    "path": "/api/pty/invite-test/title"
+  },
+  {
+    "method": "POST",
+    "path": "/api/loops/invite-test/run"
+  },
+  {
+    "method": "GET",
+    "path": "/api/loops"
+  },
+  {
+    "method": "GET",
+    "path": "/api/channels"
+  },
+  {
+    "method": "POST",
+    "path": "/api/channels/invite-test/enabled"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/channels/invite-test/credentials"
+  },
+  {
+    "method": "POST",
+    "path": "/api/channels/invite-test/bind"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/channels/invite-test/bind"
+  },
+  {
+    "method": "POST",
+    "path": "/api/channels/invite-test/owner-link"
+  },
+  {
+    "method": "POST",
+    "path": "/api/channels/telegram/remove-webhook"
+  },
+  {
+    "method": "POST",
+    "path": "/api/channels/invite-test/requests/invite-test/approve"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/channels/invite-test/access/invite-test"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/channels/invite-test/settings"
+  },
+  {
+    "method": "POST",
+    "path": "/api/channels/invite-test/login"
+  },
+  {
+    "method": "POST",
+    "path": "/api/diagnostics/session-open"
+  },
+  {
+    "method": "GET",
+    "path": "/api/diagnostics/sessions"
+  },
+  {
+    "method": "POST",
+    "path": "/api/diagnostics/transcript-stall"
+  },
+  {
+    "method": "GET",
+    "path": "/api/ios-simulator/status"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/config/ios-simulator"
+  },
+  {
+    "method": "POST",
+    "path": "/api/ios-simulator/xcode/inspect"
+  },
+  {
+    "method": "GET",
+    "path": "/api/ios-simulator/devices"
+  },
+  {
+    "method": "POST",
+    "path": "/api/ios-simulator/devices/<udid>/boot"
+  },
+  {
+    "method": "POST",
+    "path": "/api/ios-simulator/devices/<udid>/consent"
+  },
+  {
+    "method": "GET",
+    "path": "/api/ios-simulator/devices/<udid>/screenshot"
+  },
+  {
+    "method": "GET",
+    "path": "/api/home/intent-prompts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/home/intent-prompts"
+  },
+  {
+    "method": "POST",
+    "path": "/api/sessions/invite-test/shares"
+  },
+  {
+    "method": "GET",
+    "path": "/api/shares"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/shares/invite-test"
+  },
+  {
+    "method": "GET",
+    "path": "/api/shares/invite-test/asks"
+  },
+  {
+    "method": "GET",
+    "path": "/api/config/desktop-clipboard"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/config/desktop-clipboard"
+  },
+  {
+    "method": "POST",
+    "path": "/api/peers/connect"
+  },
+  {
+    "method": "GET",
+    "path": "/api/peers"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/peers/invite-test"
+  },
+  {
+    "method": "GET",
+    "path": "/api/peers/invite-test/messages"
+  },
+  {
+    "method": "GET",
+    "path": "/api/peers/invite-test/attachments/invite-test/blob"
+  }
+]

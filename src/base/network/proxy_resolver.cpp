@@ -43,8 +43,14 @@ std::string host_of(const std::string& url) {
     std::string rest = url;
     auto sp = rest.find("://");
     if (sp != std::string::npos) rest = rest.substr(sp + 3);
+    const auto authority_end = rest.find_first_of("/?#");
+    if (authority_end != std::string::npos) rest.resize(authority_end);
     auto at = rest.find('@');
     if (at != std::string::npos) rest = rest.substr(at + 1);
+    if (!rest.empty() && rest.front() == '[') {
+        const auto close = rest.find(']');
+        return close == std::string::npos ? std::string{} : to_lower(rest.substr(1, close - 1));
+    }
     auto end = rest.find_first_of("/:?#");
     if (end != std::string::npos) rest = rest.substr(0, end);
     return to_lower(rest);
@@ -154,6 +160,9 @@ bool host_matches_no_proxy(const std::string& host,
     std::string h = to_lower(host);
     for (const auto& raw : list) {
         if (raw == "*") return true;
+        if (raw == "<local>" && h.find('.') == std::string::npos) return true;
+        if (raw.rfind("*.", 0) == 0 && h.size() > raw.size() - 1 &&
+            h.compare(h.size() - raw.size() + 1, raw.size() - 1, raw.substr(1)) == 0) return true;
         if (raw == h) return true;
         // `.foo.com` → 后缀匹配 `bar.foo.com`,但不匹配 `foo.com`
         if (!raw.empty() && raw.front() == '.') {
@@ -301,6 +310,8 @@ ResolvedProxy ProxyResolver::resolve_auto_unlocked(const std::string& target_url
 
 ResolvedProxy ProxyResolver::effective_unlocked(const std::string& target_url,
                                                 bool honor_fallback) const {
+    const auto target_host = host_of(target_url);
+    if (is_direct_local_host(target_host)) return {"", "local-direct"};
     // 1. session override 最优先(/proxy off / /proxy set)
     if (session_override_ == SessionOverride::ForceOff) {
         return {"", "session-override:off"};
@@ -349,10 +360,8 @@ ResolvedProxy ProxyResolver::effective_unlocked(const std::string& target_url,
         const_cast<ProxyResolver*>(this)->auto_cache_ = resolve_auto_unlocked(target_url);
         const_cast<ProxyResolver*>(this)->auto_cache_valid_ = true;
     }
-    if (auto_cache_.url.empty()) {
-        return auto_cache_;
-    }
-    if (host_matches_no_proxy(host_of(target_url), no_proxy_list_)) {
+    if (host_matches_no_proxy(target_host, no_proxy_list_) ||
+        host_matches_no_proxy(target_host, auto_cache_.bypass)) {
         return {"", "no_proxy"};
     }
     return auto_cache_;

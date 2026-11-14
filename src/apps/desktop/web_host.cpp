@@ -1,4 +1,5 @@
 #include "web_host.hpp"
+#include "web_host_invites.hpp"
 
 #include "application_icon.hpp"
 #include "external_url.hpp"
@@ -57,6 +58,9 @@
 #  include "linux_desktop.hpp"
 #  include <dlfcn.h>
 #  include <gtk/gtk.h>
+#  include <glib-unix.h>
+#  include <sys/socket.h>
+#  include "single_instance.hpp"
 #  include <webkit2/webkit2.h>
 #  ifdef GDK_WINDOWING_X11
 #    include <gdk/gdkx.h>
@@ -96,7 +100,6 @@ WebHost::FileDropHandler g_file_drop_handler;
 // A second Desktop process can carry more intent than "show the window".
 // main.cpp uses this GUI-thread callback to consume its one-shot open request.
 std::function<void()> g_existing_instance_focus_handler;
-
 using detail::window_focus_handler;
 #ifdef _WIN32
 using detail::log_webview_setting_failure;
@@ -1141,6 +1144,12 @@ LRESULT frameless_nc_calc(HWND hwnd, WPARAM wparam, LPARAM lparam) {
 
 LRESULT CALLBACK host_window_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
     switch (msg) {
+        case WM_CREATE:
+            ::AddClipboardFormatListener(hwnd);
+            break;
+        case WM_CLIPBOARDUPDATE:
+            detail::notify_invite_clipboard_change(::GetForegroundWindow() == hwnd);
+            return 0;
         case WM_ACTIVATE: {
             const LRESULT result = call_host_default_proc(hwnd, msg, wparam, lparam);
             if (LOWORD(wparam) != WA_INACTIVE && !::IsIconic(hwnd) &&
@@ -1234,6 +1243,7 @@ LRESULT CALLBACK host_window_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpa
             ::DestroyWindow(hwnd);
             return 0;
         case WM_DESTROY:
+            ::RemoveClipboardFormatListener(hwnd);
             if (g_window_bounds.shown) {
                 g_window_bounds.on_destroy = detail::capture_window_bounds(hwnd);
             }
@@ -1289,6 +1299,7 @@ void install_host_window_proc(HWND hwnd) {
     ::SetPropW(hwnd,
                kHostWindowPreviousProcProperty,
                reinterpret_cast<HANDLE>(previous));
+    ::AddClipboardFormatListener(hwnd);
     // 降级路径的窗口在接管前已被 webview 库显示并激活,错过了那次 WM_NCACTIVATE。
     g_top_border_active = ::GetForegroundWindow() == hwnd;
     refresh_non_client_frame(hwnd);
@@ -2095,6 +2106,7 @@ struct WebHost::Impl {
         configure_mac_window_chrome(*w);
         install_mac_edit_menu(*w);
         install_mac_microphone_permission(*w);
+        detail::install_mac_invite_events();
         mac_focus_observer = install_mac_focus_existing_observer(*w);
         mac_window_focus = std::make_unique<detail::MacWindowFocusObservers>(*w);
         mac_enter_fullscreen_observer = install_mac_window_fullscreen_observer(
@@ -2107,6 +2119,9 @@ struct WebHost::Impl {
         w = std::make_unique<webview::webview>(debug, nullptr);
         auto native_window = w->window();
         configure_linux_native_services(w->widget().ok() ? w->widget().value() : nullptr);
+        linux_focus_receiver = std::make_unique<detail::LinuxInviteFocusReceiver>(
+            native_window.ok() ? native_window.value() : nullptr,
+            [] { if (g_existing_instance_focus_handler) g_existing_instance_focus_handler(); });
         linux_center_on_first_show = true;
         if (native_window.ok() && native_window.value() &&
             startup_mode == StartupWindowMode::OffscreenUntilReady) {
@@ -2136,11 +2151,15 @@ struct WebHost::Impl {
 
     ~Impl() {
         reply_lifetime.revoke();
+#if !defined(_WIN32) && !defined(__APPLE__)
+        linux_focus_receiver.reset();
+#endif
 #ifdef _WIN32
         renderer_lifetime.revoke();
         legacy_file_drop.reset();
 #endif
         window_focus_handler = {};
+        detail::clear_invite_handlers();
 #ifdef _WIN32
         taskbar_badge.reset();
         HWND hwnd = custom_window;
@@ -2210,6 +2229,7 @@ struct WebHost::Impl {
 #endif
 #if !defined(_WIN32) && !defined(__APPLE__)
     bool linux_center_on_first_show = false;
+    std::unique_ptr<detail::LinuxInviteFocusReceiver> linux_focus_receiver;
 #endif
 #ifdef ACECODE_DEEPIN
     std::unique_ptr<LinuxWebviewScaleController> linux_scale;
@@ -2702,6 +2722,9 @@ void WebHost::set_window_visibility_handler(WindowVisibilityHandler handler) {
 void WebHost::set_window_focus_handler(WindowFocusHandler handler) {
     window_focus_handler = std::move(handler);
 }
+void WebHost::set_clipboard_changed_handler(ClipboardChangedHandler handler) { detail::set_clipboard_changed_handler(std::move(handler)); }
+void WebHost::set_open_invite_handler(OpenInviteHandler handler) { detail::set_open_invite_handler(std::move(handler)); }
+void WebHost::check_clipboard_invitation() { detail::check_clipboard_invitation(); }
 void WebHost::set_existing_instance_focus_handler(
     ExistingInstanceFocusHandler handler) {
     g_existing_instance_focus_handler = std::move(handler);

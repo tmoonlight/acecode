@@ -73,10 +73,11 @@ void AgentLoop::ensure_side_question_context() {
 
 // The toolset borrows tools_/permissions_/boundary_; shutdown() joins every
 // side request before any of them can go away.
-SideChatToolset AgentLoop::side_chat_toolset(const SideChatMainSessionSender& send_to_main) {
+SideChatToolset AgentLoop::side_chat_toolset(const SideChatMainSessionSender& send_to_main,
+    const std::function<bool(const std::string&)>& extra_read_denied) {
     return agent::build_side_chat_toolset(
         tools_, permissions_, *boundary_, session_manager_, tool_capability_policy(),
-        send_to_main);
+        send_to_main, extra_read_denied);
 }
 SideQuestionResult AgentLoop::ask_side_question(const std::string& question) {
     ensure_side_question_context();
@@ -92,7 +93,7 @@ SideChatResult AgentLoop::stream_side_chat(
     const SideChatInputOptions& input) {
     ensure_side_question_context();
     return side_questions_->stream(question, history, cancellation, callback,
-                                   side_chat_toolset(send_to_main), on_tool, input);
+                                   side_chat_toolset(send_to_main, input.extra_read_denied), on_tool, input);
 }
 
 } // namespace acecode

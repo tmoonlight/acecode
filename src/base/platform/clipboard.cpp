@@ -107,13 +107,25 @@ ClipboardPathsReadResult paths_result(ClipboardPathsReadResult::Status status,
 }
 
 #ifdef _WIN32
-ClipboardTextReadResult read_windows_clipboard_text(std::size_t max_bytes) {
+ClipboardTextReadResult read_windows_clipboard_text(std::size_t max_bytes, bool monitoring = false) {
     if (!OpenClipboard(nullptr)) {
         return result(ClipboardTextReadResult::Status::Unavailable,
                       {},
                       "OpenClipboard failed");
     }
 
+    if (monitoring) {
+        const auto excluded = RegisterClipboardFormatW(L"ExcludeClipboardContentFromMonitorProcessing");
+        const auto history = RegisterClipboardFormatW(L"CanIncludeInClipboardHistory");
+        bool denied = IsClipboardFormatAvailable(excluded) != FALSE;
+        if (!denied && IsClipboardFormatAvailable(history)) {
+            const HANDLE flag = GetClipboardData(history);
+            const auto* value = flag ? static_cast<const DWORD*>(GlobalLock(flag)) : nullptr;
+            denied = !value || GlobalSize(flag) < sizeof(DWORD) || *value == 0;
+            if (value) GlobalUnlock(flag);
+        }
+        if (denied) { CloseClipboard(); return result(ClipboardTextReadResult::Status::Empty); }
+    }
     HANDLE handle = GetClipboardData(CF_UNICODETEXT);
     if (!handle) {
         CloseClipboard();
@@ -128,11 +140,16 @@ ClipboardTextReadResult read_windows_clipboard_text(std::size_t max_bytes) {
                       "GlobalLock failed");
     }
 
-    std::wstring wide(locked);
+    const auto available = GlobalSize(handle) / sizeof(wchar_t);
+    const auto limit = monitoring ? std::min(available, max_bytes) : available;
+    std::size_t length = 0;
+    while (length < limit && locked[length]) ++length;
+    std::wstring wide(locked, length);
     GlobalUnlock(handle);
     CloseClipboard();
 
     std::string text = wide_to_utf8(wide);
+    if (monitoring && text.size() > max_bytes) text.resize(max_bytes);
     if (text.empty()) {
         return result(ClipboardTextReadResult::Status::Empty);
     }
@@ -515,6 +532,31 @@ ClipboardTextWriteResult write_system_clipboard_text(std::string_view text,
                                        has_env_value("DISPLAY")),
         text,
         max_bytes);
+#endif
+}
+
+std::string extract_clipboard_invitation(std::string_view text, bool excluded, bool allow_history) {
+    if (excluded || !allow_history) return {};
+    text = text.substr(0, 8192);
+    constexpr std::string_view prefix = "acecode://connect/";
+    const auto start = text.find(prefix);
+    if (start == std::string_view::npos) return {};
+    auto end = start + prefix.size();
+    while (end < text.size()) {
+        const auto c = text[end];
+        if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+              (c >= '0' && c <= '9') || c == '_' || c == '-')) break;
+        ++end;
+    }
+    return std::string(text.substr(start, end - start));
+}
+
+std::string read_clipboard_invitation() {
+#ifdef _WIN32
+    const auto text = read_windows_clipboard_text(8192, true);
+    return text ? extract_clipboard_invitation(text.text) : std::string{};
+#else
+    return {};
 #endif
 }
 

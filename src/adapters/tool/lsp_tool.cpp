@@ -75,6 +75,30 @@ nlohmann::json flatten_results(const std::vector<nlohmann::json>& results) {
     return combined;
 }
 
+nlohmann::json filter_guest_lsp_result(const nlohmann::json& value,
+    const std::function<bool(const std::string&)>& denied) {
+    if (value.is_object()) {
+        for (const auto* key : {"uri", "targetUri"}) {
+            if (value.contains(key) && value[key].is_string()) {
+                const auto path = lsp::file_uri_to_path(value[key].get<std::string>());
+                if (path && denied(*path)) return nullptr;
+            }
+        }
+        auto result = value;
+        for (auto& item : result) if (item.is_structured()) item = filter_guest_lsp_result(item, denied);
+        return result;
+    }
+    if (value.is_array()) {
+        auto result = nlohmann::json::array();
+        for (const auto& item : value) {
+            auto filtered = filter_guest_lsp_result(item, denied);
+            if (!filtered.is_null()) result.push_back(std::move(filtered));
+        }
+        return result;
+    }
+    return value;
+}
+
 ToolResult execute_lsp(const std::string& arguments_json, const ToolContext& ctx) {
     LspToolArgs args = parse_args(arguments_json);
     if (!args.error.empty()) return ToolResult{args.error, false};
@@ -100,6 +124,8 @@ ToolResult execute_lsp(const std::string& arguments_json, const ToolContext& ctx
     std::error_code ec;
     const fs::path canonical = fs::weakly_canonical(resolved, ec);
     const std::string file = path_to_utf8(ec ? resolved : canonical);
+    if (ctx.extra_read_denied && ctx.extra_read_denied(file))
+        return ToolResult{"[Permission denied] This file is not available to guests.", false};
 
     if (!fs::is_regular_file(path_from_utf8(file), ec) || ec) {
         return ToolResult{"File not found: " + file, false};
@@ -163,6 +189,7 @@ ToolResult execute_lsp(const std::string& arguments_json, const ToolContext& ctx
     }
 
     nlohmann::json combined = flatten_results(results);
+    if (ctx.extra_read_denied) combined = filter_guest_lsp_result(combined, ctx.extra_read_denied);
 
     if (args.operation == "workspaceSymbol") {
         nlohmann::json filtered = nlohmann::json::array();

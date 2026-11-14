@@ -374,7 +374,6 @@ std::string build_system_prompt(const ToolExecutor& tools, const std::string& cw
     }
 
     oss << "# Tone and style\n\n"
-        << "- Be concise and direct.\n"
         << "- Do not use emojis unless the user explicitly requests them.\n\n";
 
     oss << "# Sharing progress updates\n\n"
@@ -382,8 +381,7 @@ std::string build_system_prompt(const ToolExecutor& tools, const std::string& cw
         << "batches of tool calls over alternating short text and one tool call. "
         << "Only emit a progress update when it helps the user understand a "
         << "long-running transition, a meaningful phase change, or why you are "
-        << "about to perform a non-obvious action. Keep progress updates "
-        << "**extremely short** - 10 words or fewer:\n\n";
+        << "about to perform a non-obvious action.\n\n";
     if (file_read_allowed) {
         oss << "  Good: emit several independent `" << file_read_name
             << "` and available search calls together with no preceding text.\n";

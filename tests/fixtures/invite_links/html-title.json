@@ -1,0 +1,16 @@
+{
+  "text": "acecode://connect/eyJ2IjoxLCJuIjoiPGltZyBzcmM9eCBvbmVycm9yPWFsZXJ0KDEpPiIsInQiOiI8c2NyaXB0PmhlbGxvPC9zY3JpcHQ-IiwiYSI6WyJBQ0UtUEMiLCIxOTIuMTY4LjEuMjAiLCJmZDAwOjoxIl0sInAiOjEyNDAwLCJjIjoiMDEyMzQ1Njc4OWFiY2RlZi4wMTIzNDU2Nzg5YWJjZGVmZ2hpamtsbW5vcHFyc3R1diIsImUiOjIwMDAwMDAwMDB9doVt2w",
+  "now": 1900000000,
+  "value": {
+    "owner": "<img src=x onerror=alert(1)>",
+    "title": "<script>hello</script>",
+    "addresses": [
+      "ACE-PC",
+      "192.168.1.20",
+      "fd00::1"
+    ],
+    "port": 12400,
+    "credential": "0123456789abcdef.0123456789abcdefghijklmnopqrstuv",
+    "expires_at": 2000000000
+  }
+}

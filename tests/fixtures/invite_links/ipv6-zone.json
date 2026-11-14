@@ -1,0 +1,14 @@
+{
+  "text": "acecode://connect/eyJ2IjoxLCJuIjoic2hhbyIsInQiOiLkvJror53liIbkuqsiLCJhIjpbImZlODA6OjElZXRoMCJdLCJwIjoxMjQwMCwiYyI6IjAxMjM0NTY3ODlhYmNkZWYuMDEyMzQ1Njc4OWFiY2RlZmdoaWprbG1ub3BxcnN0dXYiLCJlIjoyMDAwMDAwMDAwfV8_EvI",
+  "now": 1900000000,
+  "value": {
+    "owner": "shao",
+    "title": "会话分享",
+    "addresses": [
+      "fe80::1%eth0"
+    ],
+    "port": 12400,
+    "credential": "0123456789abcdef.0123456789abcdefghijklmnopqrstuv",
+    "expires_at": 2000000000
+  }
+}

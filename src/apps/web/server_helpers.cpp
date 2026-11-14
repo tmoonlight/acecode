@@ -21,6 +21,19 @@
 
 namespace acecode::web {
 
+void ResponseCorsMiddleware::before_handle(crow::request& req, crow::response& resp, context&) {
+    // A guest credential has one namespace. Reject it before local-only and
+    // capability gates, so no owner handler runs even on a loopback request.
+    if (!req.get_header_value("X-ACECode-Share").empty() &&
+        req.url.rfind("/api/share/v1/", 0) != 0 && req.url != "/ws/share/v1") {
+        resp.code = 401;
+        resp.set_header("Content-Type", "application/json");
+        resp.set_header("Cache-Control", "no-store");
+        resp.body = "{\"error\":\"guest_credential_scope\"}";
+        resp.end();
+    }
+}
+
 using nlohmann::json;
 
 namespace {
@@ -495,6 +508,12 @@ AuthResult check_explicit_token(std::string_view server_token,
 AuthResult WebServer::Impl::auth_result_for_request(const crow::request& req,
                                                       const std::string& header_token,
                                                       const std::string& query_token) const {
+    if (!is_trusted_local_client_address(req.remote_ip_address)) {
+        std::shared_lock<std::shared_mutex> lock(app_config_mu);
+        const bool remote_enabled = deps.app_config ? deps.app_config->web.remote_enabled
+            : (deps.web_cfg && deps.web_cfg->remote_enabled);
+        if (!remote_enabled) return AuthResult::BadToken;
+    }
     auto origin = req.get_header_value("Origin");
     if (!origin.empty() && !is_same_request_origin(req, origin)) {
         if (!is_loopback_origin(origin)) return AuthResult::BadToken;

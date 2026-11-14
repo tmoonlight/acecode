@@ -96,6 +96,8 @@ elseif(UNIX AND NOT APPLE)
 endif()
 
 acecode_collect_group_sources(_domain domain)
+# domain/share is owned by acecode_domain; host/session_share and host/peers are
+# collected by acecode_host below, keeping transport out of the domain layer.
 acecode_add_layer_library(acecode_domain domain ${_domain})
 target_link_libraries(acecode_domain PUBLIC acecode_base_core
     PRIVATE unofficial::sqlite3::sqlite3)

@@ -1,4 +1,5 @@
 import { useDesktopOffice } from './lib/useDesktopOffice.js';
+import { SharingHost } from './components/SharingHost.jsx';
 import { useAndroidPetActivity, usePhoneApproval } from './lib/androidPhone.js';
 // 顶层 App:鉴权 gate(401 → TokenPrompt)+ 主壳。
 //
@@ -2221,6 +2222,7 @@ export function App() {
       data-home-wallpaper={view === 'single' && !activeId && !activeRef?.loop && !activeRef?.expertComponents && !showSettings && !showFeedback ? 'true' : undefined}
       style={{ '--ace-home-sidebar-width': sidebarCollapsed ? '0px' : `${singleLayout.sidebar || 0}px` }}
     >
+      <SharingHost />
       <TopBar
         windowState={windowState}
         sessionTitleRef={setSessionTitleTarget}

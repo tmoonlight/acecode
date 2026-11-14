@@ -10,6 +10,7 @@ namespace acecode::desktop {
 struct DesktopOpenRequest {
     std::string cwd;
     std::string session_id;
+    std::string invite;
 };
 
 struct DesktopOpenRequestParseResult {

@@ -33,6 +33,8 @@ struct SideChatInputOptions {
     std::optional<std::string> reasoning_effort;
     // Shared with this request's stream/cancellation only; never installed in the main binding.
     std::shared_ptr<LlmProvider> provider_override;
+    // Owned policy supplied by the guest entry point; never taken from user JSON.
+    std::function<bool(const std::string&)> extra_read_denied;
 };
 
 // 侧边对话把消息发到主会话的工具(对齐 Claude 侧边会话的 SendMessage to parent)。

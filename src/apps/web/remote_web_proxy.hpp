@@ -14,6 +14,7 @@ inline constexpr const char* kRemoteWebProxyBind = "0.0.0.0";
 inline constexpr const char* kRemoteWebProxyIpv6Bind = "::";
 inline constexpr const char* kRemoteWebProxyTarget = "127.0.0.1";
 inline constexpr const char* kRemoteWebProxyUpstreamSource = "127.0.0.2";
+std::vector<int> remote_web_proxy_port_candidates(int configured_port, int target_port);
 
 struct RemoteWebProxyStatus {
     bool configured = false;
@@ -60,7 +61,7 @@ private:
 };
 
 // Owns the child process launched by a daemon. configured_port=0 chooses a
-// deterministic adjacent port first and falls back to an OS-selected port.
+// fixed port 12400 first, then the adjacent daemon port and an OS-selected port.
 class ManagedRemoteWebProxyController final : public RemoteWebProxyController {
 public:
     ManagedRemoteWebProxyController(

@@ -15,7 +15,8 @@ for (const name of Object.keys(INTERFACE_ICONS).sort()) {
   const file = path.join(OUT_DIR, `${name}.svg`);
   const content = interfaceIconSvg(name);
   if (check) {
-    if (!fs.existsSync(file) || fs.readFileSync(file, 'utf8') !== content) failures.push(name);
+    // Windows Git checkouts may use CRLF; compare the generated SVG content.
+    if (!fs.existsSync(file) || fs.readFileSync(file, 'utf8').replace(/\r\n/g, '\n') !== content) failures.push(name);
   } else {
     fs.writeFileSync(file, content, 'utf8');
   }

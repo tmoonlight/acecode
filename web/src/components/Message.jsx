@@ -424,6 +424,7 @@ function StreamingCodeBlock({ lang, text }) {
 
 function AssistantBubble({
   content,
+  externalContent = false,
   contentParts,
   ts,
   streaming,
@@ -445,8 +446,8 @@ function AssistantBubble({
   // 流式期间限频重渲染,未闭合的尾部代码块只更新一个文本节点(见 renderMarkdownBlocks)。
   const renderedContent = useStreamingRenderThrottle(content || '', !!streaming);
   const blocks = useMemo(
-    () => renderMarkdownBlocks(renderedContent, { streaming: !!streaming }),
-    [renderedContent, streaming],
+    () => renderMarkdownBlocks(renderedContent, { streaming: !!streaming, external: externalContent }),
+    [renderedContent, streaming, externalContent],
   );
   const chrome = assistantChromeState({ showAceCodeAvatar, continuation });
   const handleMarkdownClick = useCallback(async (event) => {
@@ -607,6 +608,7 @@ function ErrorRow({
 }
 
 export const Message = memo(function Message({
+  externalContent = false,
   role,
   content,
   contentParts,
@@ -656,6 +658,7 @@ export const Message = memo(function Message({
   }
   if (role === 'assistant') {
     return <AssistantBubble content={content} contentParts={contentParts}
+                             externalContent={externalContent}
                              ts={ts} streaming={streaming}
                              messageId={messageId} onFork={onFork}
                              forkPending={forkPending} forkLoading={forkLoading}
