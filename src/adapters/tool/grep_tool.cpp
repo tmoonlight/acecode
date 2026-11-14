@@ -34,6 +34,7 @@ constexpr const char* ABORTED_MSG =
     "[Aborted] Search abandoned because the user aborted the turn.";
 
 struct ParsedMatch {
+    std::string path;
     std::string line;
     bool partial = false;
 };
@@ -266,6 +267,7 @@ std::vector<ParsedMatch> parse_git_grep_output(const std::string& raw,
         std::string content = raw.substr(line_end + 1, content_end - line_end - 1);
         if (!content.empty() && content.back() == '\r') content.pop_back();
         ParsedMatch match;
+        match.path = path;
         match.partial = partial;
         match.line = bounded_visible_line(
             path + ":" + line_number + ":" + content, partial);
@@ -457,6 +459,11 @@ ToolResult execute_grep(const std::string& arguments_json, const ToolContext& ct
     bool incomplete_record = false;
     std::vector<ParsedMatch> matches = parse_git_grep_output(
         result.stdout_text, subprocess_truncated, incomplete_record);
+    if (ctx.extra_read_denied) {
+        matches.erase(std::remove_if(matches.begin(), matches.end(), [&](const ParsedMatch& match) {
+            return ctx.extra_read_denied(path_to_utf8(path_from_utf8(process_cwd) / path_from_utf8(match.path)));
+        }), matches.end());
+    }
     if (matches.empty() && !subprocess_truncated) {
         return ToolResult{
             "No matches found for pattern: " + bounded_excerpt(pattern, 500), true};

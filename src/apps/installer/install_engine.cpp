@@ -172,6 +172,8 @@ Outcome integrate(const std::string& dir,
 
     std::error_code ec;
     const std::string desktop_exe = join_windows_path(dir, kDesktopExecutable);
+    if (!shell::register_invite_protocol(desktop_exe))
+        return failure(FailureKind::write, "failed to register ACECode invitation protocol");
     const std::string cli_exe = join_windows_path(dir, kCliExecutable);
     const std::string app_exe =
         fs::is_regular_file(path_from_utf8(desktop_exe), ec) ? desktop_exe : cli_exe;
@@ -390,6 +392,7 @@ Outcome uninstall(const std::string& install_dir, StepObserver& observer) {
                                      dir);
     std::string error;
     shell::remove_from_user_path(dir, &error);
+    shell::unregister_invite_protocol(join_windows_path(dir, kDesktopExecutable));
     const auto location = shell::uninstall_entry_location(install_record::kUninstallKeyName);
     if (!location || install_record::same_install_dir(*location, dir)) {
         shell::delete_uninstall_entry(install_record::kUninstallKeyName);

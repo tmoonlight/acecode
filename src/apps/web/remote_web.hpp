@@ -4,6 +4,7 @@
 #include <string>
 #include <string_view>
 #include <vector>
+#include <utility>
 
 namespace acecode::web {
 
@@ -26,6 +27,8 @@ std::vector<std::string> rank_remote_web_hosts(
 
 // Returns active non-loopback IP addresses from local network interfaces.
 std::vector<std::string> discover_remote_web_hosts();
+std::vector<std::string> order_remote_interface_hosts(
+    std::vector<std::pair<std::string, std::string>> interfaces);
 
 // Returns the current computer's DNS hostname when it is safe to place in a
 // connection URL.

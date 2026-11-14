@@ -307,12 +307,22 @@ export function renderMarkdownInline(src) {
 // streaming = 消息仍在流式输出:未闭合的代码块不高亮;若它就是最后一个顶层
 // 块,返回 { key, openFence: { lang, text } } 而不是 html,由 Message.jsx 渲染
 // 成单个文本节点 —— 每次追加只改这个文本节点,不再整块替换 innerHTML。
-export function renderMarkdownBlocks(src, { streaming = false } = {}) {
+export function renderMarkdownBlocks(src, { streaming = false, external = false } = {}) {
   if (!src) return [];
   const text = String(src);
   try {
     const env = markdownEnv(text, { streaming });
     const tokens = md.parse(text, env);
+    if (external) {
+      const removeRemoteImages = (items) => {
+        for (const token of items) {
+          if (token.type === 'image') {
+            token.type = 'text'; token.tag = ''; token.children = null;
+          } else if (token.children) removeRemoteImages(token.children);
+        }
+      };
+      removeRemoteImages(tokens);
+    }
     const groups = [];
     let group = [];
     let depth = 0;
@@ -331,6 +341,7 @@ export function renderMarkdownBlocks(src, { streaming = false } = {}) {
       // 流式与定稿都返回 visual 块且 key 不变,组件实例(连同 iframe)从头用到尾;
       // 嵌套在列表 / 引用里的不在这里(整组走下面的普通渲染,显示为代码)。
       if (only?.type === 'fence' && isInlineVisualInfo(only.info)) {
+        if (external) return { key: index, openFence: { lang: 'text', text: only.content } };
         return { key: index, visual: { text: only.content, closed: isCompleteFence(only, env) } };
       }
       if (streaming && index === groups.length - 1 && only?.type === 'fence'

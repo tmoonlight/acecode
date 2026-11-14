@@ -172,6 +172,11 @@ public:
     // explicitly restore the chat composer focus after the Desktop window returns.
     using WindowFocusHandler = std::function<void()>;
     void set_window_focus_handler(WindowFocusHandler handler);
+    using ClipboardChangedHandler = std::function<void(bool foreground, const std::string& invitation)>;
+    void set_clipboard_changed_handler(ClipboardChangedHandler handler);
+    void check_clipboard_invitation();
+    using OpenInviteHandler = std::function<void(const std::string&)>;
+    void set_open_invite_handler(OpenInviteHandler handler);
 
     // Invoked when a second Desktop process asks this singleton instance to
     // foreground itself. The callback runs on the GUI thread after the native

@@ -1,4 +1,5 @@
 #include "remote_web.hpp"
+#include "utils/encoding.hpp"
 
 #include "utils/url_encoding.hpp"
 
@@ -306,7 +307,7 @@ std::vector<std::string> rank_remote_web_hosts(
 }
 
 std::vector<std::string> discover_remote_web_hosts() {
-    std::vector<std::string> discovered;
+    std::vector<std::pair<std::string, std::string>> discovered;
 #ifdef _WIN32
     ULONG buffer_size = 16 * 1024;
     std::vector<unsigned char> buffer(buffer_size);
@@ -341,7 +342,9 @@ std::vector<std::string> discover_remote_web_hosts() {
                  unicast;
                  unicast = unicast->Next) {
                 const auto host = numeric_host(unicast->Address.lpSockaddr);
-                if (host) discovered.push_back(*host);
+                if (host) discovered.emplace_back(
+                    acecode::wide_to_utf8(adapter->Description ? adapter->Description : L"") + " " +
+                    acecode::wide_to_utf8(adapter->FriendlyName ? adapter->FriendlyName : L""), *host);
             }
         }
     }
@@ -356,12 +359,25 @@ std::vector<std::string> discover_remote_web_hosts() {
                 continue;
             }
             const auto host = numeric_host(current->ifa_addr);
-            if (host) discovered.push_back(*host);
+            if (host) discovered.emplace_back(current->ifa_name ? current->ifa_name : "", *host);
         }
         freeifaddrs(interfaces);
     }
 #endif
-    return rank_remote_web_hosts(discovered);
+    return order_remote_interface_hosts(std::move(discovered));
+}
+
+std::vector<std::string> order_remote_interface_hosts(
+    std::vector<std::pair<std::string, std::string>> interfaces) {
+    std::stable_partition(interfaces.begin(), interfaces.end(), [](const auto& item) {
+        const auto name = ascii_lower_copy(item.first);
+        for (const auto* marker : {"hyper-v", "vmware", "wsl", "docker", "vethernet", "virtualbox", "veth", "virbr", "tun", "tap"})
+            if (name.find(marker) != std::string::npos) return false;
+        return true;
+    });
+    std::vector<std::string> addresses;
+    for (const auto& item : interfaces) addresses.push_back(item.second);
+    return rank_remote_web_hosts(addresses);
 }
 
 std::optional<std::string> discover_remote_web_computer_name() {

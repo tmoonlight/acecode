@@ -113,28 +113,29 @@ run('settled subagent tasks stay in the panel with no archive or delete entry', 
 });
 
 // 场景:后台任务页签的列表里有子代理,也有后台命令。
-// 期望:子代理是单行无边框的行(头像、标题、token 数、靠右的时间,运行中多一行状态),
-// 点整行看会话,不再有「查看会话」链接和工具统计;后台命令保持原来的卡片与「查看输出」。
-// 回归:子代理曾是带边框的多行卡片(Agent / Completed / tokens · tools / 查看会话),
-// 任务一多列表很长,用户要求改成单行列表,后台命令明确要求不动。
-run('sub-agent tasks render as borderless single-line rows while commands keep their cards', () => {
+// 期望:共用单行无边框布局(标题、靠右的时间,运行中多一行状态),点整行看详情。
+// 后台命令使用固定控制台图标且不显示 token;子代理保留头像和 token 数。
+// 回归:后台命令曾保留多行卡片和单独的「查看输出」链接,与相邻子代理条目不一致。
+run('commands and sub-agents share borderless task rows with distinct icons and token visibility', () => {
   const panel = source('components/SubagentPanel.jsx');
-  const row = panel.slice(panel.indexOf('function TaskRow('), panel.indexOf('function CommandTaskCard('));
+  const row = panel.slice(panel.indexOf('function TaskRow('), panel.indexOf('function CommandOutputView('));
   assert.ok(row.length > 0);
   assert.match(row, /<SubagentAvatar sessionId=\{task\.id\} expert=\{task\.expert\} status=\{task\.status === SUBAGENT_TASK_STATUS\.COMPLETED \? '' : subagentAvatarStatus\(task\)\}/);
-  assert.match(row, /taskTokensLabel\(task\)/);
+  assert.match(row, /const tokens = command \? '' : taskTokensLabel\(task\)/);
+  assert.match(row, /\{command \? \(\s*<VsIcon name="terminal" size=\{16\}/);
   assert.match(row, /taskTimeLabel\(task, nowMs\)/);
   assert.match(row, /\{status && <span[^>]*data-task-status="true"/);
-  assert.match(row, /onClick=\{\(\) => onOpenTranscript\?\.\(task\)\}/);
-  assert.doesNotMatch(row, /border-border|ace-shadow|查看会话|lastTool|toolCount/);
+  assert.match(row, /onClick=\{\(\) => onOpen\?\.\(task\)\}/);
+  assert.doesNotMatch(row, /border-border|ace-shadow|查看会话|查看输出|lastTool|toolCount/);
   // 网状蜂群的 agent 路径只进悬停提示,不占一行。
-  assert.match(row, /title=\{task\.agentPath \|\| undefined\}/);
+  assert.match(row, /title=\{\(command \? task\.command : task\.agentPath\) \|\| undefined\}/);
   assert.doesNotMatch(row, />\s*\{task\.agentPath\}/);
 
-  const card = panel.slice(panel.indexOf('function CommandTaskCard('), panel.indexOf('function CommandOutputView('));
-  assert.match(card, /rounded-lg border border-border[^"]*ace-shadow" data-background-command=\{task\.id\}/);
-  assert.match(card, /查看输出/);
-  assert.match(panel, /isCommandTask\(task\) \? \(\s*<CommandTaskCard[\s\S]*?\) : \(\s*<TaskRow/);
+  assert.doesNotMatch(panel, /CommandTaskCard/);
+  assert.match(panel, /const renderTask = \(task\) => \(\s*<TaskRow/);
+  assert.match(panel, /onStop=\{isCommandTask\(task\) \? \(t\) => onStopCommand\?\.\(t\.id\) : onAbort\}/);
+  assert.match(row, /const stopPending = command \? task\.stopPending : task\.abortPending/);
+  assert.match(row, /disabled=\{stopPending\}/);
 });
 
 // 场景:对话里模型派了几个子代理;摘要面板里也列着运行中的子代理。

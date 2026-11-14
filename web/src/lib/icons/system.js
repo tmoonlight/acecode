@@ -144,6 +144,11 @@ export const systemIcons = {
   ],
   Pin: pin,
   PinOff: [...pin, ['path', { d: 'M3 3L17 17' }]],
+  Radar: [
+    ['path', { d: 'M10 2.9A7.1 7.1 0 1 0 17.1 10M10 6.2A3.8 3.8 0 1 0 13.8 10M10 10L15.2 4.8' }],
+    ['circle', { cx: 10, cy: 10, r: .7, fill: 'currentColor', stroke: 'none' }],
+    ['circle', { cx: 6.1, cy: 13.4, r: .7, fill: 'currentColor', stroke: 'none' }],
+  ],
   SearchSparkle: [
     ['path', { d: 'M10.7 3.4C8.7 2.7 6.6 3.1 5 4.6C2.6 6.9 2.6 10.7 5 13C7.3 15.3 11 15.3 13.3 13C14.9 11.4 15.3 9.2 14.6 7.2M13.3 13.3L17.1 17.1M14.8 2.6C15 4.1 15.5 4.6 17 4.8C15.5 5 15 5.5 14.8 7C14.6 5.5 14.1 5 12.6 4.8C14.1 4.6 14.6 4.1 14.8 2.6Z' }],
   ],

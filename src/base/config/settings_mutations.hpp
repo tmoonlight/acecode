@@ -52,6 +52,8 @@ SettingsMutationResult set_default_permission_mode(
 SettingsMutationResult set_native_notifications_enabled(
     bool enabled,
     const SettingsMutationOptions& options = {});
+SettingsMutationResult set_invite_clipboard_detection(
+    bool enabled, const SettingsMutationOptions& options = {});
 
 SettingsMutationResult set_remote_web_enabled(
     bool enabled,

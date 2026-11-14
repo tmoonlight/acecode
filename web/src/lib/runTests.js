@@ -1,4 +1,6 @@
 import './desktopOffice.test.js';
+import './inviteLink.test.js';
+import './inviteClipboardStore.test.js';
 import './androidPhoneSettings.test.js';
 import './editingHistoryShortcuts.test.js';
 import './trajectoryInspection.test.js';
@@ -385,6 +387,7 @@ import './pathPicker.test.js';
 import './pathPickerHost.test.js';
 import './connectors.test.js';
 import './settingsNavigation.test.js';
+import './sessionSharing.test.js';
 import './mobileShell.test.js';
 import './environmentSettings.test.js';
 import './settingsSearch.test.js';

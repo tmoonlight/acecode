@@ -36,6 +36,7 @@ function TitleActionButton({ label, state, pressed = null, buttonRef, onClick, c
 
 export function SessionTitleActions({
   states,
+  onShareSession,
   summaryPanelOpen = false,
   onToggleSummaryPanel,
   trajectoryOpen = false,
@@ -52,6 +53,9 @@ export function SessionTitleActions({
 }) {
   return (
     <>
+      <TitleActionButton label="分享会话" state={states.share || { enabled: false }} onClick={onShareSession}>
+        <VsIcon name="share" size={16} />
+      </TitleActionButton>
       {states.summary.visible && (
         <TitleActionButton
           label={summaryPanelOpen ? '收起摘要面板' : '展开摘要面板'}

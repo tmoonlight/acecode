@@ -705,14 +705,22 @@ RemoteWebProxyStatus ManagedRemoteWebProxyController::start(
         return status_;
     }
 
-    if (configured_port != 0) {
-        return start_candidate_locked(configured_port, target_port);
+    for (const auto candidate : remote_web_proxy_port_candidates(configured_port, target_port)) {
+        const auto attempt = start_candidate_locked(candidate, target_port);
+        if (attempt.running) return attempt;
     }
+    return status_;
+}
 
+std::vector<int> remote_web_proxy_port_candidates(int configured_port, int target_port) {
+    if (configured_port < 0 || configured_port > 65535 || target_port < 1 || target_port > 65535 || configured_port == target_port) return {};
+    if (configured_port) return {configured_port};
+    std::vector<int> candidates;
+    if (target_port != 12400) candidates.push_back(12400);
     const int adjacent = target_port < 65535 ? target_port + 1 : target_port - 1;
-    auto adjacent_status = start_candidate_locked(adjacent, target_port);
-    if (adjacent_status.running) return adjacent_status;
-    return start_candidate_locked(0, target_port);
+    if (adjacent != 12400) candidates.push_back(adjacent);
+    candidates.push_back(0);
+    return candidates;
 }
 
 RemoteWebProxyStatus ManagedRemoteWebProxyController::start_candidate_locked(

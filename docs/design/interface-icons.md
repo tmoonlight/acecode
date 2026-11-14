@@ -53,7 +53,7 @@ node scripts/preview_web_icons.mjs --output=icon-gallery.html
 
 ## 范围
 
-当前共有 109 个注册名称：86 个既有公开资源、22 个从组件抽出的符号和独立的 Expert 图标。MCP 服务器统一使用插头；专家入口使用人头轮廓加齿轮，均为空心描线；模型与推理仍使用 Brain。`interfaceIcons.test.js` 核对注册与公开文件一一对应、无固定色、线宽、真实组件渲染、ARIA、面板状态及文件类型独立渲染。
+当前共有 122 个注册名称。MCP 服务器统一使用插头；专家入口使用人头轮廓加齿轮，均为空心描线；模型与推理仍使用 Brain。分享操作复用 Upload，已分享会话的状态标记使用 Radar。`interfaceIcons.test.js` 核对注册与公开文件一一对应、无固定色、线宽、真实组件渲染、ARIA、面板状态及文件类型独立渲染。
 
 保留原样的内容：ACECode/供应商品牌 Logo、原生应用/托盘资源、Seti 字体与文件类型映射、PPTX 文件类型图标、统计图和动态百分比仪表。操作用 Document/Folder/OpenFile 属于功能图标，仍使用本规范。
 

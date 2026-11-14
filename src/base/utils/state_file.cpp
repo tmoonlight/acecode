@@ -155,10 +155,11 @@ private:
 
 // 加载现有 state.json:解析失败 / 文件不存在 → 返回空 object。
 // is_corrupted 在文件存在但解析失败时设为 true,让上层知道写回时要覆盖。
-nlohmann::json load_state_or_empty(bool* is_corrupted = nullptr) {
+nlohmann::json load_state_or_empty(bool* is_corrupted = nullptr,
+                                  const std::string& explicit_path = {}) {
     if (is_corrupted) *is_corrupted = false;
 
-    std::string p = state_file_path();
+    std::string p = explicit_path.empty() ? state_file_path() : explicit_path;
     std::error_code ec;
     auto path = path_from_utf8(p);
     if (!fs::exists(path, ec) || ec) {
@@ -181,9 +182,9 @@ nlohmann::json load_state_or_empty(bool* is_corrupted = nullptr) {
             return nlohmann::json::object();
         }
         return j;
-    } catch (const std::exception& e) {
-        LOG_WARN(std::string("[state_file] state.json parse failed: ") + e.what() +
-                 ", treating as corrupted");
+    } catch (const std::exception&) {
+        // Parse exception text can include credentials from subsystem files.
+        LOG_WARN("[state_file] JSON parse failed, treating as corrupted");
         if (is_corrupted) *is_corrupted = true;
         return nlohmann::json::object();
     }
@@ -274,27 +275,37 @@ nlohmann::json read_state_json() {
 }
 
 bool update_state_json(const std::function<bool(nlohmann::json& state)>& mutate) {
+    return update_state_json_at({}, mutate).persisted;
+}
+
+nlohmann::json read_state_json_at(const std::string& path) {
     std::lock_guard<std::mutex> lock(state_file_mutex());
-    const std::string path = state_file_path();
+    return load_state_or_empty(nullptr, path);
+}
+
+StateJsonUpdateResult update_state_json_at(const std::string& explicit_path,
+    const std::function<bool(nlohmann::json& state)>& mutate) {
+    std::lock_guard<std::mutex> lock(state_file_mutex());
+    const std::string path = explicit_path.empty() ? state_file_path() : explicit_path;
     StateFileWriteLock file_lock(path);
     if (!file_lock.acquired()) {
         LOG_WARN("[state_file] " + file_lock.error());
-        return false;
+        return {};
     }
     bool corrupted = false;
-    auto state = load_state_or_empty(&corrupted);
+    auto state = load_state_or_empty(&corrupted, path);
     if (corrupted) {
         LOG_WARN("[state_file] state.json corrupted, rewriting");
     }
-    if (!mutate(state)) return true;
+    if (!mutate(state)) return {true, false, std::move(state)};
 
     std::error_code ec;
     fs::create_directories(path_from_utf8(path).parent_path(), ec);
     if (!atomic_write_file(path, state.dump(2))) {
         LOG_WARN("[state_file] failed to write " + path);
-        return false;
+        return {};
     }
-    return true;
+    return {true, true, std::move(state)};
 }
 
 } // namespace acecode

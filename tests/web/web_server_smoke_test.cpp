@@ -83,6 +83,7 @@
 #include "utils/encoding.hpp"
 #include "utils/cwd_hash.hpp"
 #include "utils/state_file.hpp"
+#include "utils/logger.hpp"
 #include "utils/text_file_buffer.hpp"
 #include "utils/utf8_path.hpp"
 #include "web/handlers/fs_browser_handler.hpp"
@@ -92,6 +93,8 @@
 #include "web/remote_web_proxy.hpp"
 #include "agent/event_payload/message_payload.hpp"
 #include "web/server.hpp"
+#include "share/invite_link.hpp"
+#include "network/websocket_client.hpp"
 #include "web/handlers/models_handler.hpp"
 #include "worktree/worktree_manager.hpp"
 
@@ -1590,14 +1593,32 @@ TEST(WebServerHttp, RealProxyRequiresTokenAndForwardsAuthenticatedHealth) {
     const int proxy_port = proxy.port();
     std::thread proxy_thread([&] { proxy.run(); });
 
+    // 分享监听可在远程 Web 关闭时继续存在,但完整 daemon token 只有
+    // 开启远程 Web 后才可经代理访问管理接口,再次关闭后必须立即失效。
+    const auto disabled = cpr::Get(cpr::Url{
+        "http://127.0.0.1:" + std::to_string(proxy_port) +
+        "/api/health?token=smoke-token"});
+    {
+        std::lock_guard<std::shared_mutex> lock(fx.app_config_mu);
+        fx.cfg.web.remote_enabled = true;
+    }
     const auto unauthenticated = cpr::Get(cpr::Url{
         "http://127.0.0.1:" + std::to_string(proxy_port) + "/api/health"});
     const auto authenticated = cpr::Get(cpr::Url{
         "http://127.0.0.1:" + std::to_string(proxy_port) +
         "/api/health?token=smoke-token"});
+    {
+        std::lock_guard<std::shared_mutex> lock(fx.app_config_mu);
+        fx.cfg.web.remote_enabled = false;
+    }
+    const auto disabled_again = cpr::Get(cpr::Url{
+        "http://127.0.0.1:" + std::to_string(proxy_port) +
+        "/api/health?token=smoke-token"});
 
     proxy.stop();
     if (proxy_thread.joinable()) proxy_thread.join();
+    EXPECT_EQ(disabled.status_code, 401) << disabled.text;
+    EXPECT_EQ(disabled_again.status_code, 401) << disabled_again.text;
     EXPECT_EQ(unauthenticated.status_code, 401) << unauthenticated.text;
     ASSERT_EQ(authenticated.status_code, 200) << authenticated.text;
     EXPECT_EQ(json::parse(authenticated.text)["guid"], "test-guid-aaaa-bbbb");
@@ -15709,4 +15730,248 @@ TEST(SessionDiagnosticsSmoke, TranscriptStallReportAcceptsAllowlistAndRejectsInj
     payload["kind"] = "stall_probe";
     payload["session_id"] = "abc\n[ERROR] forged";
     EXPECT_EQ(send(payload).status_code, 400);
+}
+
+TEST(WebServerHttp, InviteLinksEnforceReadOnlyQuestionsAndImmediateRevocation) {
+    // 场景：只读与可交互分别连接同一会话，只读不调用模型，撤销立即关闭访客。
+    auto provider = std::make_shared<acecode_test::StubLlmProvider>();
+    provider->push_text("shared answer\n");
+    WebServerFixture fx(WebServerFixture::SideQuestionProviderTag{}, provider);
+    auto created = cpr::Post(cpr::Url{fx.url("/api/sessions")},
+        cpr::Header{{"Content-Type", "application/json"}}, cpr::Body{"{}"});
+    ASSERT_EQ(created.status_code, 201) << created.text;
+    const auto sid = json::parse(created.text).at("session_id").get<std::string>();
+    auto entry = fx.registry->acquire(sid);
+    ASSERT_TRUE(entry);
+    const auto original_count = entry->sm->load_active_messages().size();
+    const auto create_share = [&](const std::string& mode) {
+        return cpr::Post(cpr::Url{fx.url("/api/sessions/" + sid + "/shares")},
+            cpr::Header{{"Content-Type", "application/json"}}, cpr::Body{json{{"mode", mode}}.dump()});
+    };
+    const auto read_only = create_share("read_only");
+    ASSERT_EQ(read_only.status_code, 201) << read_only.text;
+    const auto read_body = json::parse(read_only.text);
+    const auto invite = acecode::share::decode_invite_link(read_body.at("link").get<std::string>(), 0);
+    ASSERT_TRUE(invite);
+    acecode::network::WebSocketConnectOptions options;
+    options.url = "ws://127.0.0.1:" + std::to_string(fx.port) + "/ws/share/v1";
+    options.use_proxy = false;
+    options.connect_timeout = 1s;
+    options.headers.emplace_back("X-ACECode-Share", invite.value.credential);
+    acecode::network::WebSocketClient guest;
+    std::string error;
+    ASSERT_TRUE(guest.connect(options, &error)) << error;
+    const auto receive = [&](acecode::network::WebSocketClient& socket) {
+        acecode::network::WebSocketMessage message;
+        const auto result = socket.receive(message, 2s, &error);
+        if (result != acecode::network::WebSocketRecv::Message) return json::object();
+        return json::parse(message.data);
+    };
+    EXPECT_EQ(receive(guest).value("type", ""), "hello");
+    ASSERT_TRUE(guest.send_text(R"({"type":"ping"})", 1s, &error));
+    EXPECT_EQ(receive(guest).value("type", ""), "pong");
+    ASSERT_TRUE(guest.send_text(R"({"type":"approve","session_id":"another"})", 1s, &error));
+    EXPECT_EQ(receive(guest).value("error", ""), "unsupported_message");
+    ASSERT_TRUE(guest.send_text(R"({"type":"subscribe"})", 1s, &error));
+    EXPECT_EQ(receive(guest).value("type", ""), "changed");
+    ASSERT_TRUE(guest.send_text(R"({"type":"unsubscribe"})", 1s, &error));
+    ASSERT_TRUE(guest.send_text(R"({"type":"ask_start","question":"why?"})", 1s, &error));
+    EXPECT_EQ(receive(guest).value("error", ""), "read_only");
+    const auto interactive = create_share("interactive");
+    ASSERT_EQ(interactive.status_code, 201) << interactive.text;
+    const auto other = acecode::share::decode_invite_link(json::parse(interactive.text).at("link").get<std::string>(), 0);
+    ASSERT_TRUE(other);
+    options.headers[0].second = other.value.credential;
+    acecode::network::WebSocketClient asking;
+    ASSERT_TRUE(asking.connect(options, &error)) << error;
+    EXPECT_EQ(receive(asking).value("type", ""), "hello");
+    ASSERT_TRUE(asking.send_text(R"({"type":"ask_start","question":"why?"})", 1s, &error));
+    json answer;
+    const auto deadline = std::chrono::steady_clock::now() + 5s;
+    while (std::chrono::steady_clock::now() < deadline) {
+        answer = receive(asking);
+        if (answer.value("type", "") == "ask_done" || answer.value("type", "") == "error") break;
+    }
+    EXPECT_EQ(answer.value("type", ""), "ask_done") << answer.dump();
+    EXPECT_NE(answer.value("answer", "").find("shared answer"), std::string::npos);
+    EXPECT_EQ(entry->sm->load_active_messages().size(), original_count);
+    const auto revoked = cpr::Delete(cpr::Url{fx.url("/api/shares/" + read_body.at("id").get<std::string>())});
+    EXPECT_EQ(revoked.status_code, 200);
+    acecode::network::WebSocketMessage closed;
+    EXPECT_EQ(guest.receive(closed, 1s, &error), acecode::network::WebSocketRecv::Closed);
+    const auto denied = cpr::Post(cpr::Url{fx.url("/api/share/v1/hello")},
+        cpr::Header{{"X-ACECode-Share", invite.value.credential}}, cpr::Body{"{}"});
+    EXPECT_EQ(denied.status_code, 401);
+    EXPECT_EQ(json::parse(denied.text).at("error"), "revoked");
+}
+
+TEST(WebServerHttp, ShareOnlyListenerRejectsDaemonTokenAndGuestCredentialsOnOwnerRoutes) {
+    // 场景：只开启分享的转发入口不接受完整 token，也不把分享码升级成管理权限。
+    WebServerFixture fx;
+    acecode::web::RemoteWebTcpProxy proxy;
+    std::string error;
+    ASSERT_TRUE(proxy.start(0, fx.port, &error)) << error;
+    acecode::JoiningThread worker([&proxy] { proxy.run(); });
+    acecode::ScopeExit stop([&proxy] { proxy.stop(); });
+    const std::string base = "http://127.0.0.1:" + std::to_string(proxy.port());
+    for (const auto* path : {"/api/sessions", "/api/models", "/api/shares", "/api/peers", "/api/config/remote-web"}) {
+        EXPECT_EQ(cpr::Get(cpr::Url{base + path}, cpr::Header{{"X-ACECode-Token", "smoke-token"}}, cpr::Timeout{2000}).status_code, 401) << path;
+        EXPECT_EQ(cpr::Get(cpr::Url{base + path}, cpr::Header{{"X-ACECode-Share", "0123456789abcdef.0123456789abcdefghijklmnopqrstuv"}}, cpr::Timeout{2000}).status_code, 401) << path;
+    }
+}
+
+TEST(WebServerHttp, GuestCodeCannotAuthorizeAnyDocumentedOwnerRoute) {
+    // 场景：远程 Web 开启时，用真实有效分享码逐个请求文档中的管理接口。
+    // 全部必须在业务处理前返回 401，配置文件内容不得改变。
+    WebServerFixture fx;
+    const auto created = cpr::Post(cpr::Url{fx.url("/api/sessions")},
+        cpr::Header{{"Content-Type", "application/json"}}, cpr::Body{"{}"});
+    ASSERT_EQ(created.status_code, 201);
+    const auto sid = json::parse(created.text).at("session_id").get<std::string>();
+    const auto shared = cpr::Post(cpr::Url{fx.url("/api/sessions/" + sid + "/shares")},
+        cpr::Header{{"Content-Type", "application/json"}}, cpr::Body{R"({"mode":"read_only"})"});
+    ASSERT_EQ(shared.status_code, 201) << shared.text;
+    const auto invite = acecode::share::decode_invite_link(json::parse(shared.text).at("link").get<std::string>(), 0);
+    ASSERT_TRUE(invite);
+    { std::lock_guard<std::shared_mutex> lock(fx.app_config_mu); fx.cfg.web.remote_enabled = true; }
+    acecode::web::RemoteWebTcpProxy proxy;
+    std::string error;
+    ASSERT_TRUE(proxy.start(0, fx.port, &error)) << error;
+    acecode::JoiningThread worker([&proxy] { proxy.run(); });
+    acecode::ScopeExit stop([&proxy] { proxy.stop(); });
+    const auto read_config = [&fx] {
+        std::ifstream stream(fx.tmp_dir / "config.json");
+        return std::string(std::istreambuf_iterator<char>(stream), std::istreambuf_iterator<char>());
+    };
+    const auto original_config = read_config();
+    std::ifstream input(std::filesystem::path(__FILE__).parent_path().parent_path() / "fixtures/share_protected_routes.json");
+    const auto routes = json::parse(input);
+    EXPECT_GT(routes.size(), 200u);
+    for (const auto& route : routes) {
+        const auto method = route.at("method").get<std::string>();
+        const auto path = route.at("path").get<std::string>();
+        cpr::Session request;
+        request.SetUrl(cpr::Url{"http://127.0.0.1:" + std::to_string(proxy.port()) + path});
+        request.SetHeader(cpr::Header{{"X-ACECode-Token", invite.value.credential}, {"X-ACECode-Share", invite.value.credential}, {"Content-Type", "application/json"}});
+        request.SetTimeout(cpr::Timeout{2000}); request.SetBody(cpr::Body{"{}"});
+        const auto response = method == "GET" ? request.Get() : method == "POST" ? request.Post()
+            : method == "PUT" ? request.Put() : method == "PATCH" ? request.Patch() : request.Delete();
+        EXPECT_EQ(response.status_code, 401) << method << " " << path;
+    }
+    EXPECT_EQ(read_config(), original_config);
+}
+
+TEST(WebServerHttp, ShareHistoryPaginationAndAttachmentMembershipAreEnforced) {
+    // 场景：分页不重复消息；已上传未发送图片、非图片和其它会话都不能读。
+    WebServerFixture fx;
+    const auto audit_path = fx.logs_dir / "guest-audit.log";
+    acecode::Logger::instance().init(audit_path.string());
+    acecode::Logger::instance().set_level(acecode::LogLevel::Info);
+    acecode::ScopeExit reset_audit([] { acecode::Logger::instance().init(""); acecode::Logger::instance().set_level(acecode::LogLevel::Dbg); });
+    const auto create = cpr::Post(cpr::Url{fx.url("/api/sessions")},
+        cpr::Header{{"Content-Type", "application/json"}}, cpr::Body{"{}"});
+    ASSERT_EQ(create.status_code, 201);
+    const auto sid = json::parse(create.text).at("session_id").get<std::string>();
+    const auto entry = fx.registry->acquire(sid);
+    ASSERT_TRUE(entry);
+    for (int i = 0; i < 5; ++i) {
+        acecode::ChatMessage message;
+        message.role = "user"; message.content = "page " + std::to_string(i);
+        entry->sm->on_message(message);
+    }
+    const auto shared = cpr::Post(cpr::Url{fx.url("/api/sessions/" + sid + "/shares")},
+        cpr::Header{{"Content-Type", "application/json"}}, cpr::Body{R"({"mode":"read_only"})"});
+    ASSERT_EQ(shared.status_code, 201) << shared.text;
+    const auto invite = acecode::share::decode_invite_link(json::parse(shared.text).at("link"), 0);
+    ASSERT_TRUE(invite);
+    const cpr::Header guest{{"X-ACECode-Share", invite.value.credential}};
+    const auto first = cpr::Get(cpr::Url{fx.url("/api/share/v1/messages")}, guest, cpr::Parameters{{"limit", "2"}});
+    ASSERT_EQ(first.status_code, 200) << first.text;
+    const auto page = json::parse(first.text);
+    ASSERT_EQ(page.at("messages").size(), 2u);
+    EXPECT_TRUE(page.at("has_older"));
+    const auto next = cpr::Get(cpr::Url{fx.url("/api/share/v1/messages")}, guest,
+        cpr::Parameters{{"limit", "2"}, {"before", page.at("before").get<std::string>()}});
+    ASSERT_EQ(next.status_code, 200) << next.text;
+    const auto older = json::parse(next.text);
+    ASSERT_EQ(older.at("messages").size(), 2u);
+    EXPECT_NE(older.at("messages").back().at("content"), page.at("messages").front().at("content"));
+    EXPECT_EQ(cpr::Get(cpr::Url{fx.url("/api/share/v1/messages?session_id=another")}, guest).status_code, 401);
+    EXPECT_EQ(cpr::Get(cpr::Url{fx.url("/api/share/v1/messages?before=invalid")}, guest).status_code, 400);
+    const auto upload = [&](const char* name, const char* mime) {
+        const auto response = cpr::Post(cpr::Url{fx.url("/api/sessions/" + sid + "/attachments")},
+            cpr::Header{{"Content-Type", "application/json"}},
+            cpr::Body{json{{"name", name}, {"mime_type", mime}, {"data_base64", "YWJj"}}.dump()});
+        EXPECT_EQ(response.status_code, 201) << response.text;
+        return json::parse(response.text).at("attachment");
+    };
+    const auto picture = upload("image.png", "image/png");
+    const auto document = upload("private.txt", "text/plain");
+    const auto blob = [&](const json& attachment) { return cpr::Get(cpr::Url{fx.url(
+        "/api/share/v1/attachments/" + attachment.at("id").get<std::string>() + "/blob")}, guest); };
+    EXPECT_EQ(blob(picture).status_code, 404);
+    acecode::ChatMessage message;
+    message.role = "user"; message.content = "visible picture";
+    message.content_parts = json::array({{{"type", "image"}, {"attachment", picture}}, {{"type", "file"}, {"attachment", document}}});
+    entry->sm->on_message(message);
+    EXPECT_EQ(blob(picture).status_code, 200);
+    EXPECT_EQ(blob(document).status_code, 404);
+    std::ifstream audit_stream(audit_path);
+    const std::string audit{std::istreambuf_iterator<char>(audit_stream), std::istreambuf_iterator<char>()};
+    EXPECT_NE(audit.find("source="), std::string::npos);
+    EXPECT_NE(audit.find("result=allowed"), std::string::npos);
+    EXPECT_NE(audit.find("result=wrong_session"), std::string::npos);
+    EXPECT_EQ(audit.find(invite.value.credential), std::string::npos);
+    EXPECT_EQ(audit.find(invite.value.credential.substr(17)), std::string::npos);
+}
+
+TEST(WebServerHttp, ShareListenerReasonsAndLongAddressCandidates) {
+    // 场景：远程 Web 和有效分享独立维持监听；地址过长时保留优先候选。
+    WebServerFixture fx(std::function<std::vector<std::string>()>([] {
+        std::vector<std::string> hosts;
+        for (int i = 0; i < 30; ++i) hosts.push_back(std::string(45, 'a') + std::to_string(i) + ".local");
+        return hosts;
+    }));
+    EXPECT_FALSE(fx.remote_web_proxy->status().running);
+    const auto set_remote = [&](bool enabled) {
+        return cpr::Put(cpr::Url{fx.url("/api/config/remote-web")}, cpr::Header{{"Content-Type", "application/json"}},
+            cpr::Body{json{{"enabled", enabled}}.dump()});
+    };
+    EXPECT_EQ(set_remote(true).status_code, 200);
+    EXPECT_TRUE(fx.remote_web_proxy->status().running);
+    const auto session = cpr::Post(cpr::Url{fx.url("/api/sessions")}, cpr::Header{{"Content-Type", "application/json"}}, cpr::Body{"{}"});
+    const auto sid = json::parse(session.text).at("session_id").get<std::string>();
+    const auto shared = cpr::Post(cpr::Url{fx.url("/api/sessions/" + sid + "/shares")},
+        cpr::Header{{"Content-Type", "application/json"}}, cpr::Body{R"({"mode":"read_only"})"});
+    ASSERT_EQ(shared.status_code, 201) << shared.text;
+    const auto body = json::parse(shared.text);
+    const auto link = body.at("link").get<std::string>();
+    EXPECT_LE(link.size(), 1024u);
+    const auto decoded = acecode::share::decode_invite_link(link, 0);
+    ASSERT_TRUE(decoded);
+    EXPECT_EQ(decoded.value.addresses.front(), "ACE-TEST-PC");
+    EXPECT_LT(decoded.value.addresses.size(), 31u);
+    EXPECT_TRUE(fx.remote_web_proxy->status().running);
+    EXPECT_EQ(set_remote(false).status_code, 200);
+    EXPECT_TRUE(fx.remote_web_proxy->status().running);
+    EXPECT_EQ(cpr::Delete(cpr::Url{fx.url("/api/shares/" + body.at("id").get<std::string>())}).status_code, 200);
+    EXPECT_FALSE(fx.remote_web_proxy->status().running);
+}
+
+TEST(WebServerHttp, ShareCreationRejectsDangerousAndTuiSurfaces) {
+    // 场景：dangerous daemon 和没有 SessionRegistry 的 TUI Web surface 都拒绝分享。
+    {
+        WebServerFixture fx(std::function<std::vector<std::string>()>([] { return std::vector<std::string>{"192.168.1.2"}; }), true);
+        const auto response = cpr::Post(cpr::Url{fx.url("/api/sessions/example/shares")},
+            cpr::Header{{"Content-Type", "application/json"}}, cpr::Body{"{}"});
+        EXPECT_EQ(response.status_code, 403);
+        EXPECT_FALSE(fx.remote_web_proxy->status().running);
+    }
+    {
+        WebServerFixture fx(WebServerFixture::NoSessionRegistryTag{});
+        const auto response = cpr::Post(cpr::Url{fx.url("/api/sessions/example/shares")},
+            cpr::Header{{"Content-Type", "application/json"}}, cpr::Body{"{}"});
+        EXPECT_EQ(response.status_code, 503);
+        EXPECT_FALSE(fx.remote_web_proxy->status().running);
+    }
 }
