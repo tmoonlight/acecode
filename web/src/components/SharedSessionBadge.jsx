@@ -26,5 +26,5 @@ function subscribe(listener) {
 const snapshot = () => shared;
 export function SharedSessionBadge({ sessionId }) {
   const sessions = useSyncExternalStore(subscribe, snapshot);
-  return sessions.has(sessionId) ? <VsIcon name="radar" size={12} alt="已分享" className="text-fg-mute shrink-0" /> : null;
+  return sessions.has(sessionId) ? <VsIcon name="antenna" size={18} alt="已分享" className="text-fg-mute shrink-0" /> : null;
 }

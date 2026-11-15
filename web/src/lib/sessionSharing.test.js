@@ -36,6 +36,11 @@ const titleActions = source('SessionTitleActions');
 const shareIconIndex = titleActions.indexOf('<VsIcon name="share" size={16}');
 assert.ok(shareIconIndex >= 0 && shareIconIndex < titleActions.indexOf('name="properties"'));
 assert.doesNotMatch(titleActions, /<svg\b|ShareIcon/);
+// 场景：侧栏会话行里的已分享标记。期望：使用 Antenna 发射天线图形并按 18 px 渲染，与同一行的远程控制、置顶图标同尺寸。
+// 回归：曾用 12 px 雷达图形，两圈弧线加扫描线和两个点在 1x 屏幕上糊成一团，且明显小于旁边的图标。
+const sharedBadge = source('SharedSessionBadge');
+assert.match(sharedBadge, /<VsIcon name="antenna" size=\{18\}/);
+assert.doesNotMatch(sharedBadge, /radar/i);
 assert.equal(sessionTitleActionStates({ sessionId: 's' }).share.enabled, true);
 assert.equal(sessionTitleActionStates({ sessionId: 's', readOnly: true }).share.enabled, false);
 

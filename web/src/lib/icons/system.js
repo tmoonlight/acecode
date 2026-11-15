@@ -36,6 +36,11 @@ export const systemIcons = {
     ['circle', { cx: 10, cy: 10.8, r: 5.9 }],
     ['path', { d: 'M10 7.4V10.5Q10 10.8 10.3 11L12.2 12.2M3.1 5.5L5.1 3.5M14.9 3.5L16.9 5.5M5.5 15.3L4.3 17M14.5 15.3L15.7 17' }],
   ],
+  // Transmitting antenna: emitter dot on a mast, two widely spaced wave arcs per side (±40°).
+  Antenna: [
+    ['circle', { cx: 10, cy: 8, r: 1.1, fill: 'currentColor', stroke: 'none' }],
+    ['path', { d: 'M10 9.1V17M12.76 5.69A3.6 3.6 0 0 1 12.76 10.31M7.24 5.69A3.6 3.6 0 0 0 7.24 10.31M15.21 3.63A6.8 6.8 0 0 1 15.21 12.37M4.79 3.63A6.8 6.8 0 0 0 4.79 12.37' }],
+  ],
   Archive: [
     ['rect', { x: 2.8, y: 3.5, width: 14.4, height: 3.4, rx: 1 }],
     ['path', { d: 'M3.8 7V14.9Q3.8 16.5 5.4 16.5H14.6Q16.2 16.5 16.2 14.9V7M8 10.2H12' }],
@@ -144,11 +149,6 @@ export const systemIcons = {
   ],
   Pin: pin,
   PinOff: [...pin, ['path', { d: 'M3 3L17 17' }]],
-  Radar: [
-    ['path', { d: 'M10 2.9A7.1 7.1 0 1 0 17.1 10M10 6.2A3.8 3.8 0 1 0 13.8 10M10 10L15.2 4.8' }],
-    ['circle', { cx: 10, cy: 10, r: .7, fill: 'currentColor', stroke: 'none' }],
-    ['circle', { cx: 6.1, cy: 13.4, r: .7, fill: 'currentColor', stroke: 'none' }],
-  ],
   SearchSparkle: [
     ['path', { d: 'M10.7 3.4C8.7 2.7 6.6 3.1 5 4.6C2.6 6.9 2.6 10.7 5 13C7.3 15.3 11 15.3 13.3 13C14.9 11.4 15.3 9.2 14.6 7.2M13.3 13.3L17.1 17.1M14.8 2.6C15 4.1 15.5 4.6 17 4.8C15.5 5 15 5.5 14.8 7C14.6 5.5 14.1 5 12.6 4.8C14.1 4.6 14.6 4.1 14.8 2.6Z' }],
   ],

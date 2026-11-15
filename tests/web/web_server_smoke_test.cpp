@@ -15882,7 +15882,7 @@ TEST(WebServerHttp, ShareHistoryPaginationAndAttachmentMembershipAreEnforced) {
     const auto shared = cpr::Post(cpr::Url{fx.url("/api/sessions/" + sid + "/shares")},
         cpr::Header{{"Content-Type", "application/json"}}, cpr::Body{R"({"mode":"read_only"})"});
     ASSERT_EQ(shared.status_code, 201) << shared.text;
-    const auto invite = acecode::share::decode_invite_link(json::parse(shared.text).at("link"), 0);
+    const auto invite = acecode::share::decode_invite_link(json::parse(shared.text).at("link").get<std::string>(), 0);
     ASSERT_TRUE(invite);
     const cpr::Header guest{{"X-ACECode-Share", invite.value.credential}};
     const auto first = cpr::Get(cpr::Url{fx.url("/api/share/v1/messages")}, guest, cpr::Parameters{{"limit", "2"}});
