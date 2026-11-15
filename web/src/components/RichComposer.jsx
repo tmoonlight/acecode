@@ -1,4 +1,5 @@
 import { composerShortcutAction, shortcutEventConsumed } from '../lib/shortcutBindings.js';
+import { offerInvitation } from '../lib/sharingEvents.js';
 import { handleEditorHistoryKey } from '../lib/editingHistoryShortcuts.js';
 import {
   forwardRef,
@@ -1521,6 +1522,17 @@ function RichComposerShell({
       event.stopPropagation?.();
     };
     if (disabled) {
+      consume();
+      return true;
+    }
+
+    const invitationText = plainTextFromClipboardData(clipboardData);
+    const invitationSelection = context?.selection || capturePasteSelection();
+    const invitationGeneration = syncIdentityRef.current.generation;
+    if (offerInvitation(invitationText, () => {
+      if (syncIdentityRef.current.generation === invitationGeneration && editableRef.current?.isConnected)
+        applyPlainTextPaste(invitationText, invitationSelection);
+    })) {
       consume();
       return true;
     }

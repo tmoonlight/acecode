@@ -86,6 +86,11 @@ std::vector<std::string> linux_clipboard_write_commands(bool has_wayland_display
 
 ClipboardTextReadResult read_system_clipboard_text(
     std::size_t max_bytes = kMaxClipboardTextBytes);
+// Passive Windows monitoring respects privacy markers before reading text,
+// reads at most 8 KiB, and returns only the first invitation link.
+std::string read_clipboard_invitation();
+std::string extract_clipboard_invitation(std::string_view text,
+    bool exclude_monitoring = false, bool allow_history = true);
 
 ClipboardTextWriteResult write_system_clipboard_text(
     std::string_view text,

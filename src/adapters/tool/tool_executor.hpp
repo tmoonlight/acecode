@@ -73,6 +73,9 @@ struct ToolContext {
     // should prefer this over the daemon process cwd when their own arguments
     // omit a cwd/path.
     std::string cwd;
+    // Optional additional read filter. Called synchronously; search tools apply
+    // it to structured result paths before exposing file contents to the model.
+    std::function<bool(const std::string&)> extra_read_denied;
     // 会话写边界根目录(AgentLoop::write_root 的快照);空 = 无边界。
     // spawn_subagent 用它把父会话的边界透传给子会话。工具自身不据此拒写,
     // 拒写统一在 AgentLoop 的路径校验里做。

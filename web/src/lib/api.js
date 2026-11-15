@@ -353,6 +353,29 @@ async function request(method, path, body, base, options = {}) {
 
 export function createApi(base = null) {
   const client = {
+    getInviteClipboardPreference: () => request('GET', '/api/config/desktop-clipboard', undefined, base),
+    setInviteClipboardPreference: (enabled) => request('PUT', '/api/config/desktop-clipboard', { enabled }, base),
+    createShare: (id, options) => request('POST', `/api/sessions/${encodeURIComponent(id)}/shares`, options, base),
+    listShares: () => request('GET', '/api/shares', undefined, base),
+    revokeShare: (id) => request('DELETE', `/api/shares/${encodeURIComponent(id)}`, undefined, base),
+    shareQuestions: (id) => request('GET', `/api/shares/${encodeURIComponent(id)}/asks`, undefined, base),
+    connectPeer: (link) => request('POST', '/api/peers/connect', { link }, base, { timeoutMs: 100000 }),
+    listPeers: () => request('GET', '/api/peers', undefined, base),
+    deletePeer: (id) => request('DELETE', `/api/peers/${encodeURIComponent(id)}`, undefined, base),
+    peerAttachmentUrl: (id, attachmentId) => {
+      const url = new URL(fullUrl(`/api/peers/${encodeURIComponent(id)}/attachments/${encodeURIComponent(attachmentId)}/blob`, base), window.location.href);
+      const token = baseToken(base);
+      if (token) url.searchParams.set('token', token);
+      return url.href;
+    },
+    peerMessages: (id, before) => request('GET', `/api/peers/${encodeURIComponent(id)}/messages${before == null ? '' : `?before=${encodeURIComponent(before)}`}`, undefined, base),
+    peerSocket: (id) => {
+      const url = new URL(fullUrl(`/ws/peers/${encodeURIComponent(id)}`, base), window.location.href);
+      url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+      const token = baseToken(base);
+      if (token) url.searchParams.set('token', token);
+      return new WebSocket(url.href);
+    },
     health:           ()             => request('GET',    '/api/health', undefined, base),
     reportSessionOpen: (measurement) => request('POST', '/api/diagnostics/session-open', measurement, base, { timeoutMs: 2000 }),
     // 实时状态卡住 / WS 心跳超时 / 事件游标重置的现场,daemon 记一行 WARN 日志。

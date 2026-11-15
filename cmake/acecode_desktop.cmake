@@ -15,6 +15,10 @@ if(NOT ACECODE_BUILD_DESKTOP)
     return()
 endif()
 
+if(UNIX AND NOT APPLE)
+    install(FILES "${CMAKE_SOURCE_DIR}/assets/acecode.desktop" DESTINATION share/applications)
+endif()
+
 include(FetchContent)
 
 if(ACECODE_DEEPIN)

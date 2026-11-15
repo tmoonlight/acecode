@@ -1,6 +1,7 @@
 import { isDismissShortcut, shortcutEventConsumed } from '../lib/shortcutBindings.js';
 import { VirtualOfficeSettings } from './VirtualOfficeSettings.jsx';
 import { AndroidPhoneSettings } from './AndroidPhoneSettings.jsx';
+import { InviteClipboardSetting } from './InviteClipboardSetting.jsx';
 // 浮动设置窗口:mask + 贯通的左栏导航与右栏内容。
 //
 // 左侧导航按 Codex 风格分组,section key 与深链行为保持稳定。
@@ -1106,6 +1107,7 @@ function SectionGeneral({
   return (
     <>
       <h2 className="text-xl font-bold mb-5">常规</h2>
+      <InviteClipboardSetting />
 
       <div className="flex items-center justify-between gap-4 px-3.5 py-2.5 rounded-md bg-surface border border-border mb-2">
         <div>

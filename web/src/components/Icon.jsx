@@ -6,6 +6,7 @@ import { ICON_VIEW_BOX, INTERFACE_ICONS, iconStrokeWidth } from '../lib/interfac
 const ICONS = {
   add: 'Add',
   alarm: 'Alarm',
+  antenna: 'Antenna',
   archive: 'Archive',
   arrowLeft: 'ArrowLeft',
   arrowRight: 'ArrowRight',
@@ -83,6 +84,7 @@ const ICONS = {
   search: 'Search',
   searchSparkle: 'SearchSparkle',
   send: 'Send',
+  share: 'Share',
   settings: 'Settings',
   stop: 'Stop',
   stopFilled: 'StopFilled',

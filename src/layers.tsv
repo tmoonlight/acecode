@@ -25,6 +25,7 @@ module	src/domain/skills/	skills	domain	20					D1 D2 D15
 module	src/domain/worktree/	worktree	domain	21					D1 D2 D15
 module	src/domain/gitinfo/	gitinfo	domain	22					D1 D2 D15
 module	src/domain/session/	session	domain	23					D1 D2 D15
+module	src/domain/share/	share	domain	23					Invitation format and share projection
 module	src/adapters/upgrade/	upgrade	adapters	24					D1 D2 D15
 module	src/adapters/themes/	themes	adapters	25					D1 D2 D15
 module	src/adapters/feedback/	feedback	adapters	26					D1 D2 D15
@@ -43,6 +44,8 @@ module	src/host/loop/	loop	host	51					D1 D2 D15
 module	src/host/remote_control/	remote_control	host	52					D1 D2 D15
 module	src/host/channels/	channels	host	53					D1 D2 D15
 module	src/host/app_runtime/	app_runtime	host	54					Reserved for phase 2; do not create in phase 1
+module	src/host/session_share/	session_share	host	55					Session share persistence and guest access
+module	src/host/peers/	peers	host	56					Saved remote session connections
 module	src/apps/tui/	tui	apps	60					D1 D2 D15
 module	src/apps/web/	web	apps	61					D1 D2 D15
 module	src/apps/headless/	headless	apps	62					D1 D2 D15

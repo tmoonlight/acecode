@@ -1563,6 +1563,8 @@ static AppConfig load_config_from_path_once(
                     LOG_WARN("[config] 'desktop' must be an object, ignoring");
                 } else {
                     const auto& dj = j["desktop"];
+                    if (dj.contains("detect_invite_links_in_clipboard") && dj["detect_invite_links_in_clipboard"].is_boolean())
+                        cfg.desktop.detect_invite_links_in_clipboard = dj["detect_invite_links_in_clipboard"].get<bool>();
                     if (dj.contains("allow_multiple_instances") &&
                         dj["allow_multiple_instances"].is_boolean()) {
                         cfg.desktop.allow_multiple_instances =
@@ -2510,6 +2512,8 @@ nlohmann::json build_config_json(const AppConfig& cfg) {
         if (cfg.desktop.notifications.suppress_when_focused != dn_d.suppress_when_focused)
             dnj["suppress_when_focused"] = cfg.desktop.notifications.suppress_when_focused;
         nlohmann::json deskj = nlohmann::json::object();
+        if (cfg.desktop.detect_invite_links_in_clipboard != desk_d.detect_invite_links_in_clipboard)
+            deskj["detect_invite_links_in_clipboard"] = cfg.desktop.detect_invite_links_in_clipboard;
         if (cfg.desktop.close_to_tray != desk_d.close_to_tray)
             deskj["close_to_tray"] = cfg.desktop.close_to_tray;
         if (cfg.desktop.allow_multiple_instances != desk_d.allow_multiple_instances)

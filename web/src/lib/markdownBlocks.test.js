@@ -177,7 +177,7 @@ run('streaming renders nested open fences without highlight spans', () => {
 run('assistant bubble throttles streaming markdown and renders open fence as text', () => {
   const message = source('components/Message.jsx');
   assert.match(message, /useStreamingRenderThrottle\(content \|\| '', !!streaming\)/);
-  assert.match(message, /renderMarkdownBlocks\(renderedContent, \{ streaming: !!streaming \}\)/);
+  assert.match(message, /renderMarkdownBlocks\(renderedContent, \{ streaming: !!streaming, external: externalContent \}\)/);
   assert.match(message, /block\.openFence \? \(\s*<StreamingCodeBlock/);
   assert.match(message, /data-code-copy-source="true">\{text\}<\/code>/);
 });
@@ -232,4 +232,11 @@ run('nested visual fences and other languages stay as code', () => {
 run('assistant bubble renders visual blocks with InlineVisualBlock', () => {
   const message = source('components/Message.jsx');
   assert.match(message, /block\.visual \? \(\s*<InlineVisualBlock\s+key=\{block\.key\}\s+code=\{block\.visual\.text\}\s+closed=\{block\.visual\.closed\}\s+streaming=\{!!streaming\}/);
+});
+
+run('remote session markdown never runs visual code or fetches external images', () => {
+  const blocks = renderMarkdownBlocks('```visual\n<script>window.secret()</script>\n```\n\n![remote](https://untrusted.example/pixel)', { external: true });
+  assert.ok(blocks[0].openFence);
+  assert.equal(blocks.some((block) => block.visual), false);
+  assert.equal(blocks.map((block) => block.html || '').join('').includes('<img'), false);
 });

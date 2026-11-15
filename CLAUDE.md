@@ -126,6 +126,8 @@ The Superpowers plugin is disabled for this repository. Do not invoke or follow 
 
 ## Useful Source Anchors
 
+- [docs/session-sharing.md](docs/session-sharing.md): 会话邀请、只读/可交互权限、访客提问和对端工具。
+
 - [src/apps/tui/commands/builtin_commands.cpp](src/apps/tui/commands/builtin_commands.cpp): slash command registration and command help.
 - [src/adapters/tool/tool_executor.cpp](src/adapters/tool/tool_executor.cpp): tool registry behavior, tool result message formatting, and compact call previews.
 - [src/engine/agent/event_payload/tool_event_payload.cpp](src/engine/agent/event_payload/tool_event_payload.cpp): web serialization of tool progress and summaries.

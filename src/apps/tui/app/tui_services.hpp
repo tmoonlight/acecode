@@ -1,4 +1,5 @@
 #pragma once
+#include "peers/peer_store.hpp"
 #include "config/config.hpp"
 #include "provider/session_model_binding.hpp"
 #include <memory>
@@ -24,6 +25,8 @@ public:
     AppConfig config;
     SessionModelBinding model_binding;
     std::unique_ptr<ToolExecutor> tools;
+    // Shared with in-flight peer tool invocations; tools retain weak references.
+    std::shared_ptr<peers::PeerStore> peer_store;
     std::unique_ptr<SkillRegistry> skills;
     std::shared_ptr<MemoryRuntime> memory;
     std::unique_ptr<McpManager> mcp;

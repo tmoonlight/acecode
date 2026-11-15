@@ -1,5 +1,6 @@
 #include "utils/abandonable_call.hpp"
 #include "worker.hpp"
+#include "peers/peer_tools.hpp"
 #include "daemon_shutdown_sequence.hpp"
 #include "im_channels.hpp"
 #include "channels/core/group_chat_tool.hpp"
@@ -554,6 +555,9 @@ int run_worker(const WorkerOptions& opts, const AppConfig& cfg) {
     subagent_deps->config   = &cfg_mut;
     thread_tool_deps->service = std::make_shared<acecode::ThreadService>(
         acecode::ThreadService::Deps{&registry, &client});
+    // Composition-root owner; peer tool callbacks hold weak references only.
+    auto peer_tools_owner = std::make_shared<acecode::peers::PeerStore>(acecode::resolve_data_dir(acecode::get_run_mode()));
+    acecode::peers::register_peer_tools(tools, peer_tools_owner);
     auto task_suggestions = std::make_shared<acecode::TaskSuggestionService>(
         acecode::TaskSuggestionService::Deps{&registry, &client, &cfg_mut, &app_config_mu});
     acecode::register_task_suggestion_tools(tools, task_suggestions);

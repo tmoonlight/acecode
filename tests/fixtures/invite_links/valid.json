@@ -1,0 +1,16 @@
+{
+  "text": "acecode://connect/eyJ2IjoxLCJuIjoic2hhbyIsInQiOiLkvJror53liIbkuqsiLCJhIjpbIkFDRS1QQyIsIjE5Mi4xNjguMS4yMCIsImZkMDA6OjEiXSwicCI6MTI0MDAsImMiOiIwMTIzNDU2Nzg5YWJjZGVmLjAxMjM0NTY3ODlhYmNkZWZnaGlqa2xtbm9wcXJzdHV2IiwiZSI6MjAwMDAwMDAwMH13Hq2Q",
+  "now": 1900000000,
+  "value": {
+    "owner": "shao",
+    "title": "会话分享",
+    "addresses": [
+      "ACE-PC",
+      "192.168.1.20",
+      "fd00::1"
+    ],
+    "port": 12400,
+    "credential": "0123456789abcdef.0123456789abcdefghijklmnopqrstuv",
+    "expires_at": 2000000000
+  }
+}

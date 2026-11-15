@@ -271,8 +271,13 @@ All four are additive; no existing daemon invocations change behavior.
 
 ### 8.6 Deep links (`acecode://`)
 
-- Out of scope for v1. Stub the protocol handler registration so we can
-  ship it later without re-touching installer logic.
+- `acecode://connect/<payload>` opens a session invitation confirmation. No
+  network request is made until the user confirms. Windows uses a per-user
+  protocol registration and the existing second-instance open-request handoff.
+- `DesktopInviteController` owns invitation delivery, clipboard deduplication
+  and notification activation. macOS receives URL Apple events; Linux registers
+  a desktop entry and uses a per-user Unix datagram wakeup. Platform and real
+  network acceptance remains tracked in `add-acecode-invite-links`.
 
 ---
 

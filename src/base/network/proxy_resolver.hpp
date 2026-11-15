@@ -30,6 +30,7 @@ namespace acecode::network {
 struct ResolvedProxy {
     std::string url;
     std::string source;
+    std::vector<std::string> bypass;
 };
 
 // cpr 一次性 API 不接受动态参数包,所以打包成结构让调用点 splat。
@@ -57,6 +58,7 @@ std::vector<std::string> parse_no_proxy(const std::string& csv);
 //   - 通配符  :`*` 单独存在 = 全部 host 都绕过代理
 bool host_matches_no_proxy(const std::string& host,
                            const std::vector<std::string>& list);
+bool is_direct_local_host(const std::string& host);
 
 class ProxyResolver {
 public:

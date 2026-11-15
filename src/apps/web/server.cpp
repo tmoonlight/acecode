@@ -83,6 +83,7 @@ WebServer::Impl::~Impl() {
         app.stop();
     }
     // Crow has stopped admission. Revoke and drain session deliveries before
+    stop_sharing();
     // any Impl member can disappear; never wait while holding ws_mu.
     ws_listener_lifetime.revoke();
     std::vector<std::pair<std::string, SessionClient::SubscriptionId>> ws_subscriptions;
@@ -132,6 +133,10 @@ WebServer::Impl::~Impl() {
 // register_routes — dispatches to each domain's register_*()
 // =====================================================================
 void WebServer::Impl::register_routes() {
+    register_sharing();
+    register_peers();
+    register_share_socket();
+    register_peer_socket();
     register_health();
     register_session_diagnostics();
     register_usage();
@@ -191,6 +196,7 @@ WebServer::WebServer(WebServerDeps deps)
     }
     install_crow_log_bridge();
     impl_->app.exception_handler(&route_exception_handler);
+    impl_->initialize_sharing();
     impl_->register_routes();
     impl_->initialize_model_reasoning_sync();
 }
@@ -246,6 +252,7 @@ void WebServer::stop() {
     if (!impl_) return;
     impl_->home_intent_prompts.shutdown();
     if (impl_->shutdown_requested.exchange(true)) return;
+    impl_->stop_sharing();
     if (impl_->model_reasoning_sync) impl_->model_reasoning_sync->stop();
     impl_->stop_side_chat_workers();
     std::lock_guard<std::mutex> stop_lock(impl_->listener_stop_mu);

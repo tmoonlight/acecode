@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=ACECode
+Exec=acecode-desktop --open-invite %u
+TryExec=acecode-desktop
+Icon=acecode
+Terminal=false
+Categories=Development;
+MimeType=x-scheme-handler/acecode;

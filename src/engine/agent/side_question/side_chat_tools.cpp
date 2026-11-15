@@ -7,6 +7,8 @@
 #include "permissions/permissions.hpp"
 #include "tool/mtime_tracker.hpp"
 #include "utils/logger.hpp"
+#include "utils/utf8_path.hpp"
+#include "memory/secret_redaction.hpp"
 
 #include <unordered_set>
 
@@ -81,7 +83,8 @@ SideChatToolset build_side_chat_toolset(ToolExecutor& tools,
                                         WorkspaceBoundary& boundary,
                                         SessionManager* session,
                                         const ToolCapabilityPolicy& session_policy,
-                                        const SideChatMainSessionSender& send_to_main) {
+                                        const SideChatMainSessionSender& send_to_main,
+                                        const std::function<bool(const std::string&)>& extra_read_denied) {
     std::unordered_set<std::string> allowed;
     for (const char* name : kSideChatReadOnlyTools) {
         if (tools.is_read_only(name) && tools.is_allowed(name, &session_policy)) {
@@ -105,7 +108,7 @@ SideChatToolset build_side_chat_toolset(ToolExecutor& tools,
         return tools.resolve_model_tool_name_to_native(model_name);
     };
     toolset.execute = [&tools, &permissions, &boundary, session, side_policy, allowed, available,
-                       send_to_main](
+                       send_to_main, extra_read_denied](
                           const ToolCall& call, const std::atomic<bool>* abort_flag) -> ToolResult {
         if (send_to_main && call.function_name == kSideChatSendToMainTool) {
             const std::string message = send_to_main_message(call.function_arguments);
@@ -126,6 +129,17 @@ SideChatToolset build_side_chat_toolset(ToolExecutor& tools,
         std::string path;
         std::string command;
         ToolInvoker::extract_context(call, path, command);
+        auto deny_read = [extra_read_denied, cwd = boundary.cwd()](const std::string& candidate) {
+            if (!extra_read_denied) return false;
+            if (extra_read_denied(candidate)) return true;
+            auto resolved = path_from_utf8(candidate);
+            if (resolved.is_relative()) resolved = path_from_utf8(cwd) / resolved;
+            std::error_code ec;
+            auto canonical = std::filesystem::weakly_canonical(resolved, ec);
+            return ec || extra_read_denied(path_to_utf8(canonical));
+        };
+        if (extra_read_denied && !path.empty() && deny_read(path))
+            return ToolResult{"[Permission denied] This file is not available to guests.", false};
         if (!permissions.should_auto_allow(native, true, path)) {
             return ToolResult{"[Permission denied] A configured rule requires confirmation for "
                 "this read, which the side chat cannot ask for.", false};
@@ -144,11 +158,14 @@ SideChatToolset build_side_chat_toolset(ToolExecutor& tools,
         }
         ToolContext context;
         context.cwd = boundary.cwd();
+        if (extra_read_denied) context.extra_read_denied = deny_read;
         context.abort_flag = abort_flag;
         context.capability_policy = side_policy;
         LOG_INFO("[side-chat] read-only tool " + native);
         MtimeTracker::DetachedReadScope detached_read;
-        return tools.execute(native, call.function_arguments, context);
+        auto result = tools.execute(native, call.function_arguments, context);
+        if (extra_read_denied) result.output = redact_secrets(result.output).text;
+        return result;
     };
     return toolset;
 }

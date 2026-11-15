@@ -1,4 +1,7 @@
 #include "windows_shell.hpp"
+#include "platform/invite_protocol.hpp"
+#include "utils/sha256.hpp"
+#include <cstdlib>
 
 #ifdef _WIN32
 #ifndef NOMINMAX
@@ -20,6 +23,19 @@
 #endif
 
 namespace acecode::installer::shell {
+
+namespace {
+std::string invite_registry_sandbox() {
+    const auto* test = std::getenv("ACECODE_SETUP_TEST_ROOT");
+    return test && *test ? "Software\\ACECodeSetupTest\\" + sha256_hex(test).substr(0, 16) + "\\Classes\\acecode" : "";
+}
+}
+bool register_invite_protocol(const std::string& executable) {
+    return platform::register_invite_protocol(executable, invite_registry_sandbox());
+}
+bool unregister_invite_protocol(const std::string& executable) {
+    return platform::unregister_invite_protocol(executable, invite_registry_sandbox());
+}
 
 #ifdef _WIN32
 namespace {

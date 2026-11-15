@@ -63,6 +63,24 @@ TEST(DesktopOpenRequest, EncodesAndParsesExactArguments) {
     EXPECT_EQ(parsed.request->session_id, request().session_id);
 }
 
+TEST(DesktopOpenRequest, InvitationRoundTripsWithoutWorkspaceAndRejectsMixedRequests) {
+    // 场景：首次启动/第二实例交接邀请，不能同时夹带工作区或会话操作。
+    acecode::desktop::DesktopOpenRequest invite;
+    invite.invite = "acecode://connect/Abc_def-123";
+    EXPECT_TRUE(acecode::desktop::valid_desktop_open_request(invite));
+    const auto parsed = acecode::desktop::parse_desktop_open_request_arguments({"desktop", "--open-invite", invite.invite});
+    ASSERT_TRUE(parsed.request);
+    EXPECT_EQ(parsed.request->invite, invite.invite);
+    EXPECT_FALSE(acecode::desktop::parse_desktop_open_request_arguments({"desktop", "--open-invite", invite.invite, "--open-session", "other"}).error.empty());
+    OpenRequestTempDir temp;
+    std::string error;
+    ASSERT_TRUE(acecode::desktop::publish_pending_desktop_open_request(invite, &error, temp.request_path().string()));
+    const auto taken = acecode::desktop::take_pending_desktop_open_request(&error, temp.request_path().string());
+    ASSERT_TRUE(taken);
+    EXPECT_EQ(taken->invite, invite.invite);
+    EXPECT_FALSE(fs::exists(temp.request_path()));
+}
+
 TEST(DesktopOpenRequest, NoRequestIsAllowedButPartialOrDuplicateIsRejected) {
     auto absent = acecode::desktop::parse_desktop_open_request_arguments(
         {"acecode-desktop.exe", "--webapp"});

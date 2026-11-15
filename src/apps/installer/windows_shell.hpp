@@ -18,6 +18,8 @@ std::string desktop_dir();
 std::string temp_dir();
 std::string user_profile_dir();
 std::string current_executable_path();
+bool register_invite_protocol(const std::string& executable);
+bool unregister_invite_protocol(const std::string& executable);
 
 bool write_uninstall_entry(const std::string& key_name,
                            const std::vector<RegistryValue>& values,

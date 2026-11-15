@@ -21,6 +21,7 @@
 #endif
 
 #include <cstdlib>
+#include <algorithm>
 #include <optional>
 #include <string>
 #include <vector>
@@ -33,8 +34,9 @@ std::string wide_to_utf8(LPCWSTR ws) {
     if (!ws) return "";
     int sz = ::WideCharToMultiByte(CP_UTF8, 0, ws, -1, nullptr, 0, nullptr, nullptr);
     if (sz <= 0) return "";
-    std::string out(static_cast<size_t>(sz - 1), '\0');
+    std::string out(static_cast<size_t>(sz), '\0');
     ::WideCharToMultiByte(CP_UTF8, 0, ws, -1, out.data(), sz, nullptr, nullptr);
+    out.resize(static_cast<size_t>(sz - 1));
     return out;
 }
 
@@ -48,7 +50,7 @@ std::string scheme_of_url(const std::string& url) {
 
 // (1) WinHTTP — IE 设置(Fiddler/Charles 修改的就是这一处)。
 // 失败 / 未启用 → nullopt。任何 SEH/异常都吞掉避免阻塞启动。
-std::optional<std::string> try_winhttp_ie(const std::string& target_scheme) {
+std::optional<ResolvedProxy> try_winhttp_ie(const std::string& target_scheme) {
     WINHTTP_CURRENT_USER_IE_PROXY_CONFIG cfg = {};
     BOOL ok = FALSE;
     try {
@@ -79,15 +81,17 @@ std::optional<std::string> try_winhttp_ie(const std::string& target_scheme) {
     }
 
     std::string raw = wide_to_utf8(cfg.lpszProxy);
+    auto bypass = wide_to_utf8(cfg.lpszProxyBypass);
+    std::replace(bypass.begin(), bypass.end(), ';', ',');
     cleanup();
 
     std::string parsed = parse_winhttp_proxy_string(raw, target_scheme);
     if (parsed.empty()) return std::nullopt;
-    return parsed;
+    return ResolvedProxy{parsed, "windows-system", parse_no_proxy(bypass)};
 }
 
 // (2) 注册表回退。WinHTTP API 在某些精简 SKU 上不可用时仍然能拿到。
-std::optional<std::string> try_registry(const std::string& target_scheme) {
+std::optional<ResolvedProxy> try_registry(const std::string& target_scheme) {
     HKEY hk = nullptr;
     LONG rc = ::RegOpenKeyExW(HKEY_CURRENT_USER,
                               L"Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings",
@@ -116,6 +120,12 @@ std::optional<std::string> try_registry(const std::string& target_scheme) {
     std::wstring buf(bytes / sizeof(wchar_t), L'\0');
     rc = ::RegQueryValueExW(hk, L"ProxyServer", nullptr, nullptr,
                             reinterpret_cast<LPBYTE>(buf.data()), &bytes);
+    DWORD bypass_bytes = 0;
+    std::wstring bypass;
+    if (::RegGetValueW(hk, nullptr, L"ProxyOverride", RRF_RT_REG_SZ, nullptr, nullptr, &bypass_bytes) == ERROR_SUCCESS && bypass_bytes <= 65536) {
+        bypass.resize(bypass_bytes / sizeof(wchar_t));
+        if (::RegGetValueW(hk, nullptr, L"ProxyOverride", RRF_RT_REG_SZ, nullptr, bypass.data(), &bypass_bytes) != ERROR_SUCCESS) bypass.clear();
+    }
     ::RegCloseKey(hk);
     if (rc != ERROR_SUCCESS) return std::nullopt;
 
@@ -123,7 +133,9 @@ std::optional<std::string> try_registry(const std::string& target_scheme) {
     std::string raw = wide_to_utf8(buf.c_str());
     std::string parsed = parse_winhttp_proxy_string(raw, target_scheme);
     if (parsed.empty()) return std::nullopt;
-    return parsed;
+    auto exclusions = wide_to_utf8(bypass.c_str());
+    std::replace(exclusions.begin(), exclusions.end(), ';', ',');
+    return ResolvedProxy{parsed, "windows-registry", parse_no_proxy(exclusions)};
 }
 
 // (3) 环境变量。Windows 也会有用户在 cmd / PowerShell 设置 HTTPS_PROXY,与
@@ -154,11 +166,11 @@ std::optional<std::pair<std::string, std::string>> try_env(const std::string& ta
 ResolvedProxy auto_detect(const NetworkConfig& /*cfg*/, const std::string& target_url) {
     std::string scheme = scheme_of_url(target_url);
 
-    if (auto v = try_winhttp_ie(scheme); v.has_value() && !v->empty()) {
-        return {*v, "windows-system"};
+    if (auto v = try_winhttp_ie(scheme); v.has_value() && !v->url.empty()) {
+        return *v;
     }
-    if (auto v = try_registry(scheme); v.has_value() && !v->empty()) {
-        return {*v, "windows-registry"};
+    if (auto v = try_registry(scheme); v.has_value() && !v->url.empty()) {
+        return *v;
     }
     if (auto e = try_env(scheme); e.has_value()) {
         return {e->first, e->second};

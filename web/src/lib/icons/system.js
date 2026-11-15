@@ -36,6 +36,11 @@ export const systemIcons = {
     ['circle', { cx: 10, cy: 10.8, r: 5.9 }],
     ['path', { d: 'M10 7.4V10.5Q10 10.8 10.3 11L12.2 12.2M3.1 5.5L5.1 3.5M14.9 3.5L16.9 5.5M5.5 15.3L4.3 17M14.5 15.3L15.7 17' }],
   ],
+  // Transmitting antenna: emitter dot on a mast, two widely spaced wave arcs per side (±40°).
+  Antenna: [
+    ['circle', { cx: 10, cy: 8, r: 1.1, fill: 'currentColor', stroke: 'none' }],
+    ['path', { d: 'M10 9.1V17M12.76 5.69A3.6 3.6 0 0 1 12.76 10.31M7.24 5.69A3.6 3.6 0 0 0 7.24 10.31M15.21 3.63A6.8 6.8 0 0 1 15.21 12.37M4.79 3.63A6.8 6.8 0 0 0 4.79 12.37' }],
+  ],
   Archive: [
     ['rect', { x: 2.8, y: 3.5, width: 14.4, height: 3.4, rx: 1 }],
     ['path', { d: 'M3.8 7V14.9Q3.8 16.5 5.4 16.5H14.6Q16.2 16.5 16.2 14.9V7M8 10.2H12' }],

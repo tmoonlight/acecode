@@ -24,6 +24,7 @@ SideChatToolset build_side_chat_toolset(ToolExecutor& tools,
                                         WorkspaceBoundary& boundary,
                                         SessionManager* session,
                                         const ToolCapabilityPolicy& session_policy,
-                                        const SideChatMainSessionSender& send_to_main = {});
+                                        const SideChatMainSessionSender& send_to_main = {},
+                                        const std::function<bool(const std::string&)>& extra_read_denied = {});
 
 } // namespace acecode::agent

@@ -164,6 +164,14 @@ SettingsMutationResult set_native_notifications_enabled(
         options);
 }
 
+SettingsMutationResult set_invite_clipboard_detection(bool enabled, const SettingsMutationOptions& options) {
+    return run_mutation([enabled](AppConfig& cfg, std::string&) {
+        if (cfg.desktop.detect_invite_links_in_clipboard == enabled) return false;
+        cfg.desktop.detect_invite_links_in_clipboard = enabled;
+        return true;
+    }, options);
+}
+
 SettingsMutationResult set_remote_web_enabled(
     bool enabled,
     const SettingsMutationOptions& options) {

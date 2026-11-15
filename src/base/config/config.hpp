@@ -533,6 +533,7 @@ struct DesktopNotificationsConfig {
 };
 
 struct DesktopConfig {
+    bool detect_invite_links_in_clipboard = true;
     DesktopNotificationsConfig notifications;
     // Developer preference, shared by all installations for the current user.
     // Only new Desktop processes consult it; existing instances keep running.

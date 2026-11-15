@@ -12,7 +12,7 @@
 #include <functional>
 #include <string>
 
-#include <nlohmann/json_fwd.hpp>
+#include <nlohmann/json.hpp>
 
 namespace acecode {
 
@@ -57,5 +57,18 @@ nlohmann::json read_state_json();
 // 不保存回调,回调中不得重入 state_file API。mutate 返回 false 表示放弃写入
 // (仍视为成功)。损坏的 state.json 在此整体重写并记 LOG_WARN;拿不到锁或写失败返回 false。
 bool update_state_json(const std::function<bool(nlohmann::json& state)>& mutate);
+
+// Explicit-path variants for subsystem state files. These use the same atomic
+// writes, migration pause and process/file locking as the default state file.
+// Callbacks run synchronously and must not re-enter any state_file API.
+nlohmann::json read_state_json_at(const std::string& path);
+struct StateJsonUpdateResult {
+    bool persisted = false;
+    bool changed = false;
+    nlohmann::json state = nlohmann::json::object();
+    explicit operator bool() const { return persisted; }
+};
+StateJsonUpdateResult update_state_json_at(const std::string& path,
+    const std::function<bool(nlohmann::json& state)>& mutate);
 
 } // namespace acecode

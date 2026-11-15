@@ -57,6 +57,7 @@ import {
 import { sessionDisplayTitle, withNewSessionDisplayTitles } from '../lib/sessionTitle.js';
 import { useSessionTitleAnimation } from '../lib/useSessionTitleAnimation.js';
 import { SessionTitleText } from './SessionTitleText.jsx';
+import { SharedSessionBadge } from './SharedSessionBadge.jsx';
 import { pushTrayMenu } from '../lib/desktopTrayMenu.js';
 import { desktopTaskbarBadge } from '../lib/desktopTaskbarBadge.js';
 import { usePreference } from '../lib/usePreference.js';
@@ -1257,6 +1258,7 @@ function SessionRow({
             </span>
           )}
           <SidebarSessionTitle title={title} animation={titleAnimation} />
+          {!isGroup && <SharedSessionBadge sessionId={s.id} />}
         </button>
       )}
       <span className="flex w-full min-w-0 items-center justify-end gap-2">

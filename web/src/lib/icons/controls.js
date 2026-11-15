@@ -102,6 +102,8 @@ export const controlIcons = {
   Minus: [p('M4 10h12')],
   Pause: [r(5, 4, 3.2, 12, 1), r(11.8, 4, 3.2, 12, 1)],
   Restore: [r(3, 6.5, 10.5, 10.5, 1.4), p('M6.5 6.5V4.4Q6.5 3 7.9 3h7.7Q17 3 17 4.4v7.7q0 1.4-1.4 1.4h-2.1')],
+  // Open box with an arrow leaving through the gap; box matches ChatBubble's width.
+  Share: [p('M7 8H5Q3 8 3 10v5q0 2 2 2h10q2 0 2-2v-5q0-2-2-2h-2M10 12V3.2M7.8 5l1.8-1.8q.4-.4.8 0L12.2 5')],
   ShieldWarning: [p('M10 2.5Q6.8 4.7 3.5 5v4.1q0 5.1 6.5 8.4 6.5-3.3 6.5-8.4V5Q13.2 4.7 10 2.5ZM10 6.5v4.2'), dot(10, 13.5, .65)],
   Signal: [p('M4 15v-3M8 15V9M12 15V6M16 15V3')],
   Sliders: [p('M3 6.5h4.5M10.5 6.5H17M3 13.5h7.5M13.5 13.5H17'), c(9, 6.5, 1.6), c(12, 13.5, 1.6)],

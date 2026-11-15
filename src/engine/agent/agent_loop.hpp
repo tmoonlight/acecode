@@ -399,7 +399,8 @@ private:
     // Builds the baseline on the worker when nothing has been published yet (a
     // resumed session that has not run a turn), and waits for it.
     void ensure_side_question_context();
-    SideChatToolset side_chat_toolset(const SideChatMainSessionSender& send_to_main = {});
+    SideChatToolset side_chat_toolset(const SideChatMainSessionSender& send_to_main = {},
+        const std::function<bool(const std::string&)>& extra_read_denied = {});
     void require_before_start(const char* operation) const;
     void reload_exec_rules();
     void release_computer_use_session(const std::string& session_id) const;

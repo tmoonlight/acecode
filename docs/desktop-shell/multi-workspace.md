@@ -70,6 +70,15 @@ daemon slot 已启动,并向 daemon `POST /api/workspaces` 注册 cwd,返回同�
 
 ## 关键文件
 
+邀请桥接由 [invite_controller.cpp](../../src/apps/desktop/invite_controller.cpp) 管理：
+
+- `aceDesktop_getInviteClipboardPreference()` 读取当前原生识别开关。
+- `aceDesktop_applyInviteClipboardPreference(enabled)` 应用已由 daemon 保存的开关，不另写配置文件。
+- `aceDesktop_markInviteSeen(link)` 抑制应用自己复制的邀请。
+- `acecode:open-invite` 事件携带 `{link}`；页面未就绪时在内存中排队。
+- `--open-invite` 与工作区/会话打开请求互斥，第二实例交接后退出。
+
+
 | 路径 | 作用 |
 |---|---|
 | `src/base/workspace/workspace_registry.{hpp,cpp}` | 扫盘 / 读写 `workspace.json` / 默认命名 |

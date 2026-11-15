@@ -130,6 +130,11 @@ static ToolResult execute_glob(const std::string& arguments_json, const ToolCont
         }
         if (ec) { ec.clear(); continue; }
 
+        if (ctx.extra_read_denied && ctx.extra_read_denied(path_to_utf8(it->path()))) {
+            if (it->is_directory()) it.disable_recursion_pending();
+            continue;
+        }
+
         if (it->is_directory()) {
             if (should_ignore_dir(path_to_utf8(it->path().filename()))) {
                 it.disable_recursion_pending();

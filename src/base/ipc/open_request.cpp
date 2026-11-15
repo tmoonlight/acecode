@@ -24,6 +24,7 @@ namespace {
 
 constexpr const char* kWorkspaceArgument = "--open-workspace";
 constexpr const char* kSessionArgument = "--open-session";
+constexpr const char* kInviteArgument = "--open-invite";
 constexpr std::size_t kMaxCwdBytes = 32768;
 constexpr std::size_t kMaxSessionIdBytes = 512;
 
@@ -55,6 +56,13 @@ std::int64_t now_unix_ms() {
 
 bool valid_desktop_open_request(const DesktopOpenRequest& request,
                                 std::string* error) {
+    if (!request.invite.empty()) {
+        const bool valid = request.cwd.empty() && request.session_id.empty() &&
+            valid_text_field(request.invite, 8192) &&
+            (request.invite.rfind("acecode://connect/", 0) == 0 || request.invite.rfind("acecode%3A", 0) == 0);
+        if (error) *error = valid ? "" : "invalid or conflicting invitation request";
+        return valid;
+    }
     if (!valid_text_field(request.cwd, kMaxCwdBytes)) {
         if (error) *error = "Desktop open request has an invalid workspace path";
         return false;
@@ -70,6 +78,7 @@ bool valid_desktop_open_request(const DesktopOpenRequest& request,
 std::vector<std::string> desktop_open_request_arguments(
     const DesktopOpenRequest& request) {
     if (!valid_desktop_open_request(request)) return {};
+    if (!request.invite.empty()) return {kInviteArgument, request.invite};
     return {
         kWorkspaceArgument,
         request.cwd,
@@ -84,23 +93,28 @@ DesktopOpenRequestParseResult parse_desktop_open_request_arguments(
     DesktopOpenRequest request;
     bool saw_workspace = false;
     bool saw_session = false;
+    bool saw_invite = false;
 
     for (std::size_t index = argv.empty() ? 0 : 1; index < argv.size(); ++index) {
         const std::string& argument = argv[index];
         const bool is_workspace = argument == kWorkspaceArgument;
         const bool is_session = argument == kSessionArgument;
-        if (!is_workspace && !is_session) continue;
+        const bool is_invite = argument == kInviteArgument;
+        if (!is_workspace && !is_session && !is_invite) continue;
         if (index + 1 >= argv.size()) {
             result.error = argument + " requires a value";
             return result;
         }
 
         const std::string& value = argv[++index];
-        if (value == kWorkspaceArgument || value == kSessionArgument) {
+        if (value == kWorkspaceArgument || value == kSessionArgument || value == kInviteArgument) {
             result.error = argument + " requires a value";
             return result;
         }
-        if (is_workspace) {
+        if (is_invite) {
+            if (saw_invite) { result.error = "duplicate --open-invite"; return result; }
+            saw_invite = true; request.invite = value;
+        } else if (is_workspace) {
             if (saw_workspace) {
                 result.error = "duplicate " + std::string(kWorkspaceArgument);
                 return result;
@@ -117,6 +131,10 @@ DesktopOpenRequestParseResult parse_desktop_open_request_arguments(
         }
     }
 
+    if (saw_invite) {
+        if (!valid_desktop_open_request(request, &result.error)) return result;
+        result.request = std::move(request); return result;
+    }
     if (!saw_workspace && !saw_session) return result;
     if (!saw_workspace || !saw_session) {
         result.error =
@@ -148,6 +166,7 @@ bool publish_pending_desktop_open_request(
         {"created_at_unix_ms", now_unix_ms()},
         {"cwd", request.cwd},
         {"session_id", request.session_id},
+        {"invite", request.invite},
     };
     const std::string path = request_path(path_override);
     if (!atomic_write_file(path, payload.dump(), true)) {
@@ -213,16 +232,15 @@ std::optional<DesktopOpenRequest> take_pending_desktop_open_request(
                 DesktopOpenRequest request{
                     payload["cwd"].get<std::string>(),
                     payload["session_id"].get<std::string>(),
+                    payload.value("invite", std::string{}),
                 };
                 if (valid_desktop_open_request(request, &local_error)) {
                     result = std::move(request);
                 }
             }
         }
-    } catch (const std::exception& exception) {
-        local_error =
-            "failed to parse pending Desktop open request: " +
-            std::string(exception.what());
+    } catch (const std::exception&) {
+        local_error = "failed to parse pending Desktop open request";
     }
 
     std::error_code remove_error;

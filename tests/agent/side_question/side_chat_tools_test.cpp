@@ -8,6 +8,7 @@
 #include "tool/glob_tool.hpp"
 #include "tool/grep_tool.hpp"
 #include "tool/mtime_tracker.hpp"
+#include "share/share_projection.hpp"
 
 #include <atomic>
 #include <chrono>
@@ -192,6 +193,28 @@ TEST(SideChatTools, SendToMainToolForwardsToTheSenderOnlyWhenProvided) {
                                           R"({"message":"x"})"}, nullptr);
     EXPECT_FALSE(refused.success);
     EXPECT_NE(refused.output.find("not available"), std::string::npos);
+}
+
+TEST(SideChatTools, GuestsCannotReadOrSearchSensitiveFiles) {
+    // 场景：敏感文件在读取、grep 和 glob 三条路径都被屏蔽，普通文件仍可查询。
+    SideChatToolsFixture fx;
+    fx.write(fx.workspace / ".env", "needle=never-expose\n");
+    fx.write(fx.workspace / "private.pem", "needle=private-key\n");
+    fx.write(fx.workspace / "public.txt", "needle=visible\n");
+    const auto toolset = acecode::agent::build_side_chat_toolset(fx.tools, fx.permissions,
+        *fx.boundary, nullptr, {}, {}, [](const std::string& path) { return acecode::share::guest_sensitive_path(path); });
+    EXPECT_FALSE(toolset.can_send_to_main);
+    EXPECT_FALSE(toolset.execute(fx.call("file_read", {{"file_path", ".env"}}), nullptr).success);
+    const auto grep = toolset.execute(fx.call("grep", {{"pattern", "needle"}, {"path", fx.workspace.string()}}), nullptr);
+    EXPECT_TRUE(grep.success) << grep.output;
+    EXPECT_EQ(grep.output.find("never-expose"), std::string::npos);
+    EXPECT_EQ(grep.output.find("private-key"), std::string::npos);
+    EXPECT_NE(grep.output.find("visible"), std::string::npos);
+    const auto glob = toolset.execute(fx.call("glob", {{"pattern", "**/*"}, {"path", fx.workspace.string()}}), nullptr);
+    EXPECT_TRUE(glob.success);
+    EXPECT_EQ(glob.output.find(".env"), std::string::npos);
+    EXPECT_EQ(glob.output.find("private.pem"), std::string::npos);
+    EXPECT_NE(glob.output.find("public.txt"), std::string::npos);
 }
 
 } // namespace

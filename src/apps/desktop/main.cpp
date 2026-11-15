@@ -31,6 +31,8 @@
 #include "platform/locale.hpp"
 #include "platform/native_ui/notifications.hpp"
 #include "ipc/open_request.hpp"
+#include "platform/invite_protocol.hpp"
+#include "invite_controller.hpp"
 #include "open_in_explorer_bridge.hpp"
 #include "pick_active.hpp"
 #include "single_instance.hpp"
@@ -80,6 +82,7 @@
 #include <string>
 #include "utils/joining_thread.hpp"
 #include <vector>
+#include "utils/lifetime_token.hpp"
 
 #include <cpr/cpr.h>
 #ifdef _WIN32
@@ -704,6 +707,8 @@ int main(int argc, char** argv) {
                  startup_open_request_error);
     }
     const fs::path desktop_restart_target = current_desktop_executable_path();
+    if (!desktop_restart_target.empty())
+        acecode::platform::register_invite_protocol(acecode::path_to_utf8(desktop_restart_target));
     if (desktop_restart_target.empty()) {
         LOG_WARN("[desktop] could not resolve installed executable path; automatic restart will be unavailable");
     }
@@ -869,7 +874,7 @@ int main(int argc, char** argv) {
     std::string last_active = acecode::read_last_active_workspace_hash();
     std::string proc_cwd = current_cwd();
     std::optional<WorkspaceMeta> startup_open_workspace;
-    if (startup_open_request.has_value()) {
+    if (startup_open_request.has_value() && startup_open_request->invite.empty()) {
         if (!is_existing_directory(startup_open_request->cwd)) {
             LOG_WARN("[desktop] requested TUI workspace is unavailable: " +
                      startup_open_request->cwd);
@@ -1106,6 +1111,11 @@ int main(int argc, char** argv) {
 
     std::atomic<bool> page_ready_notified{false};
     std::function<void()> consume_pending_open_request;
+    DesktopInviteController invite_controller(host, desktop_cfg.desktop.detect_invite_links_in_clipboard);
+    const auto deliver_invite = invite_controller.opener();
+    const auto invitation_notification = invite_controller.notification_handler();
+    const auto check_invite_clipboard = invite_controller.activation_handler();
+    bool startup_invite_delivered = false;
     bool tray_ok = init_tray_icon(
         /*on_show=*/[&bring_window_foreground]() { bring_window_foreground(); },
         /*on_quit=*/[&host]() {
@@ -1196,6 +1206,7 @@ int main(int argc, char** argv) {
             &registry,
             &proj_dir,
             &focus_session,
+            deliver_invite,
             desktop_instance_started_at_ms
         ]() {
             std::string request_error;
@@ -1208,6 +1219,7 @@ int main(int argc, char** argv) {
                 LOG_WARN("[desktop] pending open request: " + request_error);
             }
             if (!request.has_value()) return;
+            if (!request->invite.empty()) { deliver_invite(request->invite); return; }
             if (!is_existing_directory(request->cwd)) {
                 LOG_WARN("[desktop] pending TUI workspace is unavailable: " +
                          request->cwd);
@@ -1278,7 +1290,8 @@ int main(int argc, char** argv) {
     notification_options.activation_window = host.native_window();
     const bool notifications_ok = init_notifications(notification_options);
     if (notifications_ok) {
-        set_click_handler([focus_session](const NotifyPayload& payload) {
+        set_click_handler([focus_session, invitation_notification](const NotifyPayload& payload) {
+            if (invitation_notification(payload)) return;
             focus_session(
                 payload.workspace_hash, payload.session_id, /*read_only=*/false);
         });
@@ -1324,6 +1337,10 @@ int main(int argc, char** argv) {
     host.bind("aceDesktop_pageReady", [&](const std::string& /*req*/) -> std::string {
         mark_startup("dom_ready", "frontend");
         close_splash_once();
+        if (!startup_invite_delivered && startup_open_request && !startup_open_request->invite.empty()) {
+            startup_invite_delivered = true;
+            deliver_invite(startup_open_request->invite);
+        }
         if (consume_pending_open_request) {
             consume_pending_open_request();
         }
@@ -2091,7 +2108,8 @@ int main(int argc, char** argv) {
     });
 
     // Explicit native activation lets the visible composer restore keyboard focus.
-    host.set_window_focus_handler([&host, &agent_browser]() {
+    host.set_window_focus_handler([&host, &agent_browser, check_invite_clipboard]() {
+        check_invite_clipboard();
         agent_browser.set_parent_visible(true);
         host.eval("(function(){try{window.dispatchEvent(new Event("
                   "'acecode:desktop-window-focus'));}catch(e){}})();");

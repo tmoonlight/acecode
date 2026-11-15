@@ -8,6 +8,8 @@
 #include "origin.hpp"
 #include "remote_web.hpp"
 #include "remote_web_proxy.hpp"
+#include "share_connection.hpp"
+#include "session/session_history_page.hpp"
 #include "static_assets.hpp"
 #include "config/config.hpp"
 #include "config/saved_models_editor.hpp"
@@ -261,7 +263,7 @@ struct UpdateJobRuntime {
 struct ResponseCorsMiddleware {
     struct context {};
 
-    void before_handle(crow::request&, crow::response&, context&) {}
+    void before_handle(crow::request& req, crow::response& resp, context&);
     void after_handle(crow::request& req, crow::response& resp, context&) {
         add_loopback_cors_headers(req, resp);
     }
@@ -312,6 +314,32 @@ struct WebServer::Impl {
     // settings requests without holding the broader app-config lock while a
     // child process reaches readiness.
     std::mutex remote_web_proxy_mu;
+    // Stores are shared with owned guest/peer workers, never with remote code.
+    std::shared_ptr<share::ShareStore> shares;
+    std::shared_ptr<peers::PeerStore> peers;
+    std::mutex sharing_mu;
+    std::unordered_map<void*, std::shared_ptr<ShareConnection>> pending_sharing;
+    std::unordered_map<crow::websocket::connection*, std::shared_ptr<ShareConnection>> sharing_connections;
+    ReapingThreadSet sharing_workers;
+    JoiningThread sharing_expiry;
+    LifetimeToken sharing_lifetime;
+    std::atomic<bool> sharing_stopped{false};
+    std::mutex sharing_stop_mu;
+    void initialize_sharing();
+    void stop_sharing();
+    void reconcile_share_listener();
+    void expire_share_connections();
+    std::string share_link(const share::ShareRecord& record);
+    std::optional<crow::response> require_share_auth(const crow::request& request, share::ShareRecord& record);
+    std::shared_ptr<SessionEntry> acquire_shared_session(const share::ShareRecord& record);
+    nlohmann::json shared_messages(const share::ShareRecord& record, const SessionHistoryRequest& request);
+    void register_sharing();
+    void register_share_socket();
+    void register_peers();
+    void register_peer_socket();
+    void open_sharing_connection(crow::websocket::connection& connection);
+    void close_sharing_connection(crow::websocket::connection& connection);
+    void handle_guest_message(crow::websocket::connection& connection, const std::string& data);
 
     // 从磁盘重读 saved_models 合并进内存 —— 连接器钩子(外部登录器)会直接
     // 改写 config.json;不重读的话,下一次任何 save_config 都会把新写入的

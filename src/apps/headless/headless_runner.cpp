@@ -2,6 +2,7 @@
 #include "config/mcp_config.hpp"
 #include "environment/bootstrap.hpp"
 #include "headless_runner.hpp"
+#include "peers/peer_tools.hpp"
 #include "headless_session_scope.hpp"
 #include "session/scoped_subscription.hpp"
 
@@ -202,7 +203,7 @@ void expand_skill_prompt(const SkillRegistry& skill_registry,
     }
 }
 
-void register_headless_tools(
+std::shared_ptr<peers::PeerStore> register_headless_tools(
     ToolExecutor& tools,
     const AppConfig& cfg,
     SkillRegistry* skill_registry,
@@ -230,6 +231,9 @@ void register_headless_tools(
     register_codex_thread_tools(tools, thread_deps);
     register_workspace_tools(tools, workspace_deps);
     register_mesh_agent_tools(tools, {}, cfg);
+    auto peer_store = std::make_shared<peers::PeerStore>(resolve_data_dir(get_run_mode()));
+    peers::register_peer_tools(tools, peer_store);
+    return peer_store;
 }
 
 int print_available_capabilities(const HeadlessCliOptions& opts) {
@@ -268,7 +272,7 @@ int print_available_capabilities(const HeadlessCliOptions& opts) {
             auto thread_deps = std::make_shared<ThreadToolDeps>();
             auto workspace_deps = std::make_shared<WorkspaceToolDeps>();
             // 只为列出名字构造记忆服务:不建目录、不打开状态库,发现分支保持无副作用。
-            register_headless_tools(
+            const auto peer_tools_owner = register_headless_tools(
                 tools, cfg, nullptr, subagent_deps, thread_deps,
                 workspace_deps, std::make_shared<MemoryService>(
                     get_memory_dir(), get_memory_state_db_path(), cfg.memory));
@@ -501,7 +505,7 @@ int run_print_mode(const HeadlessCliOptions& opts) {
     workspace_deps->projects_dir = projects_dir;
     // async 版 AskUserQuestion:headless::active() 分支在工具内部自动应答,
     // 不会真的走到 prompter。仍注册它是为了让模型看到与 daemon 一致的工具面。
-    register_headless_tools(
+    const auto peer_tools_owner = register_headless_tools(
         tools, cfg, &skill_registry, subagent_deps, thread_deps,
         workspace_deps, memory_runtime->service());
 

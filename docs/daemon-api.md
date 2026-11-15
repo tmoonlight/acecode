@@ -6767,3 +6767,52 @@ Runtime-generated names use underscore separators. Existing hyphen-named data re
 会话模型（元数据 `model_activated_at_ms`；旧记录按最后用户消息兼容）。
 摘要模型已选择但无效不静默回退。`MODEL_UNAVAILABLE`、`TIMEOUT`、
 `GENERATION_FAILED`、`INVALID_RESPONSE` 均保留旧结果。推断不创建会话、不调用工具。
+
+
+## 会话分享与对端
+
+完整说明见 [会话分享](session-sharing.md)。主人和本机对端管理接口沿用 daemon 鉴权；访客只使用 `X-ACECode-Share` 请求头，不能将分享码当作 daemon token。分享凭据不放在 HTTP 或 WebSocket URL 中。
+
+### 主人接口
+
+| 方法与路径 | 请求 / 返回 |
+| --- | --- |
+| `POST /api/sessions/:id/shares` | `{mode: "read_only" / "interactive", visibility: "conversation" / "tools", expires_in: 秒}`；201 返回记录及 `link`。默认可交互、只看对话、86400 秒；有效期 60–2592000 秒 |
+| `GET /api/shares` | `{shares: [...]}`；有效记录可再次复制链接，带 `active`、`revoked`、`expires_at` |
+| `DELETE /api/shares/:share_id` | 撤销凭据，立即关闭该分享现有访客连接 |
+| `GET /api/shares/:share_id/asks` | `{asks: [...]}`，脱敏后的时间、访客名、问题、答案和取消状态，最多 200 条 |
+| `GET /api/config/desktop-clipboard` | `{ok, enabled}` |
+| `PUT /api/config/desktop-clipboard` | `{enabled: boolean}`，按现有配置事务即时保存 |
+
+`mode` 决定能否聊天，`visibility` 决定工具内容是否可见，两者独立。dangerous 模式拒绝创建；无法由 daemon 加载的 TUI 主会话不可分享。分享数据不进入 `config.json`。
+
+局域网转发在远程 Web 开启或存在有效分享时运行。仅开启分享时，经转发进入的完整 token 也被拒绝。`web.remote_port=0` 优先尝试 12400，再尝试 daemon 相邻端口，最后由系统分配；链接记录实际监听端口。显式固定端口的已有语义保持不变。
+
+### 访客接口
+
+| 方法与路径 | 行为 |
+| --- | --- |
+| `POST /api/share/v1/hello` | 版本、主人、会话标题、对端身份、内容档位、提问权限、剩余额度及 `resets_at` |
+| `GET /api/share/v1/messages?limit=100&before=cursor` | 投影后的 `messages`、`before`、`has_older`；使用既有历史游标格式，每页最多 200 条 |
+| `GET /api/share/v1/turns?cursor=...` | 既有 ThreadService 的有界回合摘要，标记外部不可信来源 |
+| `GET /api/share/v1/attachments/:id/blob` | 仅返回被分享会话中允许显示的图片；不提供文件浏览能力 |
+
+访客接口从凭据解析只读授权对象，只访问其中的会话 ID；凭据缺失、无效、撤销、过期均不返回内容。会话未加载时后台恢复。访客 HTTP 不接受浏览器 Origin，接收方必须由自己的 daemon 代连。
+
+`WS /ws/share/v1` 同样使用请求头鉴权。只接受 `subscribe`、`unsubscribe`、`ping`、`ask_start {question, name}` 和 `ask_stop`。返回 `hello`、`changed`、已脱敏 `token`、`progress`、`ask_delta {text, reset}`、`ask_done {answer, cancelled, error, remaining, resets_at}`、`error`、`pong`。其它消息不能影响主会话。
+
+只读分享的 `ask_start` 返回 `read_only`，不调用模型或工具、不扣额度。可交互分享每码并发 1 次、UTC 每日 30 次；额度错误为 `question_busy` 或 `daily_limit`，后者携带恢复时间。提问使用分享者会话模型、独立的只读工具循环，无转发主会话能力，不写主会话历史。
+
+### 本机对端接口
+
+| 方法与路径 | 行为 |
+| --- | --- |
+| `POST /api/peers/connect` | `{link}`；仅在前端确认后调用，解码、逐个地址握手并保存，返回对端公共信息 |
+| `GET /api/peers` | `{peers: [...]}`，只回显凭据末四位 |
+| `DELETE /api/peers/:id` | 删除已保存对端并关闭本机中继连接 |
+| `GET /api/peers/:id/messages?before=cursor` | 本机 daemon 代读历史 |
+| `GET /api/peers/:id/attachments/:attachment_id/blob` | 本机 daemon 代读图片，校验 MIME 类型并禁止内容嗅探 |
+
+`WS /ws/peers/:id` 使用本机 daemon 的常规鉴权，转发以上访客协议，不接受主会话输入、审批或中止消息。网页不加载对端页面或脚本，完整分享凭据保留在 daemon 存储。已保存对端跨工作区共用；同一身份、同一会话的新邀请更新已有记录。
+
+跨机器图片经过本机接口，远程 `visual` 代码块只显示源码。私有/链路本地/唯一本地地址及单段主机名优先直连，不受系统或手动代理影响。

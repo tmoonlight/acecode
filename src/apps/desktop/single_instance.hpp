@@ -22,7 +22,7 @@
 //     这条 msg → ShowWindow + SetForegroundWindow。
 //   - POSIX:`flock` 在 `~/.acecode/run/acecode-desktop.lock` 上拿独占锁。
 //     macOS 二次启动通过 NSDistributedNotificationCenter 拉前已有窗口;Linux
-//     目前仍是 stub。
+//     使用每用户 Unix datagram 通知，由 GTK 主线程消费。
 //
 // 跨平台 boundary:
 //   - `SingleInstance` 类与 `focus_existing_instance()` 自由函数是接口契约。
@@ -72,7 +72,10 @@ private:
 // Windows 实现走 PostMessageW + RegisterWindowMessageW 的 system-wide msg ID,
 // 已有进程的 host_window_proc 收到后 ShowWindow(SW_SHOW) + SetForegroundWindow。
 //
-// macOS 走分布式通知;Linux 当前 stub 返回 false,调用方应在 false 时直接 exit。
+// macOS 走分布式通知;Linux 走每用户 Unix datagram socket。
 bool focus_existing_instance();
+#if !defined(_WIN32) && !defined(__APPLE__)
+platform::UniqueFd open_desktop_focus_socket();
+#endif
 
 } // namespace acecode::desktop

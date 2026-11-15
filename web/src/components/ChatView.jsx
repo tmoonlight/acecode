@@ -81,6 +81,7 @@ import '../styles/side-chat.css';
 import { GitSessionPill } from './GitSessionPill.jsx';
 import { SessionTitleBar } from './SessionTitleBar.jsx';
 import { SessionTitleActions } from './SessionTitleActions.jsx';
+import { openSessionSharing } from '../lib/sharingEvents.js';
 import { sessionTitleActionStates } from '../lib/sessionTitleActions.js';
 import { LspIndicator } from './LspIndicator.jsx';
 import { QuestionPicker } from './QuestionPicker.jsx';
@@ -6405,6 +6406,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
       onRenameCancel={cancelHeaderRename}>
       <SessionTitleActions
         states={titleActionStates}
+        onShareSession={() => openSessionSharing({ sessionId: sid, title, api })}
         summaryPanelOpen={summaryPanelOpen}
         onToggleSummaryPanel={onToggleSummaryPanel}
         trajectoryOpen={trajectoryOpen}

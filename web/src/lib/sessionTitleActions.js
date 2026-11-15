@@ -19,6 +19,7 @@ export function sessionTitleActionStates({
   const homePage = !sessionId && !auxiliaryPage;
   return {
     session,
+    share: { visible: true, enabled: session && !readOnly },
     summary: { visible: !!summaryToggle, enabled: session },
     trajectory: { visible: true, enabled: session },
     sideChat: { visible: true, enabled: session && !readOnly },

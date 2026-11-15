@@ -1927,7 +1927,7 @@ void WebServer::Impl::register_ui_preferences() {
                 options.config_path = deps.config_path;
                 options.live_config = deps.app_config;
                 result = set_remote_web_enabled(true, options);
-                if (!result.ok) deps.remote_web_proxy->stop();
+                if (!result.ok && !shares->has_active(now_unix_ms() / 1000)) deps.remote_web_proxy->stop();
             } else {
                 {
                     std::lock_guard<std::shared_mutex> config_lock(app_config_mu);
@@ -1936,7 +1936,7 @@ void WebServer::Impl::register_ui_preferences() {
                     options.live_config = deps.app_config;
                     result = set_remote_web_enabled(false, options);
                 }
-                if (result.ok) deps.remote_web_proxy->stop();
+                if (result.ok && !shares->has_active(now_unix_ms() / 1000)) deps.remote_web_proxy->stop();
             }
             if (!result.ok) {
                 return json_err(500, "PERSIST_FAILED", result.error);
