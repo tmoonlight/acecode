@@ -137,6 +137,11 @@ TEST(DesktopRestart, ReplacementArgumentsMustBePlainSwitches) {
     fs::path executable = temp.path() / "acecode-desktop";
 #endif
     std::ofstream(executable, std::ios::binary) << "stub";
+#ifndef _WIN32
+    fs::permissions(executable,
+                    fs::perms::owner_read | fs::perms::owner_write | fs::perms::owner_exec,
+                    fs::perm_options::replace);
+#endif
     error.clear();
     EXPECT_FALSE(launch_desktop_replacement(executable, {"--bad arg"}, &error));
     EXPECT_NE(error.find("plain switch"), std::string::npos);
