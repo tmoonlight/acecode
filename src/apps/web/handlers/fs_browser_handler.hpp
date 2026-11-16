@@ -18,6 +18,10 @@
 // 隐藏 = 名称以 '.' 开头,或(Windows)文件属性带 HIDDEN / SYSTEM;show_hidden 一起
 // 放行并在条目上标 hidden=true。单次列举上限 kFsBrowseMaxEntries,超出置 truncated。
 // 模块无 Crow 依赖,routes_fs.cpp 只做 HTTP 解析 + 序列化。
+//
+// 唯一的写操作是选择器底栏「New Folder」用的 create_browse_directory:在一个已存在的目录
+// 下建一层子目录。返回路径沿用同样的词法归一、不 canonical(理由同上);名字不合法直接
+// 拒绝,不替用户改名;不递归建父目录,不覆盖已有项目。
 
 #include <cstddef>
 #include <cstdint>
@@ -73,6 +77,35 @@ std::variant<FsBrowseResult, FsBrowseError>
 browse_directory(const std::string& path_utf8,
                  bool show_hidden,
                  std::size_t max_entries = kFsBrowseMaxEntries);
+
+enum class FsMkdirErrorKind {
+    InvalidName,         // 空名 / . / .. / 含分隔符或控制字符;Windows 另含 <>:"|?* 、句点结尾、保留设备名 → 400
+    NotAbsolute,         // parent 为空串 / 相对路径 → 400
+    ParentNotFound,      // parent 不存在 → 404
+    ParentNotDirectory,  // parent 存在但不是目录 → 404
+    AccessDenied,        // 权限拒绝 → 403
+    AlreadyExists,       // 同名项目(目录或文件)已存在 → 409
+    IoError,             // 其他失败(名字过长、磁盘只读等)→ 500
+};
+
+struct FsMkdirError {
+    FsMkdirErrorKind kind;
+    std::string message;  // 给日志 / body.detail
+};
+
+struct FsMkdirResult {
+    std::string path;  // 新目录的显示形态路径:parent 的归一路径 + "/" + name
+    std::string name;  // 实际使用的名字(去掉首尾空白之后)
+};
+
+// 名字的问题描述;合法返回空串。名字两端的 ASCII 空白由调用方先去掉。
+// windows_rules 只在单测里显式传入,线上按编译平台决定。
+std::string folder_name_problem(const std::string& name, bool windows_rules);
+bool folder_name_uses_windows_rules();
+
+// 在 parent_utf8 下建名为 name_utf8 的子目录(只建一层)。见文件头注释。
+std::variant<FsMkdirResult, FsMkdirError>
+create_browse_directory(const std::string& parent_utf8, const std::string& name_utf8);
 
 struct FsRootEntry {
     std::string path;        // "C:/" | "/" | "/Volumes/Data"

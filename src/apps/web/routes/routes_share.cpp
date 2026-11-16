@@ -8,6 +8,8 @@
 namespace acecode::web {
 using nlohmann::json;
 namespace {
+constexpr std::int64_t kShareLifetimeSeconds = 2 * 24 * 60 * 60;
+
 crow::response response_json(const crow::request& req, int status, const json& body) {
     crow::response response(status, body.dump());
     add_loopback_cors_headers(req, response);
@@ -49,25 +51,26 @@ void WebServer::Impl::register_sharing() {
         if (!workspace) return response_json(req,404, {{"error", "session_not_found"}});
         auto meta = find_session_meta_for_workspace(*workspace, id);
         if (!meta) return response_json(req,404, {{"error", "session_not_found"}});
-        const auto mode = body.value("mode", std::string("interactive"));
-        const auto visibility = body.value("visibility", std::string("conversation"));
+        const auto mode = body.value("mode", std::string("read_only"));
+        const auto visibility = body.value("visibility", std::string("tools"));
         if ((mode != "read_only" && mode != "interactive") ||
-            (visibility != "conversation" && visibility != "tools") ||
+            visibility != "tools" ||
             (body.contains("expires_in") && !body["expires_in"].is_number_integer()))
             return response_json(req,400, {{"error", "invalid_options"}});
-        const auto duration = body.value("expires_in", std::int64_t{86400});
-        if (duration < 60 || duration > 30 * 86400) return response_json(req,400, {{"error", "invalid_expiry"}});
+        const auto duration = body.value("expires_in", kShareLifetimeSeconds);
+        if (duration != kShareLifetimeSeconds) return response_json(req,400, {{"error", "invalid_expiry"}});
         share::ShareRecord record;
         record.session_id = id; record.cwd = meta->cwd.empty() ? workspace->cwd : meta->cwd;
         record.owner = (deps.remote_web_computer_name ? deps.remote_web_computer_name()
             : discover_remote_web_computer_name()).value_or("ACECode");
-        record.title = meta->title; record.include_tools = visibility == "tools";
+        record.title = meta->title; record.include_tools = true;
         record.allow_questions = mode == "interactive";
-        record.expires_at = now_unix_ms() / 1000 + duration;
         if (!acquire_shared_session(record)) return response_json(req, 409, {{"error", "session_unavailable"}});
         // Validate before persisting; long titles cannot create unusable shares.
         if (record.title.size() > 512) return response_json(req,400, {{"error", "title_too_long"}});
-        record = shares->create(std::move(record), now_unix_ms() / 1000);
+        const auto created_at = now_unix_ms() / 1000;
+        record.expires_at = created_at + kShareLifetimeSeconds;
+        record = shares->create(std::move(record), created_at);
         try {
             reconcile_share_listener();
             auto result = share::share_public_json(record);

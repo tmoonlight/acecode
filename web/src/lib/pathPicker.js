@@ -203,3 +203,54 @@ export function browseErrorKey(status) {
   if (status === 400) return 'not-absolute';
   return 'io-error';
 }
+
+// 文件名按什么规则比较:Windows 与 macOS 默认卷不区分大小写,Linux 区分。
+export function pickerNamesCaseInsensitive(os) {
+  return os === 'windows' || os === 'macos';
+}
+
+// 「New Folder」的默认名:base 没被占用就用 base,否则 "base (2)"、"base (3)"…(资源管理器
+// 同款)。占用判断看当前列出的全部条目(目录与文件);隐藏项没列出来时撞名由服务端 409 兜底。
+export function nextNewFolderName(entries, baseName, { caseInsensitive = true } = {}) {
+  const fold = (text) => (caseInsensitive ? text.toLowerCase() : text);
+  const taken = new Set((entries || []).map((entry) => fold(String(entry?.name || ''))));
+  if (!taken.has(fold(baseName))) return baseName;
+  for (let n = 2; ; n += 1) {
+    const candidate = `${baseName} (${n})`;
+    if (!taken.has(fold(candidate))) return candidate;
+  }
+}
+
+const WINDOWS_FORBIDDEN_NAME_CHARS = /[<>:"|?*]/u;
+const WINDOWS_RESERVED_NAME_RE = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])$/iu;
+
+// 新文件夹名在提交前的本地检查,与服务端 folder_name_problem 同一套规则(服务端仍是最终裁决)。
+// 返回问题键,合法返回 ''。name 由调用方先 trim。
+//   empty | dot | separator | control | windows-char | trailing | reserved | exists
+export function newFolderNameProblem(name, { windows = false, entries = [], caseInsensitive = windows } = {}) {
+  const text = String(name ?? '');
+  if (!text) return 'empty';
+  if (text === '.' || text === '..') return 'dot';
+  if (/[/\\]/u.test(text)) return 'separator';
+  // eslint-disable-next-line no-control-regex
+  if (/[\u0000-\u001f\u007f]/u.test(text)) return 'control';
+  if (windows) {
+    if (WINDOWS_FORBIDDEN_NAME_CHARS.test(text)) return 'windows-char';
+    if (/[. ]$/u.test(text)) return 'trailing';
+    const base = text.split('.')[0].replace(/ +$/u, '');
+    if (WINDOWS_RESERVED_NAME_RE.test(base)) return 'reserved';
+  }
+  const fold = (value) => (caseInsensitive ? value.toLowerCase() : value);
+  const wanted = fold(text);
+  if ((entries || []).some((entry) => fold(String(entry?.name || '')) === wanted)) return 'exists';
+  return '';
+}
+
+// POST /api/fs/mkdir 的失败 → 弹窗内联提示的文案键。
+export function mkdirErrorKey(status, body) {
+  if (status === 409) return 'exists';
+  if (status === 403) return 'permission-denied';
+  if (status === 404) return 'parent-missing';
+  if (status === 400 && body?.error === 'invalid name') return 'invalid-name';
+  return 'io-error';
+}

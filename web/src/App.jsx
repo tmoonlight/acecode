@@ -174,6 +174,7 @@ import {
   resumeSessionFromTarget,
   stripOpenSessionParams,
 } from './lib/sessionJump.js';
+import { createLastSessionRecorder } from './lib/lastSessionMemory.js';
 import { threadSessionTargetFromClickEvent } from './lib/fileLink.js';
 import { desktopUiMode } from './lib/desktopShellMode.js';
 import {
@@ -547,6 +548,8 @@ export function App() {
     typeof window === 'undefined' ? null : openSessionTargetFromSearch(window.location.search),
   );
   const startupNavigationStartedRef = useRef(false);
+  const lastSessionRecorderRef = useRef(null);
+  if (!lastSessionRecorderRef.current) lastSessionRecorderRef.current = createLastSessionRecorder();
   const pendingSessionNavigationIdsRef = useRef(new Set());
   const nextSessionNavigationIdRef = useRef(0);
   const sessionNavigationTimersRef = useRef(new Map());
@@ -801,6 +804,8 @@ export function App() {
     const navigationId = beginSessionNavigation();
     const navigationIsPending = () =>
       pendingSessionNavigationIdsRef.current.has(navigationId);
+    // 桌面版启动时自动回到上次会话(?restore=1):会话已被删除等失败静默回到首页。
+    const silent = target?.restored === true;
     let handedOffToPageLoad = false;
     try {
       const noWorkspace = sessionJumpNoWorkspace(target);
@@ -832,7 +837,7 @@ export function App() {
             try {
               resumed = await resumeWith(createApi({ port: r.port, token: r.token }), targetHash);
             } catch (e) {
-              if (navigationIsPending()) {
+              if (navigationIsPending() && !silent) {
                 toast({ kind: 'err', text: '恢复失败:' + (e.message || '') });
               }
               return false;
@@ -881,7 +886,7 @@ export function App() {
         }));
         return true;
       } catch (e) {
-        if (navigationIsPending()) {
+        if (navigationIsPending() && !silent) {
           toast({ kind: 'err', text: '恢复失败:' + (e.message || '') });
         }
         return false;
@@ -1095,6 +1100,13 @@ export function App() {
       .catch(() => {})
       .finally(() => setStartupNavigationSettled(true));
   }, [authState, resumeAndOpenSession]);
+
+  // 桌面版记住当前停留的会话,下次启动直接回到它(lib/lastSessionMemory.js)。
+  // 启动跳转落定之前不上报:那时 activeRef 还是空的,会把上次的记录清掉。
+  useEffect(() => {
+    if (authState !== 'ok' || !startupNavigationSettled) return;
+    lastSessionRecorderRef.current.remember(activeRef);
+  }, [authState, startupNavigationSettled, activeRef]);
 
   // 桌面壳 native 通知 click_handler 走 webview eval 调这两个 window 全局函数。
   // 同 workspace:focusSessionFromBridge → resume + setActiveRef

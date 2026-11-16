@@ -1,7 +1,8 @@
 // routes_fs.cpp — /api/fs:Web「选择文件 / 文件夹」弹窗的服务端目录浏览接口
 // (openspec add-web-path-picker)。与 /api/files 的语义差别见
-// handlers/fs_browser_handler.hpp 头注释:已鉴权即可浏览任意绝对目录,只读,不做
-// workspace 白名单;每次列举记一条带路径的日志。
+// handlers/fs_browser_handler.hpp 头注释:已鉴权即可浏览任意绝对目录,不做 workspace
+// 白名单;唯一的写操作是 mkdir(底栏「New Folder」,只建一层)。每次列举 / 建目录都记一条
+// 带路径的日志。
 #include "web/server_impl.hpp"
 #include "web/handlers/fs_browser_handler.hpp"
 #include "web/project_creation.hpp"
@@ -51,6 +52,32 @@ int browse_error_status(FsBrowseErrorKind kind) {
     return 500;
 }
 
+int mkdir_error_status(FsMkdirErrorKind kind) {
+    switch (kind) {
+        case FsMkdirErrorKind::InvalidName:        return 400;
+        case FsMkdirErrorKind::NotAbsolute:        return 400;
+        case FsMkdirErrorKind::ParentNotFound:     return 404;
+        case FsMkdirErrorKind::ParentNotDirectory: return 404;
+        case FsMkdirErrorKind::AccessDenied:       return 403;
+        case FsMkdirErrorKind::AlreadyExists:      return 409;
+        case FsMkdirErrorKind::IoError:            return 500;
+    }
+    return 500;
+}
+
+const char* mkdir_error_code(FsMkdirErrorKind kind) {
+    switch (kind) {
+        case FsMkdirErrorKind::InvalidName:        return "invalid name";
+        case FsMkdirErrorKind::NotAbsolute:        return "path must be absolute";
+        case FsMkdirErrorKind::ParentNotFound:     return "not found";
+        case FsMkdirErrorKind::ParentNotDirectory: return "not a directory";
+        case FsMkdirErrorKind::AccessDenied:       return "permission denied";
+        case FsMkdirErrorKind::AlreadyExists:      return "already exists";
+        case FsMkdirErrorKind::IoError:            return "io error";
+    }
+    return "io error";
+}
+
 const char* browse_error_code(FsBrowseErrorKind kind) {
     switch (kind) {
         case FsBrowseErrorKind::NotAbsolute:  return "path must be absolute";
@@ -70,6 +97,10 @@ void WebServer::Impl::register_fs() {
         return cors_preflight(req);
     });
     CROW_ROUTE(app, "/api/fs/list").methods(crow::HTTPMethod::Options)
+    ([this](const crow::request& req) {
+        return cors_preflight(req);
+    });
+    CROW_ROUTE(app, "/api/fs/mkdir").methods(crow::HTTPMethod::Options)
     ([this](const crow::request& req) {
         return cors_preflight(req);
     });
@@ -166,6 +197,46 @@ void WebServer::Impl::register_fs() {
 
         crow::response r(200);
         r.body = body.dump();
+        r.add_header("Content-Type", "application/json");
+        return with_cors(req, std::move(r));
+    });
+
+    // POST /api/fs/mkdir {parent, name} — 选择器底栏「New Folder」:在 parent 下建一层子目录。
+    // 与浏览一样已鉴权即可;每次尝试都记日志(成功与失败)。
+    CROW_ROUTE(app, "/api/fs/mkdir").methods(crow::HTTPMethod::Post)
+    ([this](const crow::request& req) {
+        if (auto rej = require_auth(req)) return std::move(*rej);
+
+        const auto parsed = json::parse(req.body, nullptr, false);
+        std::string parent;
+        std::string name;
+        if (parsed.is_object()) {
+            if (parsed.contains("parent") && parsed["parent"].is_string()) {
+                parent = parsed["parent"].get<std::string>();
+            }
+            if (parsed.contains("name") && parsed["name"].is_string()) {
+                name = parsed["name"].get<std::string>();
+            }
+        }
+
+        auto created = create_browse_directory(parent, name);
+        if (std::holds_alternative<FsMkdirError>(created)) {
+            const auto& err = std::get<FsMkdirError>(created);
+            LOG_INFO("[web] fs mkdir rejected parent=" + parent + " name=" + name +
+                     " reason=" + err.message);
+            crow::response r(mkdir_error_status(err.kind));
+            json body{{"error", mkdir_error_code(err.kind)}};
+            if (!err.message.empty()) body["detail"] = err.message;
+            r.body = body.dump(-1, ' ', false, json::error_handler_t::replace);
+            r.add_header("Content-Type", "application/json");
+            return with_cors(req, std::move(r));
+        }
+
+        const auto& made = std::get<FsMkdirResult>(created);
+        LOG_INFO("[web] fs mkdir path=" + made.path);
+        crow::response r(201);
+        r.body = json{{"path", made.path}, {"name", made.name}}
+                     .dump(-1, ' ', false, json::error_handler_t::replace);
         r.add_header("Content-Type", "application/json");
         return with_cors(req, std::move(r));
     });

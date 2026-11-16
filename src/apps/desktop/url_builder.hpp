@@ -21,4 +21,10 @@ std::string percent_encode(const std::string& raw);
 // 给定 port + token 拼出 WebView 用的初始 URL。port 不做范围校验(由调用方保证)。
 std::string build_loopback_url(int port, const std::string& token);
 
+// 给已有 URL 追加一个查询参数(key / value 都做 percent-encoding)。
+// 空 URL 与 about:blank(onboarding)原样返回。
+std::string append_query_param(const std::string& url,
+                               const std::string& key,
+                               const std::string& value);
+
 } // namespace acecode::desktop

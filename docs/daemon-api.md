@@ -367,6 +367,7 @@ download when nothing changed.
 | GET / PUT | `/api/files/editable` | read or safely save a Desktop workspace text file |
 | GET | `/api/fs/roots` | browsable roots for the Web path picker |
 | GET | `/api/fs/list` | list any absolute directory for the Web path picker |
+| POST | `/api/fs/mkdir` | create one folder from the Web path picker |
 | GET | `/api/git/info` | git repo info for a workspace |
 | POST | `/api/git/checkout` | switch branch (stash-aware) |
 | GET | `/api/git/changes` | working tree changes vs base |
@@ -2972,7 +2973,7 @@ Lists the direct children of any absolute directory readable by the daemon
 process. Unlike `/api/files`, there is no workspace whitelist: any
 authenticated client (loopback without a token, or a remote client with a valid
 token) may browse the whole filesystem. The route is read-only and logs every
-listing with its path.
+listing with its path. The only write in `/api/fs` is `POST /api/fs/mkdir`.
 
 ```json
 {
@@ -3010,6 +3011,36 @@ Errors: `400 {"error":"path must be absolute"}` for an empty or relative
 `path`; `404 {"error":"not found"}` and `404 {"error":"not a directory"}`;
 `403 {"error":"permission denied"}` when the daemon cannot read the directory;
 `500 {"error":"io error"}` otherwise. Error bodies may add a `detail` string.
+
+### `POST /api/fs/mkdir`
+
+Creates one folder for the picker's **New Folder** button (folder mode only).
+Same access rule as `/api/fs/list`: any authenticated client, no workspace
+whitelist. Every attempt is logged with its parent and name.
+
+```json
+{"parent": "C:/Users/shao/projects", "name": "demo"}
+```
+
+Success is `201 {"path": "C:/Users/shao/projects/demo", "name": "demo"}`.
+`path` uses the same lexical normalization as `/api/fs/list` and does not
+resolve junctions, so a folder created under a junction keeps the junction
+spelling. `name` is the name actually used after trimming surrounding ASCII
+whitespace.
+
+- Only one level is created. A missing `parent` is an error, never created.
+- Names are rejected, never rewritten: empty, `.`, `..`, containing `/`, `\`,
+  or control characters; on Windows also `< > : " | ? *`, a trailing period or
+  space, and reserved device names (`CON`, `NUL`, `COM1`, `LPT9`, also with an
+  extension).
+- An existing entry of the same name, whether a folder, file, or dangling link,
+  is never overwritten.
+
+Errors: `400 {"error":"invalid name"}`; `400 {"error":"path must be absolute"}`
+for an empty or relative `parent`; `404 {"error":"not found"}` and
+`404 {"error":"not a directory"}` for the parent; `403 {"error":"permission denied"}`;
+`409 {"error":"already exists"}`; `500 {"error":"io error"}` otherwise (for
+example, a name that is too long). Error bodies may add a `detail` string.
 
 ### `GET /api/git/info?cwd=<abs>`
 
@@ -6777,14 +6808,14 @@ Runtime-generated names use underscore separators. Existing hyphen-named data re
 
 | 方法与路径 | 请求 / 返回 |
 | --- | --- |
-| `POST /api/sessions/:id/shares` | `{mode: "read_only" / "interactive", visibility: "conversation" / "tools", expires_in: 秒}`；201 返回记录及 `link`。默认可交互、只看对话、86400 秒；有效期 60–2592000 秒 |
+| `POST /api/sessions/:id/shares` | `{mode?: "read_only" / "interactive", visibility?: "tools", expires_in?: 172800}`；201 返回记录及 `link`。默认只读，固定包含工具内容、172800 秒后失效；其它 visibility 或 expires_in 值返回 400 |
 | `GET /api/shares` | `{shares: [...]}`；有效记录可再次复制链接，带 `active`、`revoked`、`expires_at` |
 | `DELETE /api/shares/:share_id` | 撤销凭据，立即关闭该分享现有访客连接 |
 | `GET /api/shares/:share_id/asks` | `{asks: [...]}`，脱敏后的时间、访客名、问题、答案和取消状态，最多 200 条 |
 | `GET /api/config/desktop-clipboard` | `{ok, enabled}` |
 | `PUT /api/config/desktop-clipboard` | `{enabled: boolean}`，按现有配置事务即时保存 |
 
-`mode` 决定能否聊天，`visibility` 决定工具内容是否可见，两者独立。dangerous 模式拒绝创建；无法由 daemon 加载的 TUI 主会话不可分享。分享数据不进入 `config.json`。
+`mode` 决定能否聊天。新链接内容固定为含工具输出，有效期固定两天；保留 `visibility`、`expires_in` 字段用于明确声明固定值，禁止其它值。已存在分享按原记录生效。dangerous 模式拒绝创建；无法由 daemon 加载的 TUI 主会话不可分享。分享数据不进入 `config.json`。
 
 局域网转发在远程 Web 开启或存在有效分享时运行。仅开启分享时，经转发进入的完整 token 也被拒绝。`web.remote_port=0` 优先尝试 12400，再尝试 daemon 相邻端口，最后由系统分配；链接记录实际监听端口。显式固定端口的已有语义保持不变。
 

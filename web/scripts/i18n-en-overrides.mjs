@@ -1,6 +1,8 @@
 // Human-reviewed product terminology and phrases where generic machine
 // translation is ambiguous without ACECode context.
 export const ENGLISH_SOURCE_OVERRIDES = Object.freeze({
+  '已存在的链接': 'Existing links',
+  '打开可交互会话会消耗共享用户的token额度。': "Enabling interactive sessions consumes the sharing user's token allowance.",
   '持有链接即可访问，仅限可信局域网。提问消耗你的模型额度。': 'Anyone with the link can access this session. Use trusted local networks only. Questions use your model allowance.',
   '提问额度已用完，将于 {{p0}} 恢复': 'Question limit reached. Resets at {{p0}}.',
   '{{p0}} 邀请你查看会话「{{p1}}」，请用 ACECode 打开：{{p2}}': '{{p0}} invited you to view "{{p1}}". Open with ACECode: {{p2}}',
@@ -719,6 +721,19 @@ export const ENGLISH_SOURCE_OVERRIDES = Object.freeze({
   '查看变更': 'View changes',
   '找不到路径:{{p0}}': 'Path not found: {{p0}}',
   '无权限读取这个目录:{{p0}}': 'No permission to read this folder: {{p0}}',
+  "新建文件夹": "New folder",
+  "文件夹名称": "Folder name",
+  "请输入文件夹名称": "Enter a folder name",
+  "名称不能是 . 或 ..": "Name can't be \".\" or \"..\"",
+  "名称不能包含斜杠或反斜杠": "Name can't contain slashes or backslashes",
+  "名称不能包含控制字符": "Name can't contain control characters",
+  "名称不能包含这些字符:< > : \" | ? *": "Name can't contain any of these characters: <>:\"|?*",
+  "名称不能以句点或空格结尾": "Name can't end with a period or space",
+  "「{{p0}}」是系统保留名称": "\"{{p0}}\" is a reserved system name",
+  "「{{p0}}」已存在": "\"{{p0}}\" already exists",
+  "无权限在这个目录里新建文件夹:{{p0}}": "No permission to create a folder here: {{p0}}",
+  "文件夹名称无效:{{p0}}": "Invalid folder name: {{p0}}",
+  "新建文件夹失败:{{p0}}": "Couldn't create folder: {{p0}}",
   '显示隐藏': 'Show hidden',
   '显示隐藏项目': 'Show hidden items',
   '服务端文件系统': 'server filesystem',

@@ -33,6 +33,7 @@
 #include "ipc/open_request.hpp"
 #include "platform/invite_protocol.hpp"
 #include "invite_controller.hpp"
+#include "last_session.hpp"
 #include "open_in_explorer_bridge.hpp"
 #include "pick_active.hpp"
 #include "single_instance.hpp"
@@ -45,6 +46,7 @@
 #include "tray_icon_win.hpp"
 #include "url_builder.hpp"
 #include "web_host.hpp"
+#include "window_foreground.hpp"
 #include "web_host_close_policy.hpp"
 #include "window_bounds_state.hpp"
 #include "window_shape.hpp"
@@ -280,16 +282,6 @@ void show_error(const std::string& msg) {
 
 using acecode::path_from_utf8;
 using acecode::path_to_utf8;
-
-std::string append_query_param(const std::string& url,
-                               const std::string& key,
-                               const std::string& value) {
-    if (url.empty() || url == "about:blank") return url;
-    const char separator = url.find('?') == std::string::npos ? '?' : '&';
-    return url + separator +
-           acecode::desktop::percent_encode(key) + "=" +
-           acecode::desktop::percent_encode(value);
-}
 
 std::string locate_daemon_exe() {
     auto dir = desktop_exe_dir();
@@ -542,7 +534,7 @@ int run_browser_fallback(const std::string& url,
         return failures.empty() ? 1 : 100;
     }
 
-    const std::string browser_url = append_query_param(url, "ace_webapp", "1");
+    const std::string browser_url = acecode::desktop::append_query_param(url, "ace_webapp", "1");
 
 #ifdef _WIN32
     // 1) 启动浏览器:Edge --app 优先(拿到进程句柄),失败退到默认浏览器。
@@ -677,6 +669,7 @@ int main(int argc, char** argv) {
     // MessageBox 给用户提示)。
     auto run = [
         force_webapp,
+        relaunched = acecode::desktop::desktop_relaunched_after_update(process_arguments),
         startup_open_request = startup_open_parse.request,
         startup_open_request_error = startup_open_parse.error
     ]() -> int {
@@ -871,7 +864,9 @@ int main(int argc, char** argv) {
     mark_startup("workspace_scan_end");
 
     // 2. 决定 active workspace
+    const auto restore_session = startup_open_request ? std::nullopt : restorable_last_session(registry);
     std::string last_active = acecode::read_last_active_workspace_hash();
+    if (restore_session && !restore_session->workspace_hash.empty()) last_active = restore_session->workspace_hash;
     std::string proc_cwd = current_cwd();
     std::optional<WorkspaceMeta> startup_open_workspace;
     if (startup_open_request.has_value() && startup_open_request->invite.empty()) {
@@ -1089,6 +1084,7 @@ int main(int argc, char** argv) {
     acecode::desktop::install_agent_browser_cookie_bridge(host, agent_browser);
     const auto ios_simulator_view = install_ios_simulator_view(host);
     std::atomic<bool> restart_requested{false};
+    const bool reveal_in_foreground = note_desktop_version_launch(ACECODE_VERSION) || relaunched;
     host.set_title("ACECode");
     host.set_size(kDefaultDesktopWindowWidth, kDefaultDesktopWindowHeight);
     host.restore_window_bounds(read_desktop_window_bounds());
@@ -1330,7 +1326,10 @@ int main(int argc, char** argv) {
         startup_splash_open = false;
         // 先在启动浮窗上播完 'A>' 收尾,再显示主窗口;回调可能在浮窗的绘制线程上触发,
         // 经 dispatch 回到主线程。
-        splash.finish([&host] { host.dispatch([&host] { host.set_visible(true); }); });
+        splash.finish([&host, reveal_in_foreground] { host.dispatch([&host, reveal_in_foreground] {
+            const auto show = [&host] { host.set_visible(true); };
+            reveal_in_foreground ? (void)show_window_in_foreground(host.native_window(), show) : show();
+        }); });
     };
 
     // 前端首屏完成后让启动浮窗收尾,再把屏幕外的主窗口移回前台。
@@ -2397,6 +2396,7 @@ int main(int argc, char** argv) {
         }
     });
 
+    host.bind("aceDesktop_setLastSession", handle_set_last_session);
     // bridge: activateWorkspace
     auto activate_fn = [&](const std::string& hash) -> nlohmann::json {
         registry.scan(proj_dir);
@@ -2767,6 +2767,7 @@ int main(int argc, char** argv) {
         "window.__ACECODE_DESKTOP_STARTUP__=" +
         startup_timeline.snapshot_json() + ";\n");
     startup_navigation_started = true;
+    if (restore_session) url = last_session_url(url, *restore_session);
     host.navigate(url);
     if (url == onboarding_url()) close_splash_once();
 
@@ -2808,7 +2809,7 @@ int main(int argc, char** argv) {
         singleton.release();
         LOG_INFO("[desktop] post-upgrade replacement launch started");
         std::string restart_error;
-        if (!launch_desktop_replacement(desktop_restart_target, &restart_error)) {
+        if (!launch_desktop_replacement(desktop_restart_target, {kRelaunchedAfterUpdateArgument}, &restart_error)) {
             LOG_ERROR("[desktop] failed to launch replacement after upgrade: " + restart_error);
             return 101;
         }

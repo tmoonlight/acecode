@@ -249,6 +249,107 @@ browse_directory(const std::string& path_utf8, bool show_hidden, std::size_t max
     return result;
 }
 
+namespace {
+
+// Windows 保留设备名:扩展名不救命("CON.txt" 同样打不开),比较前去掉首个句点之后的部分
+// 与尾部空格,并按 ASCII 不分大小写。
+bool is_windows_reserved_folder_name(const std::string& name) {
+    std::string base = name.substr(0, name.find('.'));
+    while (!base.empty() && base.back() == ' ') base.pop_back();
+    for (auto& c : base) c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+    if (base == "CON" || base == "PRN" || base == "AUX" || base == "NUL") return true;
+    if (base.size() == 4 && base[3] >= '1' && base[3] <= '9') {
+        return base.rfind("COM", 0) == 0 || base.rfind("LPT", 0) == 0;
+    }
+    return false;
+}
+
+} // namespace
+
+bool folder_name_uses_windows_rules() {
+#ifdef _WIN32
+    return true;
+#else
+    return false;
+#endif
+}
+
+std::string folder_name_problem(const std::string& name, bool windows_rules) {
+    if (name.empty()) return "name is empty";
+    if (name == "." || name == "..") return "name cannot be . or ..";
+    for (const char ch : name) {
+        const auto c = static_cast<unsigned char>(ch);
+        if (c < 32 || c == 127) return "name contains a control character";
+        if (c == '/' || c == '\\') return "name contains a path separator";
+        if (!windows_rules) continue;
+        switch (c) {
+            case '<': case '>': case ':': case '"': case '|': case '?': case '*':
+                return std::string("name contains a character Windows does not allow: ") + ch;
+            default:
+                break;
+        }
+    }
+    if (windows_rules) {
+        // Windows 会静默剥掉尾部的句点与空格,建出来的目录和用户看到的名字对不上。
+        if (name.back() == '.' || name.back() == ' ') {
+            return "name cannot end with a period or space";
+        }
+        if (is_windows_reserved_folder_name(name)) return "name is reserved by Windows";
+    }
+    return {};
+}
+
+std::variant<FsMkdirResult, FsMkdirError>
+create_browse_directory(const std::string& parent_utf8, const std::string& name_utf8) {
+    const auto parent = normalize_browse_path(parent_utf8);
+    if (!parent) {
+        return FsMkdirError{FsMkdirErrorKind::NotAbsolute, "parent must be an absolute path"};
+    }
+    const std::string name = trim_ascii(name_utf8);
+    if (const std::string problem = folder_name_problem(name, folder_name_uses_windows_rules());
+        !problem.empty()) {
+        return FsMkdirError{FsMkdirErrorKind::InvalidName, problem};
+    }
+
+    const fs::path parent_path = path_from_utf8(*parent);
+    std::error_code ec;
+    const auto st = fs::status(parent_path, ec);  // 跟随 junction / symlink
+    if (ec) {
+        if (ec == std::errc::permission_denied) {
+            return FsMkdirError{FsMkdirErrorKind::AccessDenied, error_text(ec)};
+        }
+        return FsMkdirError{FsMkdirErrorKind::ParentNotFound, error_text(ec)};
+    }
+    if (!fs::exists(st)) {
+        return FsMkdirError{FsMkdirErrorKind::ParentNotFound, "parent directory not found"};
+    }
+    if (!fs::is_directory(st)) {
+        return FsMkdirError{FsMkdirErrorKind::ParentNotDirectory, "parent is not a directory"};
+    }
+
+    const fs::path target = parent_path / path_from_utf8(name);
+    const std::string display = (parent->back() == '/' ? *parent : *parent + "/") + name;
+
+    // symlink_status:悬空的链接也算「已存在」,不能顺着它在别处建目录。
+    ec.clear();
+    const auto existing = fs::symlink_status(target, ec);
+    if (!ec && fs::exists(existing)) {
+        return FsMkdirError{FsMkdirErrorKind::AlreadyExists, "already exists: " + display};
+    }
+
+    ec.clear();
+    if (!fs::create_directory(target, ec)) {
+        if (!ec || ec == std::errc::file_exists) {
+            return FsMkdirError{FsMkdirErrorKind::AlreadyExists, "already exists: " + display};
+        }
+        if (ec == std::errc::permission_denied) {
+            return FsMkdirError{FsMkdirErrorKind::AccessDenied, error_text(ec)};
+        }
+        return FsMkdirError{FsMkdirErrorKind::IoError, error_text(ec)};
+    }
+    return FsMkdirResult{display, name};
+}
+
 std::vector<FsRootEntry> enumerate_roots() {
     std::vector<FsRootEntry> out;
 #ifdef _WIN32

@@ -13645,6 +13645,45 @@ TEST(WebServerHttp, FsListRejectsRelativeMissingAndFilePaths) {
     EXPECT_EQ(json::parse(file.text)["error"], "not a directory");
 }
 
+// 场景:选择器底栏「New Folder」在 workspace 白名单之外的目录里建子目录。期望:
+//   - 首次 POST → 201,返回 parent 显示形态 + "/" + 名字,目录真实落盘;
+//   - 同名再建 → 409 "already exists";名字含分隔符 → 400 "invalid name";
+//   - parent 不存在 → 404 "not found" 且不会被递归建出来;body 不是 JSON → 按空参数处理成 400。
+TEST(WebServerHttp, FsMkdirCreatesOneLevelAndReportsConflicts) {
+    WebServerFixture fx;
+    const auto parent = fx.tmp_dir / "fs-mkdir";
+    std::filesystem::create_directories(parent);
+    const std::string parent_utf8 = acecode::path_to_utf8(parent);
+    const auto post = [&](const json& body) {
+        return cpr::Post(cpr::Url{fx.url("/api/fs/mkdir")},
+                         cpr::Header{{"Content-Type", "application/json"}},
+                         cpr::Body{body.dump()});
+    };
+
+    auto created = post({{"parent", parent_utf8}, {"name", "fresh"}});
+    ASSERT_EQ(created.status_code, 201) << created.text;
+    const auto expected_dir = acecode::web::normalize_browse_path(parent_utf8).value();
+    EXPECT_EQ(json::parse(created.text)["path"], expected_dir + "/fresh");
+    EXPECT_TRUE(std::filesystem::is_directory(parent / "fresh"));
+
+    auto again = post({{"parent", parent_utf8}, {"name", "fresh"}});
+    ASSERT_EQ(again.status_code, 409) << again.text;
+    EXPECT_EQ(json::parse(again.text)["error"], "already exists");
+
+    auto bad_name = post({{"parent", parent_utf8}, {"name", "a/b"}});
+    ASSERT_EQ(bad_name.status_code, 400) << bad_name.text;
+    EXPECT_EQ(json::parse(bad_name.text)["error"], "invalid name");
+
+    const auto missing = parent / "missing";
+    auto no_parent = post({{"parent", acecode::path_to_utf8(missing)}, {"name", "x"}});
+    ASSERT_EQ(no_parent.status_code, 404) << no_parent.text;
+    EXPECT_EQ(json::parse(no_parent.text)["error"], "not found");
+    EXPECT_FALSE(std::filesystem::exists(missing));
+
+    auto garbage = cpr::Post(cpr::Url{fx.url("/api/fs/mkdir")}, cpr::Body{"not json"});
+    EXPECT_EQ(garbage.status_code, 400) << garbage.text;
+}
+
 // 场景:设置页「工具重写」的 REST 往返。GET 默认 → PUT 启用一条重写 → 文件落在
 // config.json 同目录的 tool-rewrites.json、进程映射立即生效 → 撞真实工具名的
 // PUT 被拒且不改动已生效映射 → PUT 关闭后映射清空。
@@ -15974,4 +16013,37 @@ TEST(WebServerHttp, ShareCreationRejectsDangerousAndTuiSurfaces) {
         EXPECT_EQ(response.status_code, 503);
         EXPECT_FALSE(fx.remote_web_proxy->status().running);
     }
+}
+
+TEST(WebServerHttp, ShareCreationUsesReadOnlyToolsAndTwoDayPolicy) {
+    // 场景：省略选项时只读且含工具，显式开启才可交互；其它内容档位和有效期不能创建。
+    WebServerFixture fx;
+    const auto session = cpr::Post(cpr::Url{fx.url("/api/sessions")},
+        cpr::Header{{"Content-Type", "application/json"}}, cpr::Body{"{}"});
+    ASSERT_EQ(session.status_code, 201) << session.text;
+    const auto sid = json::parse(session.text).at("session_id").get<std::string>();
+    const auto create = [&](const json& options) {
+        return cpr::Post(cpr::Url{fx.url("/api/sessions/" + sid + "/shares")},
+            cpr::Header{{"Content-Type", "application/json"}}, cpr::Body{options.dump()});
+    };
+    const auto default_share = create(json::object());
+    ASSERT_EQ(default_share.status_code, 201) << default_share.text;
+    const auto readonly = json::parse(default_share.text);
+    EXPECT_EQ(readonly.at("mode"), "read_only");
+    EXPECT_FALSE(readonly.at("allow_questions").get<bool>());
+    EXPECT_TRUE(readonly.at("include_tools").get<bool>());
+    EXPECT_EQ(readonly.at("expires_at").get<std::int64_t>() - readonly.at("created_at").get<std::int64_t>(), 172800);
+    const auto interactive_share = create({{"mode", "interactive"}, {"visibility", "tools"}, {"expires_in", 172800}});
+    ASSERT_EQ(interactive_share.status_code, 201) << interactive_share.text;
+    const auto interactive = json::parse(interactive_share.text);
+    EXPECT_TRUE(interactive.at("allow_questions").get<bool>());
+    EXPECT_TRUE(interactive.at("include_tools").get<bool>());
+    EXPECT_EQ(interactive.at("expires_at").get<std::int64_t>() - interactive.at("created_at").get<std::int64_t>(), 172800);
+    EXPECT_EQ(create({{"visibility", "conversation"}}).status_code, 400);
+    for (const auto value : {60, 86400, 2592000})
+        EXPECT_EQ(create({{"expires_in", value}}).status_code, 400);
+    EXPECT_EQ(create({{"expires_in", "172800"}}).status_code, 400);
+    const auto listed = cpr::Get(cpr::Url{fx.url("/api/shares")});
+    ASSERT_EQ(listed.status_code, 200);
+    EXPECT_EQ(json::parse(listed.text).at("shares").size(), 2u);
 }

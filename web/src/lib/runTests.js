@@ -346,6 +346,7 @@ import './remoteControlSessionHighlightArchitecture.test.js';
 import './remoteControlSessionNavigation.test.js';
 import './remoteControlSessionNavigationArchitecture.test.js';
 import './sessionJump.test.js';
+import './lastSessionMemory.test.js';
 import './sessionNavigationMaskArchitecture.test.js';
 import './sessionListEvents.test.js';
 import './errors.test.js';
