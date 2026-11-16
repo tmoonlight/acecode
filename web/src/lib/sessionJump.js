@@ -159,6 +159,8 @@ export function openSessionTargetFromSearch(search = '') {
     params.get('workspaceHash'),
   );
   const target = { sessionId, workspaceHash, noWorkspace, readOnly };
+  // 桌面壳自动恢复上次会话时带 restore=1:失败静默回到首页,不弹错误。
+  if (boolParam(params.get('restore'))) target.restored = true;
   const ordinal = sessionJumpMessageOrdinal({
     message_ordinal: params.get('message_ordinal'),
     messageOrdinal: params.get('messageOrdinal'),
@@ -174,7 +176,7 @@ export function openSessionTargetFromSearch(search = '') {
 export function stripOpenSessionParams(search = '') {
   const raw = text(search);
   const params = new URLSearchParams(raw.startsWith('?') ? raw.slice(1) : raw);
-  for (const key of ['open', 'workspace', 'workspace_hash', 'workspaceHash', 'no_workspace', 'noWorkspace', 'read_only', 'readOnly', 'message_ordinal', 'messageOrdinal', 'message_position', 'messagePosition']) {
+  for (const key of ['open', 'workspace', 'workspace_hash', 'workspaceHash', 'no_workspace', 'noWorkspace', 'read_only', 'readOnly', 'message_ordinal', 'messageOrdinal', 'message_position', 'messagePosition', 'restore']) {
     params.delete(key);
   }
   return params.toString();

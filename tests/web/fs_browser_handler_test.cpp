@@ -3,6 +3,7 @@
 //   - browse_directory:目录优先排序、隐藏开关、噪音目录照常列出、错误分类、条目上限、
 //     Windows junction 保留原样前缀并附 link_target
 //   - enumerate_roots / home_directory / desktop_directory / host_os_name
+//   - folder_name_problem / create_browse_directory:选择器底栏「New Folder」建一层子目录
 //
 // 与 files_handler_test 的关系:这是「选择器」语义(全盘、完整路径、不过滤噪音与链接),
 // 不是「文件树」语义;两套函数刻意不共享过滤逻辑,所以测试也各自独立。
@@ -34,6 +35,11 @@
 namespace fs = std::filesystem;
 
 using acecode::web::browse_directory;
+using acecode::web::create_browse_directory;
+using acecode::web::folder_name_problem;
+using acecode::web::FsMkdirError;
+using acecode::web::FsMkdirErrorKind;
+using acecode::web::FsMkdirResult;
 using acecode::web::browse_parent_path;
 using acecode::web::desktop_directory;
 using acecode::web::enumerate_roots;
@@ -377,3 +383,131 @@ TEST(FsBrowserHandler, DesktopDirectoryIsOmittedWhenMissing) {
     ASSERT_TRUE(desktop.has_value());
     EXPECT_EQ(*desktop, home + "/Desktop");
 }
+
+namespace {
+
+FsMkdirErrorKind mkdir_error_kind(const std::variant<FsMkdirResult, FsMkdirError>& r) {
+    return std::get<FsMkdirError>(r).kind;
+}
+
+} // namespace
+
+// 场景:用户在选择器里点「New Folder」,输入框里的名字带首尾空格、是中文。期望:去掉首尾空格
+// 后在 parent 下建出这一层目录;返回的 path 是 parent 的显示形态 + "/" + 名字(正斜杠、
+// 不 canonical),name 是去空格后的实际名字。中文名同时守住 UTF-8 → 宽字符路径的转换。
+TEST(FsBrowserHandler, MkdirCreatesOneLevelAndReturnsDisplayPath) {
+    TempDir d;
+    const auto made = create_browse_directory(acecode::path_to_utf8(d.path), "  新建文件夹  ");
+    ASSERT_TRUE(std::holds_alternative<FsMkdirResult>(made));
+    const auto& r = std::get<FsMkdirResult>(made);
+    EXPECT_EQ(r.name, "新建文件夹");
+    EXPECT_EQ(r.path, display_path(d.path) + "/新建文件夹");
+    EXPECT_TRUE(fs::is_directory(acecode::path_from_utf8(r.path)));
+
+    // 新目录随即出现在列表里,前端据此重读当前目录并选中它。
+    const auto listed = browse_directory(display_path(d.path), false);
+    ASSERT_TRUE(std::holds_alternative<FsBrowseResult>(listed));
+    ASSERT_NE(find_entry(std::get<FsBrowseResult>(listed), "新建文件夹"), nullptr);
+}
+
+// 场景:同名的目录或文件已经存在(Windows 上只差大小写也算同名)。期望:AlreadyExists(→ 409),
+// 不覆盖、不改动已有内容;已有文件仍是文件。
+TEST(FsBrowserHandler, MkdirRefusesExistingNames) {
+    TempDir d;
+    fs::create_directories(d.path / "taken");
+    write_file(d.path / "note.txt", "keep");
+    const std::string parent = acecode::path_to_utf8(d.path);
+
+    EXPECT_EQ(mkdir_error_kind(create_browse_directory(parent, "taken")),
+              FsMkdirErrorKind::AlreadyExists);
+    EXPECT_EQ(mkdir_error_kind(create_browse_directory(parent, "note.txt")),
+              FsMkdirErrorKind::AlreadyExists);
+    EXPECT_TRUE(fs::is_regular_file(d.path / "note.txt"));
+#ifdef _WIN32
+    EXPECT_EQ(mkdir_error_kind(create_browse_directory(parent, "TAKEN")),
+              FsMkdirErrorKind::AlreadyExists);
+#endif
+}
+
+// 场景:parent 是相对路径、不存在、或其实是个文件。期望:分别是 NotAbsolute / ParentNotFound /
+// ParentNotDirectory;不存在的 parent **不会**被顺手递归建出来(只建一层)。
+TEST(FsBrowserHandler, MkdirClassifiesParentErrors) {
+    TempDir d;
+    write_file(d.path / "file.txt", "x");
+
+    EXPECT_EQ(mkdir_error_kind(create_browse_directory("relative/dir", "a")),
+              FsMkdirErrorKind::NotAbsolute);
+    EXPECT_EQ(mkdir_error_kind(create_browse_directory("", "a")),
+              FsMkdirErrorKind::NotAbsolute);
+
+    const fs::path missing = d.path / "missing";
+    EXPECT_EQ(mkdir_error_kind(create_browse_directory(acecode::path_to_utf8(missing), "a")),
+              FsMkdirErrorKind::ParentNotFound);
+    EXPECT_FALSE(fs::exists(missing));
+
+    EXPECT_EQ(mkdir_error_kind(create_browse_directory(
+                  acecode::path_to_utf8(d.path / "file.txt"), "a")),
+              FsMkdirErrorKind::ParentNotDirectory);
+}
+
+// 场景:名字非法。期望:InvalidName(→ 400)且磁盘上什么都没建;名字非法优先于 parent
+// 是否存在被判定。
+TEST(FsBrowserHandler, MkdirRejectsInvalidNamesWithoutTouchingDisk) {
+    TempDir d;
+    const std::string parent = acecode::path_to_utf8(d.path);
+    for (const std::string& bad : std::vector<std::string>{"", "   ", ".", "..", "a/b", "a\\b", "tab\there"}) {
+        EXPECT_EQ(mkdir_error_kind(create_browse_directory(parent, bad)),
+                  FsMkdirErrorKind::InvalidName) << bad;
+    }
+    EXPECT_TRUE(fs::is_empty(d.path));
+}
+
+// 场景:名字规则按平台不同。期望:
+//   - 所有平台:空串、. / ..、分隔符、控制字符不合法;中文、空格夹在中间、点开头合法;
+//   - Windows 规则另外拒绝 <>:"|?* 、句点或空格结尾(Windows 会静默剥掉,建出来的名字对不上)、
+//     保留设备名(带扩展名、大小写不同也算:"con.txt"、"Lpt9");
+//   - POSIX 规则下这些 Windows 专属限制都放行("a:b"、"CON" 在 Linux 上是普通名字)。
+// "COM0" / "COM10" 不是保留名,守住只认 1..9 的边界。
+TEST(FsBrowserHandler, FolderNameRulesFollowPlatform) {
+    for (const bool win : {true, false}) {
+        EXPECT_FALSE(folder_name_problem("", win).empty());
+        EXPECT_FALSE(folder_name_problem(".", win).empty());
+        EXPECT_FALSE(folder_name_problem("..", win).empty());
+        EXPECT_FALSE(folder_name_problem("a/b", win).empty());
+        EXPECT_FALSE(folder_name_problem("a\\b", win).empty());
+        EXPECT_FALSE(folder_name_problem(std::string("a\x01" "b"), win).empty());
+        EXPECT_TRUE(folder_name_problem("新建文件夹 (2)", win).empty());
+        EXPECT_TRUE(folder_name_problem(".config", win).empty());
+        EXPECT_TRUE(folder_name_problem("COM0", win).empty());
+        EXPECT_TRUE(folder_name_problem("COM10", win).empty());
+    }
+    for (const char* bad : {"a<b", "a>b", "a:b", "a\"b", "a|b", "a?b", "a*b",
+                            "trailing.", "trailing ", "CON", "con.txt", "Lpt9", "nul", "AUX"}) {
+        EXPECT_FALSE(folder_name_problem(bad, true).empty()) << bad;
+    }
+    for (const char* ok : {"a:b", "trailing.", "CON", "a*b"}) {
+        EXPECT_TRUE(folder_name_problem(ok, false).empty()) << ok;
+    }
+}
+
+#ifdef _WIN32
+// 场景:用户经 junction 进入目录后点「New Folder」(本机 C:\Users\shao → N:\Users\shao)。
+// 期望:返回的 path 保留链接写法(不被换成目标盘符),这样随后点「选择」注册的工作区与原生
+// 对话框一致;目录实际落在 junction 目标里。
+TEST(FsBrowserHandler, MkdirThroughJunctionKeepsLinkSpelling) {
+    TempDir d;
+    const fs::path target = d.path / "target";
+    fs::create_directories(target);
+    const fs::path link = d.path / "link";
+    const std::string cmd = "cmd /c mklink /J \"" + acecode::path_to_utf8(link) + "\" \"" +
+                            acecode::path_to_utf8(target) + "\" >nul 2>&1";
+    if (std::system(cmd.c_str()) != 0 || !fs::exists(link)) {
+        GTEST_SKIP() << "mklink /J unavailable in this environment";
+    }
+
+    const auto made = create_browse_directory(display_path(d.path) + "/link", "fresh");
+    ASSERT_TRUE(std::holds_alternative<FsMkdirResult>(made));
+    EXPECT_EQ(std::get<FsMkdirResult>(made).path, display_path(d.path) + "/link/fresh");
+    EXPECT_TRUE(fs::is_directory(target / "fresh"));
+}
+#endif

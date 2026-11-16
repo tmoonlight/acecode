@@ -92,6 +92,7 @@ const ICONS = {
   trajectory: 'Trajectory',
   tool: 'Tool',
   warning: 'StatusWarning',
+  warningCircle: 'StatusWarningCircle',
   wordWrap: 'WordWrap',
   world: 'World',
   workspaceMenu: 'WorkspaceMenu',

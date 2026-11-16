@@ -21,12 +21,30 @@ acecode-desktop.exe / ACECode.app (父)
 ## 启动顺序
 
 1. desktop 扫 `.acecode/projects/*` → `WorkspaceRegistry`
-2. 读 `state.json::last_active_workspace_hash`
+2. 读 `state.json::last_active_workspace_hash`;没有显式打开请求且 `state.json::last_session` 可恢复时,它所在的工作区优先(见「回到上次会话」)
 3. `pick_active(last_active, current_path, registry)` → active hash
 4. registry 空 + 进程 cwd 非空 → 自动 `register_new(cwd)`(首次安装兜底)
 5. 注册 4 个 webview bridge:`aceDesktop_listWorkspaces / activateWorkspace / renameWorkspace / addWorkspace`
 6. `pool.activate(__shared_daemon__/default)` → 拿到 `{port, token}` → `host.navigate("http://127.0.0.1:port/?token=...")`
 7. 主窗口 `host.run()`
+
+## 回到上次会话
+
+启动时直接打开上次停留的会话,实现在 [last_session.cpp](../../src/apps/desktop/last_session.cpp) 与 [lastSessionMemory.js](../../web/src/lib/lastSessionMemory.js):
+
+- **记**:前端在当前会话变化时调 `aceDesktop_setLastSession({session_id, workspace_hash?, no_workspace?, read_only?})`,停在首页 / 定时任务 / 专家组件页时传 `null`,桌面壳写进 `state.json::last_session`(内容没变不落盘)。启动跳转落定之前不上报 —— 那时 `activeRef` 还是空的,会把上次的记录清掉。
+- **用**:启动时 `restorable_last_session(registry)` 读回记录(带工作区的会话要求该工作区仍在 registry 且目录还在),该工作区优先成为 active,导航前给 URL 拼上 `?open=<会话>&workspace=<hash>`(或 `no_workspace=1`)`&restore=1`,走与跨 workspace 跳转相同的启动落地。`restore=1` 让前端静默处理失败:会话已被删除时回到首页,不弹「恢复失败」。
+- TUI 的 `--open-session` / 邀请链接等显式打开请求优先,此时不恢复。
+- 记录只由桌面壳读写:端口每次启动都变,浏览器本地存储留不住;浏览器直连 daemon 与 webapp 兼容模式没有 bridge,不记也不恢复。
+
+## 升级后重启
+
+`aceDesktop_restartApp` 只做预检并请求退出;真正拉起新进程在 `host.run()` 返回、托盘与 daemon 全部收尾之后([desktop_restart.cpp](../../src/apps/desktop/desktop_restart.cpp))。那一刻旧进程的窗口早已销毁,它不再是前台程序,新进程因此拿不到前台权 —— 窗口会出现在别的窗口后面。处理分两头:
+
+- **旧进程**:拉起时带 `--relaunched-after-update`。Windows 上顺手 `AllowSetForegroundWindow(新进程)`(只在自己仍有前台权时生效);macOS 上已安装的 `.app` 改经 LaunchServices 重启(`/usr/bin/open -n <bundle> --args …`),由系统激活新实例,`open` 失败、裸二进制(开发构建)或进程带着 `ACECODE_*` 环境变量(LaunchServices 不继承)时仍直接 exec。
+- **新进程**:带该参数、或这是本版本装好后的第一次启动(`state.json::desktop_last_launch_version` 与当前版本不同;旧版本拉起新版本时不会带参数,靠这条兜住)时,首次显示主窗口走 [window_foreground.cpp](../../src/apps/desktop/window_foreground.cpp):临时并入当前前台线程的输入队列再激活(前台程序无响应时不并入),仍被拒绝就用一次置顶脉冲把窗口抬到最上层后立刻撤销。平时的启动不走这条路,用户启动后切去别的程序时不抢焦点。
+
+macOS 的修复由旧进程执行,所以要到「装了这一版之后的下一次升级」才生效。
 
 ## 切换 workspace
 

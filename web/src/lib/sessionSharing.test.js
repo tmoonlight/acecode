@@ -9,12 +9,12 @@ import { decodeInviteLink, inviteErrorMessage } from './inviteLink.js';
 import { INVITE_LINK_EVENT, SHARE_SESSION_EVENT } from './sharingEvents.js';
 
 const source = (name) => readFileSync(new URL(`../components/${name}.jsx`, import.meta.url), 'utf8');
-async function component(name, bindings = {}) {
-  const code = source(name).replace(/^import .*;\r?\n/gm, '').replace(/^export /gm, '');
+async function component(name, bindings = {}, exported = name) {
+  const code = source(name).replace(/^import\s[\s\S]*?;\r?\n/gm, '').replace(/^export /gm, '');
   const compiled = await transformWithEsbuild(code, `${name}.jsx`, {
     loader: 'jsx', jsxFactory: 'React.createElement', jsxFragment: 'React.Fragment',
   });
-  return vm.runInNewContext(`${compiled.code}; ${name};`, { React, ...React, ...bindings });
+  return vm.runInNewContext(`${compiled.code}; ${exported};`, { React, ...React, ...bindings });
 }
 const Modal = ({ children }) => React.createElement('section', {}, children);
 const ShareDialogHeader = ({ title }) => React.createElement('h2', {}, title);
@@ -88,16 +88,18 @@ assert.equal(connect.props.disabled, false);
 await connect.props.onClick();
 assert.equal(connections, 1);
 
-// 场景：生成可交互链接的请求尚未返回，不能切成只读后复制旧权限的结果。
+// 场景：默认只读，开关决定新链接是否可交互；内容和两天有效期固定，生成期间不能切换权限。
 const shareSlots = [];
 let shareIndex = 0;
 let finishCreate;
+const createRequests = [];
 const shareApi = {
-  createShare: () => new Promise((resolve) => { finishCreate = resolve; }),
+  createShare: (sessionId, options) => { createRequests.push({ sessionId, options }); return new Promise((resolve) => { finishCreate = resolve; }); },
   listShares: async () => ({ shares: [] }), listPeers: async () => ({ peers: [] }),
 };
+const Toggle = await component('Modal', { clsx: (...values) => values.filter(Boolean).join(' ') }, 'Toggle');
 const ShareSessionDialog = await component('ShareSessionDialog', {
-  Modal, VsIcon: () => null, inviteErrorMessage, Event,
+  Modal, Toggle, VsIcon: ({ name }) => React.createElement('span', { 'data-icon-name': name }), inviteErrorMessage, Event,
   window: { dispatchEvent() {} }, useEffect() {},
   useState(initial) {
     const slot = shareIndex++;
@@ -107,14 +109,35 @@ const ShareSessionDialog = await component('ShareSessionDialog', {
 });
 const renderShare = () => { shareIndex = 0; return ShareSessionDialog({ api: shareApi, sessionId: 's', title: 'Title' }); };
 let shareTree = renderShare();
-const pendingCreate = find(shareTree, (node) => node.type === 'button' && node.props['data-ace-dialog-primary']).props.onClick();
+const initialShareHtml = renderToStaticMarkup(shareTree);
+assert.match(initialShareHtml, /role="switch" aria-checked="false" aria-label="可交互"/);
+assert.match(initialShareHtml, /已存在的链接/);
+assert.doesNotMatch(initialShareHtml, /<select|role="radio"|可见内容|有效期|可信局域网|token额度|warningCircle/);
+for (const interactive of [false, true]) {
+  if (interactive) {
+    find(shareTree, (node) => node.type === Toggle).props.onChange(true);
+    shareTree = renderShare();
+    const html = renderToStaticMarkup(shareTree);
+    assert.match(html, /打开可交互会话会消耗共享用户的token额度。/);
+    assert.match(html, /data-icon-name="warningCircle"/);
+    assert.equal(find(shareTree, (node) => node.type === 'input'), undefined);
+  }
+  const pendingCreate = find(shareTree, (node) => node.type === 'button' && node.props['data-ace-dialog-primary']).props.onClick();
+  assert.equal(JSON.stringify(createRequests.at(-1)), JSON.stringify({ sessionId: 's', options: {
+    mode: interactive ? 'interactive' : 'read_only', visibility: 'tools', expires_in: 172800,
+  } }));
+  shareTree = renderShare();
+  assert.equal(find(shareTree, (node) => node.type === Toggle).props.disabled, true);
+  const link = `generated-${interactive ? 'interactive' : 'readonly'}-link`;
+  finishCreate({ link });
+  await pendingCreate;
+  shareTree = renderShare();
+  assert.equal(find(shareTree, (node) => node.type === Toggle).props.disabled, false);
+  assert.equal(find(shareTree, (node) => node.type === 'input').props.value, link);
+}
+find(shareTree, (node) => node.type === Toggle).props.onChange(false);
 shareTree = renderShare();
-assert.equal(find(shareTree, (node) => node.props?.role === 'radio').props.disabled, true);
-assert.equal(find(shareTree, (node) => node.type === 'select' && node.props.value === 'conversation').props.disabled, true);
-assert.equal(find(shareTree, (node) => node.type === 'select' && node.props.value === 86400).props.disabled, true);
-finishCreate({ link: 'generated-interactive-link' });
-await pendingCreate;
-shareTree = renderShare();
-assert.equal(find(shareTree, (node) => node.props?.role === 'radio').props.disabled, false);
-assert.equal(find(shareTree, (node) => node.type === 'input').props.value, 'generated-interactive-link');
+assert.doesNotMatch(renderToStaticMarkup(shareTree), /token额度|warningCircle|generated-interactive-link/);
+find(shareTree, (node) => node.type === 'button' && node.props.children === '已存在的链接').props.onClick();
+assert.match(renderToStaticMarkup(renderShare()), /<h2[^>]*>已存在的链接<\/h2>/);
 console.log('[pass] session sharing permissions, text escaping, confirmation and cancellation');

@@ -19,4 +19,12 @@ std::string build_loopback_url(int port, const std::string& token) {
     return u.str();
 }
 
+std::string append_query_param(const std::string& url,
+                               const std::string& key,
+                               const std::string& value) {
+    if (url.empty() || url == "about:blank") return url;
+    const char separator = url.find('?') == std::string::npos ? '?' : '&';
+    return url + separator + percent_encode(key) + "=" + percent_encode(value);
+}
+
 } // namespace acecode::desktop

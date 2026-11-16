@@ -7,8 +7,12 @@ import {
   isPickerRoot,
   isSelectableEntry,
   joinPickerPath,
+  mkdirErrorKey,
+  newFolderNameProblem,
+  nextNewFolderName,
   normalizePickerPath,
   pickerBreadcrumbs,
+  pickerNamesCaseInsensitive,
   pickerParentPath,
   pickerSelectionTarget,
   rememberedFolderAfterPick,
@@ -192,4 +196,64 @@ test('root rows render volume labels and usage percent defensively', () => {
   assert.equal(browseErrorKey(404), 'not-found');
   assert.equal(browseErrorKey(400), 'not-absolute');
   assert.equal(browseErrorKey(500), 'io-error');
+});
+
+// 场景:点底栏「New Folder」时生成默认名。期望:没被占用就用原名;被占用依次试 "(2)"、"(3)"…,
+// 文件同名也算占用;Windows / macOS 不分大小写("new folder" 占住 "New folder"),Linux 区分。
+test('new folder default name skips taken names like Explorer', () => {
+  const entries = [{ name: '新建文件夹', kind: 'dir' }, { name: '新建文件夹 (2)', kind: 'file' }];
+  assert.equal(nextNewFolderName([], '新建文件夹'), '新建文件夹');
+  assert.equal(nextNewFolderName(entries, '新建文件夹'), '新建文件夹 (3)');
+  assert.equal(nextNewFolderName([{ name: 'new folder' }], 'New folder'), 'New folder (2)');
+  assert.equal(
+    nextNewFolderName([{ name: 'new folder' }], 'New folder', { caseInsensitive: false }),
+    'New folder',
+  );
+  assert.equal(pickerNamesCaseInsensitive('windows'), true);
+  assert.equal(pickerNamesCaseInsensitive('macos'), true);
+  assert.equal(pickerNamesCaseInsensitive('linux'), false);
+});
+
+// 场景:用户在新文件夹输入框里按 Enter 之前的本地检查。期望:与服务端 folder_name_problem 同一套
+// 规则 —— 空名、. / ..、分隔符、控制字符所有平台都拒;<>:"|?*、句点或空格结尾、保留设备名
+// (带扩展名、大小写不同也算)只在 Windows 规则下拒;与当前列表撞名报 exists(大小写规则跟平台)。
+// 中文名、点开头、中间带空格都合法;COM0 / COM10 不是保留名。
+test('new folder name problems mirror the server rules', () => {
+  const backslash = String.fromCharCode(92);
+  for (const windows of [true, false]) {
+    assert.equal(newFolderNameProblem('', { windows }), 'empty');
+    assert.equal(newFolderNameProblem('..', { windows }), 'dot');
+    assert.equal(newFolderNameProblem('a/b', { windows }), 'separator');
+    assert.equal(newFolderNameProblem(`a${backslash}b`, { windows }), 'separator');
+    assert.equal(newFolderNameProblem(`a${String.fromCharCode(9)}b`, { windows }), 'control');
+    assert.equal(newFolderNameProblem('新建文件夹 (2)', { windows }), '');
+    assert.equal(newFolderNameProblem('.config', { windows }), '');
+    assert.equal(newFolderNameProblem('COM10', { windows }), '');
+  }
+  for (const bad of ['a:b', 'a*b', 'a?b', 'a"b', 'a<b', 'a|b']) {
+    assert.equal(newFolderNameProblem(bad, { windows: true }), 'windows-char', bad);
+    assert.equal(newFolderNameProblem(bad, { windows: false }), '', bad);
+  }
+  assert.equal(newFolderNameProblem('trailing.', { windows: true }), 'trailing');
+  assert.equal(newFolderNameProblem('trailing ', { windows: true }), 'trailing');
+  assert.equal(newFolderNameProblem('con.txt', { windows: true }), 'reserved');
+  assert.equal(newFolderNameProblem('Lpt9', { windows: true }), 'reserved');
+  assert.equal(newFolderNameProblem('COM0', { windows: true }), '');
+  assert.equal(newFolderNameProblem('CON', { windows: false }), '');
+
+  const entries = [{ name: 'Docs', kind: 'dir' }];
+  assert.equal(newFolderNameProblem('docs', { windows: true, entries }), 'exists');
+  assert.equal(newFolderNameProblem('docs', { windows: false, entries }), '');
+  assert.equal(newFolderNameProblem('Docs', { windows: false, entries }), 'exists');
+});
+
+// 场景:POST /api/fs/mkdir 失败。期望:409 → 已存在;403 → 无权限;404 → 所在目录不见了;
+// 400 只有 error="invalid name" 才算名字问题(其它 400 是路径问题,归 io-error 兜底文案)。
+test('mkdir failures map to inline message keys', () => {
+  assert.equal(mkdirErrorKey(409, { error: 'already exists' }), 'exists');
+  assert.equal(mkdirErrorKey(403, {}), 'permission-denied');
+  assert.equal(mkdirErrorKey(404, { error: 'not found' }), 'parent-missing');
+  assert.equal(mkdirErrorKey(400, { error: 'invalid name' }), 'invalid-name');
+  assert.equal(mkdirErrorKey(400, { error: 'path must be absolute' }), 'io-error');
+  assert.equal(mkdirErrorKey(500, null), 'io-error');
 });

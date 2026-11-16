@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Modal } from './Modal.jsx';
+import { Modal, Toggle } from './Modal.jsx';
 import { VsIcon } from './Icon.jsx';
 import { copyTextToClipboard } from '../lib/codeBlockCopy.js';
 import { inviteErrorMessage } from '../lib/inviteLink.js';
@@ -15,9 +15,7 @@ export function ShareDialogHeader({ title, onClose, id = 'share-dialog-title' })
 }
 
 export function ShareSessionDialog({ api, sessionId, title, onClose, onOpenPeer }) {
-  const [mode, setMode] = useState('interactive');
-  const [visibility, setVisibility] = useState('conversation');
-  const [expiresIn, setExpiresIn] = useState(86400);
+  const [interactive, setInteractive] = useState(false);
   const [shares, setShares] = useState([]);
   const [peers, setPeers] = useState([]);
   const [generated, setGenerated] = useState(null);
@@ -47,34 +45,35 @@ export function ShareSessionDialog({ api, sessionId, title, onClose, onOpenPeer 
   });
   return <Modal onClose={onClose} dismissOnBackdrop={false} width={540} labelledBy="share-dialog-title">
     <div className="p-5 max-h-[85vh] overflow-y-auto">
-      <ShareDialogHeader title={manage ? '分享与连接' : '分享会话'} onClose={onClose} />
+      <ShareDialogHeader title={manage ? '已存在的链接' : '分享会话'} onClose={onClose} />
       {!manage && <>
         <div className="truncate text-[13px] text-fg mb-4">{title}</div>
-        <div className="grid grid-cols-2 gap-2 mb-4" role="radiogroup" aria-label="链接权限">
-          {[['read_only', '只读'], ['interactive', '可交互']].map(([value, label]) => <button key={value} type="button" role="radio" aria-checked={mode === value}
-            disabled={busy}
-            onClick={() => { setMode(value); setGenerated(null); setCopied(false); }}
-            className={`${buttonClass} ${mode === value ? 'border-accent bg-accent-bg text-accent' : 'bg-surface'}`}>{label}</button>)}
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex items-center gap-2.5 text-[13px] text-fg">
+            <span>可交互</span>
+            <Toggle on={interactive} disabled={busy} ariaLabel="可交互"
+              onChange={(value) => { setInteractive(value); setGenerated(null); setCopied(false); }} />
+          </div>
+          <button type="button" data-ace-dialog-primary className="px-3 py-1.5 rounded-md bg-accent text-white text-[13px] disabled:opacity-50" disabled={busy}
+            onClick={() => perform(async () => {
+              const share = await api.createShare(sessionId, { mode: interactive ? 'interactive' : 'read_only', visibility: 'tools', expires_in: 172800 });
+              setGenerated(share); setCopied(false);
+              await reload(); window.dispatchEvent(new Event('acecode:shares-changed'));
+            })}>生成链接</button>
         </div>
-        <div className="flex flex-wrap gap-4 mb-4">
-          <label className="flex items-center gap-2 text-[13px]">可见内容<select disabled={busy} className={fieldClass} value={visibility} onChange={(e) => { setVisibility(e.target.value); setGenerated(null); }}>
-            <option value="conversation">只看对话</option><option value="tools">含工具输出</option>
-          </select></label>
-          <label className="flex items-center gap-2 text-[13px]">有效期<select disabled={busy} className={fieldClass} value={expiresIn} onChange={(e) => { setExpiresIn(Number(e.target.value)); setGenerated(null); }}>
-            <option value={3600}>1 小时</option><option value={86400}>1 天</option><option value={604800}>7 天</option>
-          </select></label>
-        </div>
-        <p className="text-[12px] text-fg-mute mb-4">{mode === 'interactive' ? '持有链接即可访问，仅限可信局域网。提问消耗你的模型额度。' : '仅限可信局域网。持有链接的人可以查看此会话。'}</p>
-        {generated ? <div className="flex flex-col gap-3">
+        {interactive && <div role="note" className="flex items-start gap-2 mt-3 text-[12px] text-fg-mute">
+          <VsIcon name="warningCircle" size={16} className="shrink-0 text-warn mt-px" />
+          <span>打开可交互会话会消耗共享用户的token额度。</span>
+        </div>}
+        {generated && <div className="flex flex-col gap-3 mt-4">
           <input readOnly aria-label="邀请链接" value={generated.link} className={`${fieldClass} w-full`} onFocus={(e) => e.target.select()} />
           <div className="flex items-center gap-2">
             <button type="button" className="px-3 py-1.5 rounded-md bg-accent text-white text-[13px] disabled:opacity-50" disabled={busy} onClick={() => copy(generated, true)}>{copied ? '已复制' : '复制邀请'}</button>
             <button type="button" className={buttonClass} disabled={busy} onClick={() => copy(generated, false)}>复制链接</button>
           </div>
-        </div> : <button type="button" data-ace-dialog-primary className="px-3 py-1.5 rounded-md bg-accent text-white text-[13px] disabled:opacity-50" disabled={busy}
-          onClick={() => perform(async () => { setGenerated(await api.createShare(sessionId, { mode, visibility, expires_in: expiresIn })); await reload(); window.dispatchEvent(new Event('acecode:shares-changed')); })}>{busy ? '正在生成' : '生成链接'}</button>}
+        </div>}
         <div className="h-px bg-border my-5" />
-        <button type="button" className="text-[13px] text-accent hover:underline" onClick={() => setManage(true)}>分享与连接</button>
+        <button type="button" className="text-[13px] text-accent hover:underline" onClick={() => setManage(true)}>已存在的链接</button>
       </>}
       {manage && <div className="flex flex-col gap-5">
         <section><h3 className="text-[13px] mb-2">我的分享</h3>

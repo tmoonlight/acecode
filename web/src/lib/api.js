@@ -961,6 +961,8 @@ export function createApi(base = null) {
       undefined,
       base,
     ),
+    // 选择器底栏「New Folder」:在 parent 下建一层子目录,成功返回 { path, name }。
+    fsMkdir: (parent, name) => request('POST', '/api/fs/mkdir', { parent, name }, base),
 
     listFiles: (cwd, path, showHidden = false, showNoise = false) => {
       const qs = `?cwd=${encodeURIComponent(cwd)}&path=${encodeURIComponent(path || '')}`
