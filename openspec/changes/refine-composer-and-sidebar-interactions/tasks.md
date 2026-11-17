@@ -18,7 +18,7 @@
 ## 4. Release integration
 
 - [x] 4.1 Wait for all Claude tasks and their background work, review the final stable diff, and pass strict OpenSpec, source guards, frontend tests/build and applicable native checks. All tasks completed; source hashes remained unchanged through frontend tests/build. Seven source guards, strict OpenSpec and 204 goal/session/upgrade tests passed in addition to the originating task's 597 config/HTTP tests.
-- [ ] 4.2 Commit and push the integrated source through the required PR, confirm synchronized clean master, and record the source integration reference.
+- [x] 4.2 Commit and push the integrated source through the required PR, confirm synchronized clean master, and record the source integration reference. Source commit `412b5caf` was merged through PR #191 as `9f6d0659`; canonical master and origin/master were clean and synchronized before version preparation.
 
 ## Workflow follow-up
 
