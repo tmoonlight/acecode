@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { getInputBarActionState } from './inputBarState.js';
+import { busySendAction, getInputBarActionState, normalizeBusySendMode } from './inputBarState.js';
 
 function run(name, fn) {
   try {
@@ -135,4 +135,26 @@ run('队列暂停时只有空输入才是「继续」,其它情况沿用原语�
   assert.equal(getInputBarActionState({ value: '', queuePaused: true, submitting: true }).canSubmit, false);
   assert.equal(getInputBarActionState({ value: '', queuePaused: false }).mode, 'send', '未暂停时空输入仍是普通发送(不可点)');
   assert.equal(getInputBarActionState({ value: '', queuePaused: false }).canSubmit, false);
+});
+
+// 场景:设置 > 常规 > 输入框「后续消息处理方式」。默认(steer)回复中 Enter / 发送按钮插话、
+// Ctrl+Enter 排到回合结束;选排队(queue)后两者对调:Enter 排到回合结束、Ctrl+Enter 插话。
+// 期望:busySendAction 把(按键来源, 设置)解析成 steer / queue;不认识的设置值按默认 steer,
+// 保证旧配置和旧 daemon 下行为与加设置之前一致;提示文案跟着对调。
+run('回复中的发送按设置在插话与排队之间对调,Ctrl+Enter 总是另一种', () => {
+  assert.equal(normalizeBusySendMode(undefined), 'steer');
+  assert.equal(normalizeBusySendMode('later'), 'steer');
+  assert.equal(normalizeBusySendMode('queue'), 'queue');
+  assert.equal(busySendAction('send', 'steer'), 'steer');
+  assert.equal(busySendAction('queue', 'steer'), 'queue');
+  assert.equal(busySendAction('send', 'queue'), 'queue');
+  assert.equal(busySendAction('queue', 'queue'), 'steer');
+  assert.equal(busySendAction('send', undefined), 'steer');
+  assert.equal(busySendAction('queue', 'bogus'), 'queue');
+
+  const queued = getInputBarActionState({ value: 'next step', busy: true, busySendMode: 'queue' });
+  assert.equal(queued.mode, 'steer');
+  assert.equal(queued.helperText, 'Enter 排到回合结束 · Ctrl+Enter 插话 · Shift+Enter 换行');
+  const idle = getInputBarActionState({ value: 'next step', busy: false, busySendMode: 'queue' });
+  assert.equal(idle.helperText, 'Enter 发送 · Shift+Enter 换行 · 上下键切换历史消息');
 });

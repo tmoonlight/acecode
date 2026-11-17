@@ -129,6 +129,8 @@ json ui_preferences_to_json(const WebUiPreferencesConfig& cfg) {
         {"theme_effects", cfg.theme_effects},
         {"theme_sounds", cfg.theme_sounds},
         {"subagent_avatar_style", cfg.subagent_avatar_style},
+        {"follow_up_prompts", cfg.follow_up_prompts},
+        {"busy_send_mode", cfg.busy_send_mode},
     };
 }
 

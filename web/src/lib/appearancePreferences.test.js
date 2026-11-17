@@ -10,8 +10,12 @@ import {
   systemThemeFallback,
 } from './appearancePreferences.js';
 
-// 主题风格与动效开关的默认值:空风格 = 主题的第一个风格,动效默认开;子代理头像默认是花瓣。
-const THEME_STYLE_DEFAULTS = Object.freeze({ themeVariant: '', themeEffects: true, themeSounds: true, subagentAvatarStyle: 'geometric' });
+// 主题风格与动效开关的默认值:空风格 = 主题的第一个风格,动效默认开;子代理头像默认是花瓣;
+// 输入框默认显示预测消息、回复中 Enter 插话(与加这两项设置之前的行为一致)。
+const THEME_STYLE_DEFAULTS = Object.freeze({
+  themeVariant: '', themeEffects: true, themeSounds: true, subagentAvatarStyle: 'geometric',
+  followUpPrompts: true, busySendMode: 'steer',
+});
 
 async function run(name, fn) {
   try {
@@ -115,6 +119,8 @@ await run('API serialization sends a complete compatibility snapshot', () => {
     theme_effects: true,
     theme_sounds: true,
     subagent_avatar_style: 'geometric',
+    follow_up_prompts: true,
+    busy_send_mode: 'steer',
   });
 });
 
@@ -372,4 +378,37 @@ await run('deleting an inactive theme does not apply the server snapshot over lo
   await controller.removeColorTheme('ai-night', async () => ({ id: 'ai-night', deleted: true, ui_preferences: { ...localAppearance, colorTheme: 'orange' } }));
   assert.equal(controller.current().colorTheme, 'orange');
   assert.deepEqual(applied, []);
+});
+
+// 场景:设置 > 常规 > 输入框 关掉「显示预测消息」、把「后续消息处理方式」改成排队,和外观一样存在 daemon 配置里。
+// 期望:缺省是预测开 + steer;不认识的值按默认;接口返回的值能读到;之后改别的外观设置时随整份快照
+// 一起发给 daemon,不会被冲回默认。
+// 回归防护:桌面版启动注入不带这两项(main.cpp 行数已到上限),旧 daemon 的返回里也没有;
+// 缺键必须按默认处理,不能把整份外观偏好判成无效。
+await run('输入框设置缺省为预测开与插话，经 API 读回并在其它偏好修改后保持', async () => {
+  assert.equal(normalizeAppearancePreferences({}).followUpPrompts, true);
+  assert.equal(normalizeAppearancePreferences({}).busySendMode, 'steer');
+  assert.equal(normalizeAppearancePreferences({ busy_send_mode: 'later' }).busySendMode, 'steer');
+  assert.equal(normalizeAppearancePreferences({ follow_up_prompts: 'off' }).followUpPrompts, true);
+  const legacy = parseAppearancePreferences({ theme: 'dark', color_theme: 'orange', font_size: 'small' });
+  assert.equal(legacy.theme, 'dark');
+  assert.equal(legacy.followUpPrompts, true);
+  assert.equal(legacy.busySendMode, 'steer');
+
+  const saved = { theme: 'system', color_theme: 'blue', font_size: 'medium', follow_up_prompts: false, busy_send_mode: 'queue' };
+  const saves = [];
+  const applied = [];
+  const controller = createAppearancePersistenceController({
+    initial: {}, apply: (value) => applied.push([value.followUpPrompts, value.busySendMode]),
+    save: async (value) => { saves.push(value); return value; },
+  });
+  assert.equal(controller.restore(saved), true);
+  assert.deepEqual(applied.at(-1), [false, 'queue']);
+  await controller.change({ fontSize: 'large' });
+  assert.equal(saves[0].follow_up_prompts, false);
+  assert.equal(saves[0].busy_send_mode, 'queue');
+  await controller.change({ busySendMode: 'steer', followUpPrompts: true });
+  assert.equal(saves.at(-1).busy_send_mode, 'steer');
+  assert.equal(saves.at(-1).follow_up_prompts, true);
+  assert.equal(saves.at(-1).font_size, 'large');
 });

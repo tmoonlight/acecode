@@ -451,3 +451,59 @@ TEST(ConfigWebUiPreferencesSave, DownloadedThemePreservesOrdinaryDarkPreference)
     std::error_code ec;
     std::filesystem::remove(path, ec);
 }
+
+// 场景:设置 > 常规 > 输入框 的两项(显示预测消息、回复中发送消息的处理方式)存在 config.json 的 web_ui 里。
+// 期望:默认开启预测、回复中 Enter 插话(steer),与加设置之前的行为一致;旧配置没有这两个键、
+// 或者值不认识 / 类型不对时按默认加载,不影响同段其他设置;校验函数只认 steer / queue。
+TEST(ConfigWebUiPreferencesComposer, DefaultsMatchPreviousBehaviorAndIgnoreInvalidValues) {
+    EXPECT_TRUE(WebUiPreferencesConfig{}.follow_up_prompts);
+    EXPECT_EQ(WebUiPreferencesConfig{}.busy_send_mode, "steer");
+    EXPECT_TRUE(is_valid_web_ui_busy_send_mode("steer"));
+    EXPECT_TRUE(is_valid_web_ui_busy_send_mode("queue"));
+    EXPECT_FALSE(is_valid_web_ui_busy_send_mode(""));
+    EXPECT_FALSE(is_valid_web_ui_busy_send_mode("Queue"));
+    EXPECT_FALSE(is_valid_web_ui_busy_send_mode("send"));
+
+    const auto path = temp_config_path("composer-default");
+    for (const auto& value : {nlohmann::json{{"font_size", "large"}},
+                              nlohmann::json{{"font_size", "large"}, {"follow_up_prompts", "off"},
+                                             {"busy_send_mode", "later"}},
+                              nlohmann::json{{"font_size", "large"}, {"follow_up_prompts", 0},
+                                             {"busy_send_mode", 1}}}) {
+        write_json(path, {{"web_ui", value}});
+        const auto loaded = load_config_from_path(path.string());
+        EXPECT_TRUE(loaded.web_ui.follow_up_prompts) << value.dump();
+        EXPECT_EQ(loaded.web_ui.busy_send_mode, "steer") << value.dump();
+        EXPECT_EQ(loaded.web_ui.font_size, "large") << value.dump();
+    }
+    std::error_code ec;
+    std::filesystem::remove(path, ec);
+}
+
+// 场景:用户关掉预测消息、把回复中发送改成排队,之后又全部改回默认。
+// 期望:非默认值写进 config.json 并能读回;改回默认后这两个键不落盘(配置文件只记与默认不同的值)。
+TEST(ConfigWebUiPreferencesComposer, NonDefaultValuesRoundTripAndDefaultsAreOmitted) {
+    const auto path = temp_config_path("composer-roundtrip");
+    AppConfig cfg;
+    cfg.web_ui.follow_up_prompts = false;
+    cfg.web_ui.busy_send_mode = "queue";
+    save_config(cfg, path.string());
+    {
+        std::ifstream input(path);
+        const auto saved = nlohmann::json::parse(input);
+        EXPECT_EQ(saved["web_ui"]["follow_up_prompts"], false);
+        EXPECT_EQ(saved["web_ui"]["busy_send_mode"], "queue");
+    }
+    const auto loaded = load_config_from_path(path.string());
+    EXPECT_FALSE(loaded.web_ui.follow_up_prompts);
+    EXPECT_EQ(loaded.web_ui.busy_send_mode, "queue");
+    cfg.web_ui.follow_up_prompts = true;
+    cfg.web_ui.busy_send_mode = "steer";
+    save_config(cfg, path.string());
+    {
+        std::ifstream input(path);
+        EXPECT_FALSE(nlohmann::json::parse(input).contains("web_ui"));
+    }
+    std::error_code ec;
+    std::filesystem::remove(path, ec);
+}

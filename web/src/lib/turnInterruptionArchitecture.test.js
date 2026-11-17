@@ -137,7 +137,9 @@ test('busy composer sends steer on Enter, queues on Ctrl+Enter and forks on Ctrl
   assert.match(submit, /if \(sendMode === 'fork' && route\.kind === 'message'\) \{\s*sendInForkedSession\(/);
   const busyBranch = section(chat, 'if ((liveTranscript.busy || liveTranscript.abortPending) && !isBuiltin) {', 'const targetSid = sid;');
   assert.match(busyBranch, /const queuedId = enqueueInput\(payload\);/);
-  assert.match(busyBranch, /sendMode !== 'queue' && liveTranscript\.busy && !liveTranscript\.abortPending && steerTurnId/);
+  // 设置 > 常规 > 输入框「后续消息处理方式」选排队时 Enter 与 Ctrl+Enter 对调,统一由 busySendAction 判定。
+  assert.match(busyBranch, /const steer = busySendAction\(sendMode, busySendMode\) === 'steer';/);
+  assert.match(busyBranch, /queuedId && steer && liveTranscript\.busy && !liveTranscript\.abortPending && steerTurnId/);
   assert.match(busyBranch, /steerQueuedInput\(queuedId, steerTurnId\);/);
 
   const steer = section(chat, 'const steerQueuedInput = useStableCallback(', 'const sendSteeredNow = useStableCallback(');

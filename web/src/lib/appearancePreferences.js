@@ -7,6 +7,7 @@ import {
   DEFAULT_FONT_SIZE,
   FONT_SIZE_VALUES,
 } from './uiPrefs.js';
+import { DEFAULT_BUSY_SEND_MODE, normalizeBusySendMode } from './inputBarState.js';
 
 export const APPEARANCE_THEME_VALUES = Object.freeze(['system', 'light', 'dark']);
 // 设置 > 外观 > 子代理头像:花瓣(geometric,默认)/ 像素小人(pixel)。
@@ -21,6 +22,10 @@ export const DEFAULT_APPEARANCE_PREFERENCES = Object.freeze({
   themeEffects: true,
   themeSounds: true,
   subagentAvatarStyle: 'geometric',
+  // 设置 > 常规 > 输入框:显示预测消息 / 后续消息处理方式。与外观一起存在 daemon 的 web_ui 里,
+  // 桌面版启动注入不带这两项,启动后由 GET 补上。
+  followUpPrompts: true,
+  busySendMode: DEFAULT_BUSY_SEND_MODE,
 });
 
 const FONT_SIZE_SET = new Set(FONT_SIZE_VALUES);
@@ -86,6 +91,14 @@ function inputSubagentAvatarStyle(value) {
     : DEFAULT_APPEARANCE_PREFERENCES.subagentAvatarStyle;
 }
 
+function inputFollowUpPrompts(value) {
+  return (value?.follow_up_prompts ?? value?.followUpPrompts) !== false;
+}
+
+function inputBusySendMode(value) {
+  return normalizeBusySendMode(value?.busy_send_mode ?? value?.busySendMode);
+}
+
 export function effectiveAppearanceTheme(value, scope = globalThis) {
   return value === 'light' || value === 'dark'
     ? value
@@ -112,6 +125,8 @@ export function normalizeAppearancePreferences(value, scope = globalThis) {
     themeEffects: inputThemeEffects(value),
     themeSounds: inputThemeSounds(value),
     subagentAvatarStyle: inputSubagentAvatarStyle(value),
+    followUpPrompts: inputFollowUpPrompts(value),
+    busySendMode: inputBusySendMode(value),
   };
 }
 
@@ -134,6 +149,8 @@ export function parseAppearancePreferences(value, scope = globalThis) {
     themeEffects: inputThemeEffects(value),
     themeSounds: inputThemeSounds(value),
     subagentAvatarStyle: inputSubagentAvatarStyle(value),
+    followUpPrompts: inputFollowUpPrompts(value),
+    busySendMode: inputBusySendMode(value),
   };
 }
 
@@ -169,6 +186,12 @@ export function mergeAppearancePreferences(current, patch, scope = globalThis) {
     subagentAvatarStyle: patch?.subagentAvatarStyle
       ?? patch?.subagent_avatar_style
       ?? current?.subagentAvatarStyle,
+    followUpPrompts: patch?.followUpPrompts
+      ?? patch?.follow_up_prompts
+      ?? current?.followUpPrompts,
+    busySendMode: patch?.busySendMode
+      ?? patch?.busy_send_mode
+      ?? current?.busySendMode,
   }, scope);
 }
 
@@ -185,6 +208,8 @@ export function appearancePreferencesToApi(value, scope = globalThis) {
     theme_effects: normalized.themeEffects,
     theme_sounds: normalized.themeSounds,
     subagent_avatar_style: normalized.subagentAvatarStyle,
+    follow_up_prompts: normalized.followUpPrompts,
+    busy_send_mode: normalized.busySendMode,
   };
 }
 

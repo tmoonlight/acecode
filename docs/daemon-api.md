@@ -2026,7 +2026,8 @@ before and after generation and returns `409 STALE_COMPLETION` if it changed.
 Invalid keys return 400; unknown active sessions return 404.
 
 A successful response is `{"completion_key":"...","prompt":"Run the tests."}`.
-The prompt can be empty when context or a usable model answer is unavailable.
+The prompt can be empty when context or a usable model answer is unavailable,
+or when `web_ui.follow_up_prompts` is `false` (no model is called then).
 Generation uses bounded recent visible messages, the summary-model fallback
 chain (with the current session model as context), a separate tool-free provider
 request and a 15-second model budget. It does not call tools, append messages,
@@ -4063,7 +4064,9 @@ Returns:
   "theme_variant": "",
   "theme_effects": true,
   "theme_sounds": true,
-  "subagent_avatar_style": "geometric"
+  "subagent_avatar_style": "geometric",
+  "follow_up_prompts": true,
+  "busy_send_mode": "steer"
 }
 ```
 
@@ -4093,6 +4096,15 @@ rejected with `400` when malformed.
 have no expert attached (Settings > Appearance). It is persisted, included in
 the Desktop appearance bootstrap, and any other value is rejected with `400`; a
 config file without the key or holding an unknown value loads as `geometric`.
+
+`follow_up_prompts` (boolean, default `true`) and `busy_send_mode` (`steer`
+default, or `queue`) are the composer rows under Settings > General. The first
+turns the predicted next message off on the client and in
+`POST /api/sessions/:id/follow-up-prompt`. The second picks what Enter (and the
+send button) does while a turn is running: `steer` inserts the message into the
+running turn, `queue` sends it after the turn; Ctrl+Enter always does the other.
+Both are persisted and rejected with `400` when malformed; they are not part of
+the Desktop appearance bootstrap, so the client applies them after this GET.
 
 ### `PUT /api/config/ui-preferences`
 

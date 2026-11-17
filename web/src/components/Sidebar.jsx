@@ -177,6 +177,7 @@ import { resolveWorkspaceIcon } from '../lib/workspaceIcons.js';
 import { syncSidebarListDivider } from '../lib/sidebarListDivider.js';
 import { commitIfChanged, useStructuralState } from '../lib/structuralState.js';
 import { useStableCallback } from '../lib/useStableCallback.js';
+import { pointerDragButtonReleased } from '../lib/pointerDragGuard.js';
 
 const SIDEBAR_SECTIONS_STORAGE_KEY = 'acecode.sidebarSectionsExpanded.v1';
 const SESSION_DRAG_START_PX = 5;
@@ -479,6 +480,11 @@ function startSidebarSessionPointerDrag({
   function onMove(moveEvent) {
     const drag = dragRef.current;
     if (!drag || moveEvent.pointerId !== pointerId) return;
+    // 主键早已松开(疑似 macOS「轻点以点按」的松手没送到),不按键的移动不能把行拖起来。
+    if (pointerDragButtonReleased(moveEvent)) {
+      finishDrag(false);
+      return;
+    }
     if (!beginDragIfNeeded(moveEvent)) return;
     moveEvent.preventDefault();
     const composer = drag.sessionReferences.length

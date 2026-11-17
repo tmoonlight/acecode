@@ -9626,6 +9626,39 @@ TEST(WebServerHttp, UiPreferencesSubagentAvatarStyleRoundTrips) {
     EXPECT_EQ(fx.cfg.web_ui.subagent_avatar_style, "geometric");
 }
 
+// 场景:设置 > 常规 > 输入框 里关掉「显示预测消息」、把「后续消息处理方式」改成排队。
+// 期望:GET 默认返回预测开 + steer;单字段 PUT 只改那一项并落盘,之后改别的设置不会把它冲回默认;
+// 类型不对或不认识的值整笔 400,内存配置保持原值。
+TEST(WebServerHttp, UiPreferencesComposerSettingsRoundTrip) {
+    WebServerFixture fx;
+    const auto url = cpr::Url{fx.url("/api/config/ui-preferences")};
+    const cpr::Header headers{{"Content-Type", "application/json"}};
+    const auto initial = json::parse(cpr::Get(url).text);
+    EXPECT_EQ(initial["follow_up_prompts"], true);
+    EXPECT_EQ(initial["busy_send_mode"], "steer");
+    auto off = cpr::Put(url, headers, cpr::Body{R"({"follow_up_prompts":false})"});
+    ASSERT_EQ(off.status_code, 200) << off.text;
+    EXPECT_EQ(json::parse(off.text)["follow_up_prompts"], false);
+    EXPECT_FALSE(fx.cfg.web_ui.follow_up_prompts);
+    auto queue = cpr::Put(url, headers, cpr::Body{R"({"busy_send_mode":"queue"})"});
+    ASSERT_EQ(queue.status_code, 200) << queue.text;
+    EXPECT_EQ(json::parse(queue.text)["busy_send_mode"], "queue");
+    EXPECT_EQ(json::parse(queue.text)["follow_up_prompts"], false);
+    auto other = cpr::Put(url, headers, cpr::Body{R"({"font_size":"large"})"});
+    ASSERT_EQ(other.status_code, 200) << other.text;
+    const auto saved = acecode::load_config_from_path((fx.tmp_dir / "config.json").u8string());
+    EXPECT_FALSE(saved.web_ui.follow_up_prompts);
+    EXPECT_EQ(saved.web_ui.busy_send_mode, "queue");
+    for (const char* body : {R"({"follow_up_prompts":"off"})", R"({"busy_send_mode":"later"})",
+                             R"({"busy_send_mode":true})", R"({"busy_send_mode":"Queue","font_size":"small"})"}) {
+        auto rejected = cpr::Put(url, headers, cpr::Body{body});
+        EXPECT_EQ(rejected.status_code, 400) << body << " " << rejected.text;
+    }
+    EXPECT_FALSE(fx.cfg.web_ui.follow_up_prompts);
+    EXPECT_EQ(fx.cfg.web_ui.busy_send_mode, "queue");
+    EXPECT_EQ(fx.cfg.web_ui.font_size, "large");
+}
+
 TEST(WebServerHttp, UiPreferencesMessageAutoCollapseRollsBackOnSaveFailure) {
     WebServerFixture fx;
     std::filesystem::create_directories(fx.tmp_dir / "config.json");

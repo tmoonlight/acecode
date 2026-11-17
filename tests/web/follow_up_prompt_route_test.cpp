@@ -138,3 +138,19 @@ TEST_F(FollowUpPromptHttp, DiscardsResultWhenNewUserInputArrives) {
     EXPECT_EQ(suggest(id).status_code, 409);
     EXPECT_EQ(model_calls.load(), 1);
 }
+
+// 场景:用户在 设置 > 常规 > 输入框 关掉「显示预测消息」后,旧标签页或别的客户端仍请求预测。
+// 期望:接口照常返回 200 且 prompt 为空,不调用任何模型(关掉就不花模型额度);重新打开后恢复生成。
+TEST_F(FollowUpPromptHttp, DisabledPreferenceReturnsEmptyPromptWithoutCallingModel) {
+    const auto id = completed();
+    config.web_ui.follow_up_prompts = false;
+    const auto off = suggest(id);
+    ASSERT_EQ(off.status_code, 200) << off.text;
+    EXPECT_EQ(json::parse(off.text)["prompt"], "");
+    EXPECT_EQ(model_calls.load(), 0);
+    config.web_ui.follow_up_prompts = true;
+    const auto on = suggest(id);
+    ASSERT_EQ(on.status_code, 200) << on.text;
+    EXPECT_EQ(json::parse(on.text)["prompt"], "Run the parser tests.");
+    EXPECT_EQ(model_calls.load(), 1);
+}

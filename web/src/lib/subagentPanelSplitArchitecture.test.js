@@ -215,7 +215,7 @@ run('petal sub-agent portraits are the default and are chosen in the appearance 
   assert.match(avatar, /if \(geometric\) \{[\s\S]*?<GeometricAvatar identity=\{identity\} size=\{size\} status=\{status\} \/>/);
 
   assert.match(geometric, /const SubagentAvatarStyleContext = createContext\('geometric'\);/);
-  assert.match(preferences, /subagentAvatarStyle: 'geometric',\s*\}\);/);
+  assert.match(preferences, /export const DEFAULT_APPEARANCE_PREFERENCES = Object\.freeze\(\{[^}]*subagentAvatarStyle: 'geometric',/);
   assert.match(geometric, /status === 'running' && 'ace-geometric-avatar-running'/);
   assert.match(geometric, /stopped && 'text-fg-mute'/);
   assert.match(geometric, /stopped \? 'currentColor' : spec\[tone\]/);

@@ -431,6 +431,9 @@ export function App() {
   const messageAutoCollapse = effectiveMessageAutoCollapse(uiPrefs);
   // 设置 > 外观 > 子代理头像。只存在 daemon 配置里(桌面版每次启动端口都变,本地存储留不住)。
   const [subagentAvatarStyle, setSubagentAvatarStyle] = useState(initialAppearance.subagentAvatarStyle);
+  // 设置 > 常规 > 输入框:显示预测消息、后续消息处理方式。同样只存在 daemon 配置里。
+  const [followUpPrompts, setFollowUpPrompts] = useState(initialAppearance.followUpPrompts);
+  const [busySendMode, setBusySendMode] = useState(initialAppearance.busySendMode);
   const applyAppearance = useCallback((next) => {
     setTheme(next.theme);
     setColorTheme(next.colorTheme);
@@ -443,6 +446,8 @@ export function App() {
       messageAutoCollapse: next.messageAutoCollapse,
     });
     setSubagentAvatarStyle(next.subagentAvatarStyle);
+    setFollowUpPrompts(next.followUpPrompts);
+    setBusySendMode(next.busySendMode);
   }, [setColorTheme, setTheme, setThemeEffects, setThemeSounds, setThemeVariant, setUiPrefs]);
   // The persistence controller outlives individual renders. Keep its callback
   // current so a later appearance choice is compared against the latest UI
@@ -462,6 +467,8 @@ export function App() {
         themeEffects: bootstrapAppearance?.themeEffects ?? themeEffects,
         themeSounds: bootstrapAppearance?.themeSounds ?? themeSounds,
         subagentAvatarStyle,
+        followUpPrompts,
+        busySendMode,
       },
       apply: (next) => applyAppearanceRef.current(next),
       save: (payload) => api.setUiPreferences(payload),
@@ -2382,6 +2389,8 @@ export function App() {
                 showAceCodeAvatar={showAceCodeAvatar}
                 showSessionTime={sidebarSessionTime}
                 messageAutoCollapse={messageAutoCollapse}
+                followUpPrompts={followUpPrompts}
+                busySendMode={busySendMode}
                 permissionRequests={visiblePermissionEntries}
                 onPermissionDecision={handlePermissionDecision}
                 questionRequest={visibleQuestionReq}
@@ -2459,6 +2468,10 @@ export function App() {
             onMessageAutoCollapseChange={(next) => changeAppearance({ messageAutoCollapse: next })}
             subagentAvatarStyle={subagentAvatarStyle}
             onSubagentAvatarStyleChange={(next) => changeAppearance({ subagentAvatarStyle: next })}
+            followUpPrompts={followUpPrompts}
+            onFollowUpPromptsChange={(next) => changeAppearance({ followUpPrompts: next })}
+            busySendMode={busySendMode}
+            onBusySendModeChange={(next) => changeAppearance({ busySendMode: next })}
             onThemeVariantChange={(next) => changeAppearance({ themeVariant: next })}
             onThemeEffectsChange={(next) => changeAppearance({ themeEffects: next })}
           />

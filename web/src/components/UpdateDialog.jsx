@@ -79,6 +79,7 @@ export function UpdateDialog({
     : job?.target_version || updateStatus?.latest_version;
   const packageSize = job?.bytes_total ?? updateStatus?.package_size;
   const releaseHistory = normalizeUpdateReleases(updateStatus?.releases);
+  const visibleReleaseHistory = releaseHistory.slice(0, Math.ceil(releaseHistory.length / 2));
   const progress = updateJobProgress(job);
   const phaseLabel = starting && !job ? '正在启动升级任务' : updateJobPhaseLabel(job);
   const restartMessage = updateRestartMessage(job);
@@ -137,7 +138,7 @@ export function UpdateDialog({
             <div className="text-[14px] font-semibold text-fg">版本更新记录</div>
 
             <div className="mt-3 max-h-64 overflow-y-auto rounded-lg border border-border bg-surface-alt">
-              {releaseHistory.map((release, index) => {
+              {visibleReleaseHistory.map((release, index) => {
                 const publishedDate = formatUpdatePublishedDate(release.published_at);
                 const latest = release.version === updateStatus?.latest_version;
                 return (
