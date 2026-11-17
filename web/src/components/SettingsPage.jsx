@@ -72,6 +72,7 @@ import { SecurityCenterSettings } from './SecurityCenterSettings.jsx';
 import { ChannelsSettings } from './ChannelsSettings.jsx';
 import { ShortcutsSettings } from './ShortcutsSettings.jsx';
 import { SideChatRetentionSettings } from './SideChatRetentionSettings.jsx';
+import { ComposerSettings } from './ComposerSettings.jsx';
 import { MemorySettings } from './MemorySettings.jsx';
 import { SubagentAvatarStyleCards } from './SubagentAvatarStyleCards.jsx';
 import { clsx, formatCount, relativeTime } from '../lib/format.js';
@@ -200,6 +201,10 @@ export function SettingsPage({
   onMessageAutoCollapseChange = () => {},
   subagentAvatarStyle = 'geometric',
   onSubagentAvatarStyleChange = () => {},
+  followUpPrompts = true,
+  onFollowUpPromptsChange = () => {},
+  busySendMode = 'steer',
+  onBusySendModeChange = () => {},
   onThemeVariantChange,
   onThemeEffectsChange,
 }) {
@@ -501,6 +506,10 @@ export function SettingsPage({
               onPermissionModeChanged={onPermissionModeChanged}
               onDesktopNotificationsChanged={onDesktopNotificationsChanged}
               onReplayGuidedTour={onReplayGuidedTour}
+              followUpPrompts={followUpPrompts}
+              onFollowUpPromptsChange={onFollowUpPromptsChange}
+              busySendMode={busySendMode}
+              onBusySendModeChange={onBusySendModeChange}
             />
           )}
           {activeNavKey === 'appearance' && (
@@ -570,6 +579,10 @@ function SectionGeneral({
   onPermissionModeChanged,
   onDesktopNotificationsChanged,
   onReplayGuidedTour,
+  followUpPrompts,
+  onFollowUpPromptsChange,
+  busySendMode,
+  onBusySendModeChange,
 }) {
   const { t } = useTranslation();
   const [uiLocale, setUiLocale] = useState(() => localePreference());
@@ -1154,6 +1167,15 @@ function SectionGeneral({
           );
         })}
       </div>
+
+      <div className="h-px bg-border my-5" />
+
+      <ComposerSettings
+        followUpPrompts={followUpPrompts}
+        onFollowUpPromptsChange={onFollowUpPromptsChange}
+        busySendMode={busySendMode}
+        onBusySendModeChange={onBusySendModeChange}
+      />
 
       <div className="h-px bg-border my-5" />
 

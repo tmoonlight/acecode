@@ -8,8 +8,8 @@ import {
   isSelectableEntry,
   joinPickerPath,
   mkdirErrorKey,
+  NEW_FOLDER_NAME_MAX_LENGTH,
   newFolderNameProblem,
-  nextNewFolderName,
   normalizePickerPath,
   pickerBreadcrumbs,
   pickerNamesCaseInsensitive,
@@ -198,23 +198,15 @@ test('root rows render volume labels and usage percent defensively', () => {
   assert.equal(browseErrorKey(500), 'io-error');
 });
 
-// 场景:点底栏「New Folder」时生成默认名。期望:没被占用就用原名;被占用依次试 "(2)"、"(3)"…,
-// 文件同名也算占用;Windows / macOS 不分大小写("new folder" 占住 "New folder"),Linux 区分。
-test('new folder default name skips taken names like Explorer', () => {
-  const entries = [{ name: '新建文件夹', kind: 'dir' }, { name: '新建文件夹 (2)', kind: 'file' }];
-  assert.equal(nextNewFolderName([], '新建文件夹'), '新建文件夹');
-  assert.equal(nextNewFolderName(entries, '新建文件夹'), '新建文件夹 (3)');
-  assert.equal(nextNewFolderName([{ name: 'new folder' }], 'New folder'), 'New folder (2)');
-  assert.equal(
-    nextNewFolderName([{ name: 'new folder' }], 'New folder', { caseInsensitive: false }),
-    'New folder',
-  );
+// 场景:新建文件夹前按平台判断同名比较规则。期望:Windows / macOS 默认卷不分大小写,Linux 区分;
+// 撞名检查(newFolderNameProblem 的 caseInsensitive)由这里决定。
+test('picker name comparison follows the platform case rule', () => {
   assert.equal(pickerNamesCaseInsensitive('windows'), true);
   assert.equal(pickerNamesCaseInsensitive('macos'), true);
   assert.equal(pickerNamesCaseInsensitive('linux'), false);
 });
 
-// 场景:用户在新文件夹输入框里按 Enter 之前的本地检查。期望:与服务端 folder_name_problem 同一套
+// 场景:用户在「新建文件夹」弹窗里点确定(或按 Enter)之前的本地检查。期望:与服务端 folder_name_problem 同一套
 // 规则 —— 空名、. / ..、分隔符、控制字符所有平台都拒;<>:"|?*、句点或空格结尾、保留设备名
 // (带扩展名、大小写不同也算)只在 Windows 规则下拒;与当前列表撞名报 exists(大小写规则跟平台)。
 // 中文名、点开头、中间带空格都合法;COM0 / COM10 不是保留名。
@@ -240,6 +232,12 @@ test('new folder name problems mirror the server rules', () => {
   assert.equal(newFolderNameProblem('Lpt9', { windows: true }), 'reserved');
   assert.equal(newFolderNameProblem('COM0', { windows: true }), '');
   assert.equal(newFolderNameProblem('CON', { windows: false }), '');
+
+  // 弹窗输入框限 50 个字:正好 50 合法,51 报 too-long(输入框 maxLength 挡不住输入法合成等情况时兜底)。
+  assert.equal(NEW_FOLDER_NAME_MAX_LENGTH, 50);
+  assert.equal(newFolderNameProblem('文'.repeat(50), { windows: true }), '');
+  assert.equal(newFolderNameProblem('文'.repeat(51), { windows: true }), 'too-long');
+  assert.equal(newFolderNameProblem('a'.repeat(51), { windows: false }), 'too-long');
 
   const entries = [{ name: 'Docs', kind: 'dir' }];
   assert.equal(newFolderNameProblem('docs', { windows: true, entries }), 'exists');

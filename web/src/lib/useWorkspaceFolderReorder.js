@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { reorderWorkspaceFolders, workspaceFolderDropTarget } from './workspaceFolderOrder.js';
+import { pointerDragButtonReleased } from './pointerDragGuard.js';
 
 export function useWorkspaceFolderReorder({
   workspaces, scrollRef, disabled, onReorder, conflictingDragRefs = [],
@@ -104,6 +105,13 @@ export function useWorkspaceFolderReorder({
     };
     const move = (moveEvent) => {
       if (moveEvent.pointerId !== pointerId) return;
+      // 主键早已松开(疑似 macOS「轻点以点按」的松手没送到),不按键的移动不能把文件夹拖起来。
+      // 松手已经发生过,后面不会再有松手 click,所以不保留吞 click 的标记,免得吞掉用户下一次点击。
+      if (pointerDragButtonReleased(moveEvent)) {
+        cleanup();
+        suppressClickRef.current = false;
+        return;
+      }
       point.x = moveEvent.clientX;
       point.y = moveEvent.clientY;
       if (!active && Math.hypot(point.x - start.x, point.y - start.y) < 5) return;

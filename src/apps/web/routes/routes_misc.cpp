@@ -2252,6 +2252,22 @@ void WebServer::Impl::register_ui_preferences() {
                                     "subagent_avatar_style must be geometric or pixel");
                 }
             }
+            if (body.contains("follow_up_prompts")) {
+                has_supported_field = true;
+                if (!body["follow_up_prompts"].is_boolean()) {
+                    return json_err(400, "BAD_REQUEST",
+                                    "follow_up_prompts must be a boolean");
+                }
+            }
+            if (body.contains("busy_send_mode")) {
+                has_supported_field = true;
+                if (!body["busy_send_mode"].is_string() ||
+                    !is_valid_web_ui_busy_send_mode(
+                        body["busy_send_mode"].get<std::string>())) {
+                    return json_err(400, "BAD_REQUEST",
+                                    "busy_send_mode must be steer or queue");
+                }
+            }
             if (!has_supported_field) {
                 return json_err(400, "BAD_REQUEST",
                                 "no supported UI preference field was provided");
@@ -2307,6 +2323,14 @@ void WebServer::Impl::register_ui_preferences() {
             if (body.contains("subagent_avatar_style")) {
                 deps.app_config->web_ui.subagent_avatar_style =
                     body["subagent_avatar_style"].get<std::string>();
+            }
+            if (body.contains("follow_up_prompts")) {
+                deps.app_config->web_ui.follow_up_prompts =
+                    body["follow_up_prompts"].get<bool>();
+            }
+            if (body.contains("busy_send_mode")) {
+                deps.app_config->web_ui.busy_send_mode =
+                    body["busy_send_mode"].get<std::string>();
             }
             try {
                 if (!deps.config_path.empty()) {

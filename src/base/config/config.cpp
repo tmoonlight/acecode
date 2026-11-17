@@ -507,6 +507,8 @@ std::vector<std::string> validate_config(const AppConfig& cfg) {
     if (!is_valid_web_ui_subagent_avatar_style(cfg.web_ui.subagent_avatar_style)) {
         errors.push_back("web_ui.subagent_avatar_style must be one of: geometric, pixel");
     }
+    if (!is_valid_web_ui_busy_send_mode(cfg.web_ui.busy_send_mode))
+        errors.push_back("web_ui.busy_send_mode must be one of: steer, queue");
     if (!is_valid_web_ui_theme_variant(cfg.web_ui.theme_variant)) {
         errors.push_back("web_ui.theme_variant must be empty or a lowercase variant ID");
     }
@@ -1130,6 +1132,12 @@ static AppConfig load_config_from_path_once(
                             LOG_WARN("[config] invalid 'web_ui.subagent_avatar_style', using 'geometric'");
                         }
                     }
+                    // Invalid composer preferences keep their defaults.
+                    if (uij.contains("follow_up_prompts") && uij["follow_up_prompts"].is_boolean())
+                        cfg.web_ui.follow_up_prompts = uij["follow_up_prompts"].get<bool>();
+                    if (uij.contains("busy_send_mode") && uij["busy_send_mode"].is_string() &&
+                        is_valid_web_ui_busy_send_mode(uij["busy_send_mode"].get<std::string>()))
+                        cfg.web_ui.busy_send_mode = uij["busy_send_mode"].get<std::string>();
                 }
             }
             if (j.contains("models_dev") && j["models_dev"].is_object()) {
@@ -2399,6 +2407,10 @@ nlohmann::json build_config_json(const AppConfig& cfg) {
             web_uij["theme_sounds"] = cfg.web_ui.theme_sounds;
         if (cfg.web_ui.subagent_avatar_style != web_ui_d.subagent_avatar_style)
             web_uij["subagent_avatar_style"] = cfg.web_ui.subagent_avatar_style;
+        if (cfg.web_ui.follow_up_prompts != web_ui_d.follow_up_prompts)
+            web_uij["follow_up_prompts"] = cfg.web_ui.follow_up_prompts;
+        if (cfg.web_ui.busy_send_mode != web_ui_d.busy_send_mode)
+            web_uij["busy_send_mode"] = cfg.web_ui.busy_send_mode;
         if (!web_uij.empty()) j["web_ui"] = std::move(web_uij);
 
         if (auto memj = memory_config_to_json(cfg.memory); !memj.empty()) j["memory"] = std::move(memj);

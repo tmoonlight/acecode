@@ -30,6 +30,7 @@ import './inlineVisualArchitecture.test.js';
 import './transcriptProjectionToolPreamble.test.js';
 import './sessionTranscriptToolPreamble.test.js';
 import './workspaceFolderOrder.test.js';
+import './pointerDragGuard.test.js';
 import './interfaceIcons.test.js';
 import './composerImagePresentation.test.js';
 import './questionPickerLayout.test.js';

@@ -2447,6 +2447,8 @@ void WebServer::Impl::register_sessions() {
                     std::shared_lock<std::shared_mutex> lock(app_config_mu);
                     config = *deps.app_config;
                 }
+                // Settings > General turned predictions off: never call a model.
+                if (!config.web_ui.follow_up_prompts) return reply(200, {{"completion_key", key}, {"prompt", ""}});
                 const auto model = entry->model_binding ? entry->model_binding->state_snapshot().name : std::string{};
                 const auto prompt = generate_session_follow_up_prompt(config, model, *context);
                 const auto latest = read_follow_up_context(path);

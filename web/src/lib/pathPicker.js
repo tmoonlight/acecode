@@ -209,27 +209,19 @@ export function pickerNamesCaseInsensitive(os) {
   return os === 'windows' || os === 'macos';
 }
 
-// 「New Folder」的默认名:base 没被占用就用 base,否则 "base (2)"、"base (3)"…(资源管理器
-// 同款)。占用判断看当前列出的全部条目(目录与文件);隐藏项没列出来时撞名由服务端 409 兜底。
-export function nextNewFolderName(entries, baseName, { caseInsensitive = true } = {}) {
-  const fold = (text) => (caseInsensitive ? text.toLowerCase() : text);
-  const taken = new Set((entries || []).map((entry) => fold(String(entry?.name || ''))));
-  if (!taken.has(fold(baseName))) return baseName;
-  for (let n = 2; ; n += 1) {
-    const candidate = `${baseName} (${n})`;
-    if (!taken.has(fold(candidate))) return candidate;
-  }
-}
+// 「新建文件夹」弹窗输入框的长度上限(与 <input maxLength> 同口径,按 UTF-16 码元计)。
+export const NEW_FOLDER_NAME_MAX_LENGTH = 50;
 
 const WINDOWS_FORBIDDEN_NAME_CHARS = /[<>:"|?*]/u;
 const WINDOWS_RESERVED_NAME_RE = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])$/iu;
 
 // 新文件夹名在提交前的本地检查,与服务端 folder_name_problem 同一套规则(服务端仍是最终裁决)。
 // 返回问题键,合法返回 ''。name 由调用方先 trim。
-//   empty | dot | separator | control | windows-char | trailing | reserved | exists
+//   empty | too-long | dot | separator | control | windows-char | trailing | reserved | exists
 export function newFolderNameProblem(name, { windows = false, entries = [], caseInsensitive = windows } = {}) {
   const text = String(name ?? '');
   if (!text) return 'empty';
+  if (text.length > NEW_FOLDER_NAME_MAX_LENGTH) return 'too-long';
   if (text === '.' || text === '..') return 'dot';
   if (/[/\\]/u.test(text)) return 'separator';
   // eslint-disable-next-line no-control-regex

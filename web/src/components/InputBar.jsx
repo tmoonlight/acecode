@@ -13,7 +13,7 @@ import { forwardRef, useCallback, useEffect, useImperativeHandle, useLayoutEffec
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { clsx } from '../lib/format.js';
-import { getInputBarActionState } from '../lib/inputBarState.js';
+import { busySendAction, getInputBarActionState } from '../lib/inputBarState.js';
 import { FileTypeIcon, VsIcon } from './Icon.jsx';
 import { SelectionAnnotationBadge } from './SelectionAnnotationBadge.jsx';
 import { ComposerSessionControls } from './ComposerSessionControls.jsx';
@@ -214,6 +214,8 @@ export const InputBar = forwardRef(function InputBar({
   queuePaused = false, onResumeQueue,
   placeholder = '输入消息或 / 命令…', onSubmit, onAbort, busy, stopping = false, goal = null, mainComposer = false,
   followUpPrompt = null,
+  // 回复中 Enter / 发送按钮插话(steer)还是排队(queue);Ctrl+Enter 做另一种。
+  busySendMode = 'steer',
   // 当前会话能否「在分叉会话中发送」(Ctrl+Alt+Enter)。
   forkSendAvailable = false,
   onGoalEdit, onGoalStatusChange, onGoalClear,
@@ -630,7 +632,7 @@ export const InputBar = forwardRef(function InputBar({
     // Recognition publishes editor refs before React necessarily renders the
     // new draft. Gate and send the same current snapshot, not the old button state.
     const currentDraft = serializeComposerGoal(valueRef.current, contentRef.current, goalModeRef.current);
-    const currentAction = getInputBarActionState({ value: currentDraft.text, disabled, busy, hasExtras, submitting, canRetryLastUserMessage, queuePaused });
+    const currentAction = getInputBarActionState({ value: currentDraft.text, disabled, busy, hasExtras, submitting, canRetryLastUserMessage, queuePaused, busySendMode });
     if (!currentAction.canSubmit) return;
     // 队列暂停 + 空输入框:这一下是「继续」,不是发送 —— 空内容本来也没什么可发。
     if (currentAction.mode === 'resume') {
@@ -640,7 +642,7 @@ export const InputBar = forwardRef(function InputBar({
       requestAnimationFrame(() => ta.current?.focus());
       return;
     }
-    playThemeSound(currentAction.mode === 'steer' && sendMode === 'queue' ? 'queue' : 'send');
+    playThemeSound(currentAction.mode === 'steer' && busySendAction(sendMode, busySendMode) === 'queue' ? 'queue' : 'send');
     onSubmit?.(currentDraft.text, { sendMode });
     if (!isControlled) updateValue('', composerContentFromText(''), undefined, { goalMode: false });
     setHistPtr(-1);
@@ -1446,12 +1448,14 @@ export const InputBar = forwardRef(function InputBar({
     }
   };
 
-  const actionState = getInputBarActionState({ value: draftValue, disabled, busy, hasExtras, submitting, canRetryLastUserMessage, queuePaused });
+  const actionState = getInputBarActionState({ value: draftValue, disabled, busy, hasExtras, submitting, canRetryLastUserMessage, queuePaused, busySendMode });
   const macKeys = isMacShortcutHost();
   const primaryKey = macKeys ? '⌘' : 'Ctrl';
+  // 回复中按设置对调:选了排队时 Enter 排到回合结束、Ctrl+Enter 插话。
+  const busyQueuesOnEnter = busySendAction('send', busySendMode) === 'queue';
   const sendShortcutRows = mainComposer ? [
-    { label: '发送', keys: ['Enter'] },
-    ...(busy ? [{ label: '排到回合结束', keys: [primaryKey, 'Enter'] }] : []),
+    { label: busy && busyQueuesOnEnter ? '排到回合结束' : '发送', keys: ['Enter'] },
+    ...(busy ? [{ label: busyQueuesOnEnter ? '插话' : '排到回合结束', keys: [primaryKey, 'Enter'] }] : []),
     ...(forkSendAvailable ? [{ label: '在分叉会话中发送', keys: [primaryKey, macKeys ? '⌥' : 'Alt', 'Enter'] }] : []),
   ] : [];
   const speech = useSpeechRecognition({

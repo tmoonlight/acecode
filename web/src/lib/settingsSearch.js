@@ -7,6 +7,8 @@ export function settingsSearchEntries(developerModeUnlocked = false) {
   const fields = [
     ['general', '界面语言', 'language locale english chinese'],
     ['general', '工作模式', 'work mode coding daily 日常工作 用于编程 进度提示 工具前言 loading'],
+    ['general', '显示预测消息', 'composer input predicted message prediction follow up suggestion next prompt tab 输入框 预测 推荐 下一条 建议'],
+    ['general', '后续消息处理方式', 'composer input follow-up messages busy reply queue steer interject enter ctrl+enter 输入框 回复中 排队 插话 引导 排到回合结束'],
     ['general', '侧边聊天存续时间', 'side chat retention lifetime minutes ttl 侧聊 保留 过期 分钟'],
     ['general', '打开任务完成通知', 'notification completion sound'],
     ['general', '新手指引', 'onboarding getting started tour'],

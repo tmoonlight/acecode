@@ -396,6 +396,7 @@ import {
   selectionTargetViewportRect,
 } from '../lib/selectionActionPopover.js';
 import { clearPreviewSelection } from '../lib/inactiveSelection.js';
+import { busySendAction } from '../lib/inputBarState.js';
 import {
   CHANGE_DOCK_DISMISSALS_STORAGE_KEY,
   dismissChangeDockSignature,
@@ -657,7 +658,7 @@ const EXPERT_SWITCH_CANONICAL_POLL_ATTEMPTS = 6;
 const EXPERT_SWITCH_CANONICAL_POLL_INTERVAL_MS = 160;
 const FORK_ACTION_KEY = 'fork-session';
 
-export function ChatView({ titleTarget, actionsTarget, children, sessionRef, sessionId, homeLogoEffectEnabled = true, homeIntentSuggestions = [], onHomeIntentPrompt, homeComposerDrafts = {}, homeComposerAttentionRequest = 0, onHomeComposerDraftLoad, onHomeComposerDraftChange, onHomeComposerDraftAccepted, onHomeComposerDraftPatch, modelProfileRevision = 0, onSessionPromoted, onSessionExpertChanged, onHomeWorkspaceChange, onCommandWorkspaceChange, onConsoleCwdChange, onFindInConversation, onOpenModelSettings, health, autoFocusOnDesktopWindowFocus = false, onPermissionRequest, onQuestionRequest, permissionRequests = [], onPermissionDecision, questionRequest, onQuestionResolve, onPermissionModeChanged, onSubagentTasksChange, recentExpertIds = [], onRememberExpert, onInitialDraftConsumed, showSidePanel = false, responsiveSidebars = null, rightPanelPopupWidth, onRightPanelPopupResize, sidePanelWidth = 280, onSidePanelResize, previewPanelWidth = 640, previewPanelAutoFit = false, onPreviewPanelResize, onPreviewPanelVisibleChange, onRegisterPreviewLeaveGuard, sidePanelCollapsed = false, sidePanelListCollapsed = false, onToggleSidePanel, onRevealPreviewPanel, onToggleSidePanelList, onRevealSidePanelList, sidePanelMaximized = false, onToggleSidePanelMaximized, previewPresenting = false, onTogglePreviewPresentation, showAceCodeAvatar = false, showSessionTime = true, messageAutoCollapse = true, summaryPanelWidth, onSummaryPanelResize, onEditWorkspace, summaryPanelOpen = false, onToggleSummaryPanel, nativeSurfacesVisible = true }) {
+export function ChatView({ titleTarget, actionsTarget, children, sessionRef, sessionId, homeLogoEffectEnabled = true, homeIntentSuggestions = [], onHomeIntentPrompt, homeComposerDrafts = {}, homeComposerAttentionRequest = 0, onHomeComposerDraftLoad, onHomeComposerDraftChange, onHomeComposerDraftAccepted, onHomeComposerDraftPatch, modelProfileRevision = 0, onSessionPromoted, onSessionExpertChanged, onHomeWorkspaceChange, onCommandWorkspaceChange, onConsoleCwdChange, onFindInConversation, onOpenModelSettings, health, autoFocusOnDesktopWindowFocus = false, onPermissionRequest, onQuestionRequest, permissionRequests = [], onPermissionDecision, questionRequest, onQuestionResolve, onPermissionModeChanged, onSubagentTasksChange, recentExpertIds = [], onRememberExpert, onInitialDraftConsumed, showSidePanel = false, responsiveSidebars = null, rightPanelPopupWidth, onRightPanelPopupResize, sidePanelWidth = 280, onSidePanelResize, previewPanelWidth = 640, previewPanelAutoFit = false, onPreviewPanelResize, onPreviewPanelVisibleChange, onRegisterPreviewLeaveGuard, sidePanelCollapsed = false, sidePanelListCollapsed = false, onToggleSidePanel, onRevealPreviewPanel, onToggleSidePanelList, onRevealSidePanelList, sidePanelMaximized = false, onToggleSidePanelMaximized, previewPresenting = false, onTogglePreviewPresentation, showAceCodeAvatar = false, showSessionTime = true, messageAutoCollapse = true, followUpPrompts = true, busySendMode = 'steer', summaryPanelWidth, onSummaryPanelResize, onEditWorkspace, summaryPanelOpen = false, onToggleSummaryPanel, nativeSurfacesVisible = true }) {
   const ref = useMemo(() => normalizeSessionRef(sessionRef, sessionId), [sessionRef, sessionId]);
   const sid = ref?.sessionId || ref?.id || '';
   const workbenchOwner = sessionWorkbench.ownerFor(ref);
@@ -1124,7 +1125,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
   const draftSessionKey = sid ? `${draftWorkspaceHash}:${sid}` : '';
   const followUpPrompt = useFollowUpPrompt({
     sessionRef: ref, transcript, api,
-    enabled: !readOnlyExternalSession && !sessionRuntimeUnavailable && nativeSurfacesVisible,
+    enabled: followUpPrompts && !readOnlyExternalSession && !sessionRuntimeUnavailable && nativeSurfacesVisible,
     draftReady: !!sid && draftReadyKey === draftSessionKey && draftLoadFailedKey !== draftSessionKey,
     draft: { text: composerValue, content: composerContent, attachments: composerAttachments, contexts: composerContexts },
   });
@@ -3989,10 +3990,12 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
     }));
     if ((liveTranscript.busy || liveTranscript.abortPending) && !isBuiltin) {
       // 回复中:Enter / 发送按钮 = 插话(插进当前回合,模型下一步读到,先画在对话末尾);
-      // Ctrl+Enter = 排到回合结束。正在停止时只能排队。
+      // Ctrl+Enter = 排到回合结束。设置里「后续消息处理方式」选排队时两者对调(busySendAction)。
+      // 正在停止时只能排队。
       const queuedId = enqueueInput(payload);
       const steerTurnId = String(liveTranscript.activeTurnId || activeTurnId || '');
-      if (queuedId && sendMode !== 'queue' && liveTranscript.busy && !liveTranscript.abortPending && steerTurnId) {
+      const steer = busySendAction(sendMode, busySendMode) === 'steer';
+      if (queuedId && steer && liveTranscript.busy && !liveTranscript.abortPending && steerTurnId) {
         setTailFollowFromAction({ type: 'new_turn' });
         steerQueuedInput(queuedId, steerTurnId);
       }
@@ -6768,6 +6771,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
             ref={inputRef}
             mainComposer
             followUpPrompt={followUpPrompt}
+            busySendMode={busySendMode}
             forkSendAvailable={!!sid && !readOnlyExternalSession && transcriptLoadState === 'loaded'}
             pathReferenceApi={api}
             currentSessionId={sid}

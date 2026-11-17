@@ -115,7 +115,7 @@ const inputBar = fs.readFileSync(new URL('../components/InputBar.jsx', import.me
 // Dictation consumes Enter until recognition completes; committed text then
 // reaches the same existing submission gate.
 assert.match(inputBar, /const submit = \(options\) => \{\s*if \(speech\.interceptSubmit\(\)\) return;/);
-assert.match(inputBar, /const currentDraft = serializeComposerGoal\(valueRef\.current, contentRef\.current, goalModeRef\.current\);\s*const currentAction = getInputBarActionState\(\{ value: currentDraft\.text, disabled, busy, hasExtras, submitting, canRetryLastUserMessage, queuePaused \}\);\s*if \(!currentAction\.canSubmit\) return;/);
+assert.match(inputBar, /const currentDraft = serializeComposerGoal\(valueRef\.current, contentRef\.current, goalModeRef\.current\);\s*const currentAction = getInputBarActionState\(\{ value: currentDraft\.text, disabled, busy, hasExtras, submitting, canRetryLastUserMessage, queuePaused, busySendMode \}\);\s*if \(!currentAction\.canSubmit\) return;/);
 assert.match(inputBar, /onSubmit\?\.\(currentDraft\.text, \{ sendMode \}\)/);
 assert.match(inputBar, /onSubmit=\{submit\}/);
 assert.match(inputBar, /<ComposerActionButton[\s\S]*?onSubmit=\{submit\}[\s\S]*?onStop=\{onAbort\}/);

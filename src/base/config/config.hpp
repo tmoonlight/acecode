@@ -232,6 +232,11 @@ struct WebUiPreferencesConfig {
     // Portrait drawn for sub-agents that have no expert attached: `geometric`
     // is a generated rosette (the default), `pixel` the Agent Office character.
     std::string subagent_avatar_style = "geometric";   // geometric | pixel
+    // Composer: predicted next message after a completed turn (Tab accepts).
+    bool follow_up_prompts = true;
+    // What Enter does while a turn is running: `steer` inserts the message into
+    // the running turn, `queue` sends it after the turn. Ctrl+Enter does the other.
+    std::string busy_send_mode = "steer";   // steer | queue
 };
 
 struct ModelsDevConfig {
@@ -727,6 +732,9 @@ bool is_valid_web_ui_theme(const std::string& theme);
 bool is_valid_web_ui_color_theme(const std::string& color_theme);
 bool is_valid_web_ui_font_size(const std::string& font_size);
 bool is_valid_web_ui_subagent_avatar_style(const std::string& style);
+inline bool is_valid_web_ui_busy_send_mode(const std::string& mode) {
+    return mode == "steer" || mode == "queue";
+}
 // Empty, or 1-24 chars of lowercase ASCII words joined by single hyphens.
 bool is_valid_web_ui_theme_variant(const std::string& variant);
 

@@ -8,16 +8,17 @@ import { isDismissShortcut } from '../lib/shortcutBindings.js';
 // 对话框一致,同一目录才会注册成同一个工作区。
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Modal } from './Modal.jsx';
+import { PathPickerNewFolderDialog } from './PathPickerNewFolderDialog.jsx';
 import { VsIcon } from './Icon.jsx';
 import { clsx, formatBytes, formatDateTime } from '../lib/format.js';
 import {
+  NEW_FOLDER_NAME_MAX_LENGTH,
   PICKER_MODE_FILE,
   browseErrorKey,
   initialPickerPath,
   isSelectableEntry,
   mkdirErrorKey,
   newFolderNameProblem,
-  nextNewFolderName,
   normalizePickerPath,
   pickerBreadcrumbs,
   pickerNamesCaseInsensitive,
@@ -58,6 +59,7 @@ function browseErrorText(error, path) {
 
 function newFolderProblemText(key, name) {
   if (key === 'empty') return '请输入文件夹名称';
+  if (key === 'too-long') return `名称不能超过 ${NEW_FOLDER_NAME_MAX_LENGTH} 个字`;
   if (key === 'dot') return '名称不能是 . 或 ..';
   if (key === 'separator') return '名称不能包含斜杠或反斜杠';
   if (key === 'control') return '名称不能包含控制字符';
@@ -117,12 +119,9 @@ export function PathPickerModal({
   const [editing, setEditing] = useState(false);
   const [pathDraft, setPathDraft] = useState('');
   const [historyLength, setHistoryLength] = useState(0);
-  const [newFolderDraft, setNewFolderDraft] = useState(null); // null = 没在新建;字符串 = 输入框内容
-  const [newFolderBusy, setNewFolderBusy] = useState(false);
+  const [newFolderOpen, setNewFolderOpen] = useState(false);
 
   const historyRef = useRef([]);
-  const newFolderInputRef = useRef(null);
-  const newFolderBusyRef = useRef(false);
   const currentPathRef = useRef(null);
   const showHiddenRef = useRef(false);
   const requestSeqRef = useRef(0);
@@ -163,7 +162,6 @@ export function PathPickerModal({
       setSelected(null);
       if (!keepError) setListError('');
       setEditing(false);
-      setNewFolderDraft(null);
       return true;
     }
     setLoading(true);
@@ -185,7 +183,6 @@ export function PathPickerModal({
       setSelected(wanted ? entries.find((entry) => entry.name === wanted) || null : null);
       setListError('');
       setEditing(false);
-      setNewFolderDraft(null);
       return true;
     } catch (error) {
       if (seq !== requestSeqRef.current) return false;
@@ -314,91 +311,51 @@ export function PathPickerModal({
     if (ok) focusList();
   }, [focusList, navigate, pathDraft]);
 
-  // 底栏「New Folder」:列表顶上出现一行可编辑的名字(默认名已全选),Enter 建、Esc 或点到
-  // 别处取消;建好后重读当前目录并选中新文件夹,主按钮随之变成「选择「…」」。
+  // 底栏「新建文件夹」:弹出单独的小窗输入名称,确定后在当前目录建好、重读列表并选中新文件夹,
+  // 主按钮随之变成「选择「…」」。名称问题与创建失败都留在小窗里提示。
   const namesCaseInsensitive = pickerNamesCaseInsensitive(roots?.os);
   const windowsNames = roots?.os === 'windows';
-  const creatingFolder = newFolderDraft !== null;
 
   const startNewFolder = useCallback(() => {
-    if (!currentPathRef.current || newFolderBusyRef.current) return;
-    setSelected(null);
+    if (!currentPathRef.current) return;
     setListError('');
     setEditing(false);
-    setNewFolderDraft(nextNewFolderName(listing.entries, '新建文件夹', { caseInsensitive: namesCaseInsensitive }));
-  }, [listing.entries, namesCaseInsensitive]);
+    setNewFolderOpen(true);
+  }, []);
 
-  useEffect(() => {
-    if (!creatingFolder) return;
-    const input = newFolderInputRef.current;
-    input?.focus();
-    input?.select();
-  }, [creatingFolder]);
-
-  // 失焦取消时焦点已经去了别处(可能正是再点一次「New Folder」),不能再把它抢回列表。
-  const cancelNewFolder = useCallback(({ refocusList = false } = {}) => {
-    if (newFolderBusyRef.current) return;
-    setNewFolderDraft(null);
-    setListError('');
-    if (refocusList) focusList();
+  const cancelNewFolder = useCallback(() => {
+    setNewFolderOpen(false);
+    focusList();
   }, [focusList]);
 
-  const commitNewFolder = useCallback(async () => {
+  // 返回失败原因(小窗保持打开并显示),成功返回 ''。
+  const createNewFolder = useCallback(async (rawName) => {
     const parent = currentPathRef.current;
-    if (!parent || newFolderBusyRef.current || newFolderDraft === null) return;
-    const name = newFolderDraft.trim();
+    const name = String(rawName || '').trim();
+    if (!parent) return '';
     const problem = newFolderNameProblem(name, {
       windows: windowsNames,
       entries: listing.entries,
       caseInsensitive: namesCaseInsensitive,
     });
-    if (problem) {
-      setListError(newFolderProblemText(problem, name));
-      return;
-    }
-    newFolderBusyRef.current = true;
-    setNewFolderBusy(true);
+    if (problem) return newFolderProblemText(problem, name);
     let result = null;
     try {
       result = await api.fsMkdir(parent, name);
     } catch (error) {
-      newFolderBusyRef.current = false;
-      setNewFolderBusy(false);
-      setListError(mkdirErrorText(error, name, parent));
-      requestAnimationFrame(() => newFolderInputRef.current?.focus());
-      return;
+      return mkdirErrorText(error, name, parent);
     }
-    newFolderBusyRef.current = false;
-    setNewFolderBusy(false);
-    if (currentPathRef.current !== parent) return;
+    setNewFolderOpen(false);
+    if (currentPathRef.current !== parent) return '';
     pendingSelectNameRef.current = result?.name || name;
-    setNewFolderDraft(null);
     const ok = await navigate(parent, { pushHistory: false });
-    if (!ok) return;
+    if (!ok) return '';
     focusList();
     requestAnimationFrame(() => {
       listRef.current?.querySelector('[aria-selected="true"]')?.scrollIntoView?.({ block: 'nearest' });
     });
-  }, [api, focusList, listing.entries, namesCaseInsensitive, navigate, newFolderDraft, windowsNames]);
-
-  const onNewFolderKeyDown = useCallback((event) => {
-    // 不让对话框级快捷键(Alt+← 后退)抢走输入框里的按键。
-    event.stopPropagation();
-    if (event.key === 'Enter') {
-      event.preventDefault();
-      if (event.nativeEvent?.isComposing || event.keyCode === 229) return;
-      void commitNewFolder();
-    } else if (isDismissShortcut(event)) {
-      event.preventDefault();
-      cancelNewFolder({ refocusList: true });
-    }
-  }, [cancelNewFolder, commitNewFolder]);
-
-  const onNewFolderBlur = useCallback(() => {
-    // 切到别的窗口不算「点到别处」,回来时输入框还在、焦点由浏览器还原。
-    if (typeof document !== 'undefined' && !document.hasFocus()) return;
-    cancelNewFolder();
-  }, [cancelNewFolder]);
+    return '';
+  }, [api, focusList, listing.entries, namesCaseInsensitive, navigate, windowsNames]);
 
   const onListKeyDown = useCallback((event) => {
     const candidates = selectableEntries(rows, mode);
@@ -494,6 +451,7 @@ export function PathPickerModal({
     : (loading ? '正在读取…' : '这个目录没有可显示的项目');
 
   return (
+    <>
     <Modal onClose={cancel} width={860} dismissOnBackdrop={false} labelledBy="ace-path-picker-title">
       {() => (
         <div className="ace-path-picker" onKeyDown={onDialogKeyDown}>
@@ -628,25 +586,6 @@ export function PathPickerModal({
                 <span className="ace-path-picker-mtime">修改时间</span>
                 <span className="text-right">大小</span>
               </div>
-              {creatingFolder && (
-                <div className="ace-path-picker-new-row">
-                  <span className="ace-path-picker-ic is-dir">
-                    <VsIcon name="folder" size={15} />
-                  </span>
-                  <input
-                    ref={newFolderInputRef}
-                    value={newFolderDraft}
-                    onChange={(event) => setNewFolderDraft(event.target.value)}
-                    onKeyDown={onNewFolderKeyDown}
-                    onBlur={onNewFolderBlur}
-                    readOnly={newFolderBusy}
-                    spellCheck={false}
-                    autoComplete="off"
-                    className="ace-path-picker-new-input"
-                    aria-label="文件夹名称"
-                  />
-                </div>
-              )}
               <div
                 ref={listRef}
                 className="ace-path-picker-list ace-scrollbar"
@@ -722,10 +661,10 @@ export function PathPickerModal({
               <button
                 type="button"
                 onClick={startNewFolder}
-                disabled={!currentPath || newFolderBusy}
+                disabled={!currentPath}
                 className="ace-path-picker-soft-btn"
               >
-                New Folder
+                新建文件夹
               </button>
             )}
             <span className="flex-1" />
@@ -745,5 +684,9 @@ export function PathPickerModal({
         </div>
       )}
     </Modal>
+    {newFolderOpen && (
+      <PathPickerNewFolderDialog onCreate={createNewFolder} onCancel={cancelNewFolder} />
+    )}
+    </>
   );
 }
