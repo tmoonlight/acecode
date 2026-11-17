@@ -568,6 +568,66 @@ private:
     int calls_ = 0;
 };
 
+// 每个 goal 两次请求:奇数次调 update_goal(complete),偶数次回一句收尾正文。
+// block_wrap_up_call 指定的那次收尾请求会停住,直到回合被中断(模拟用户在
+// 模型写总结时点「中断」)。
+class RepeatingGoalStubProvider : public acecode::LlmProvider {
+public:
+    explicit RepeatingGoalStubProvider(int block_wrap_up_call = 0)
+        : block_wrap_up_call_(block_wrap_up_call) {}
+
+    acecode::ChatResponse chat(
+        const std::vector<acecode::ChatMessage>&,
+        const std::vector<acecode::ToolDef>&) override {
+        acecode::ChatResponse resp;
+        resp.finish_reason = "stop";
+        return resp;
+    }
+
+    void chat_stream(const std::vector<acecode::ChatMessage>&,
+                     const std::vector<acecode::ToolDef>&,
+                     const acecode::StreamCallback& callback,
+                     std::atomic<bool>* abort_flag = nullptr) override {
+        const int call_index = ++calls_;
+        if (call_index % 2 == 1) {
+            acecode::ToolCall tc;
+            tc.id = "goal-complete-" + std::to_string(call_index);
+            tc.function_name = "update_goal";
+            tc.function_arguments = R"({"status":"complete"})";
+            acecode::StreamEvent tool_evt;
+            tool_evt.type = acecode::StreamEventType::ToolCall;
+            tool_evt.tool_call = std::move(tc);
+            callback(tool_evt);
+        } else {
+            if (call_index == block_wrap_up_call_) {
+                const auto deadline = std::chrono::steady_clock::now() + 5s;
+                while (std::chrono::steady_clock::now() < deadline &&
+                       !(abort_flag && abort_flag->load())) {
+                    std::this_thread::sleep_for(5ms);
+                }
+            }
+            acecode::StreamEvent delta;
+            delta.type = acecode::StreamEventType::Delta;
+            delta.content = "done";
+            callback(delta);
+        }
+        acecode::StreamEvent done;
+        done.type = acecode::StreamEventType::Done;
+        callback(done);
+    }
+
+    int calls() const { return calls_.load(); }
+
+    std::string name() const override { return "repeating-goal-stub"; }
+    bool is_authenticated() override { return true; }
+    std::string model() const override { return "repeating-goal-stub"; }
+    void set_model(const std::string&) override {}
+
+private:
+    const int block_wrap_up_call_;
+    std::atomic<int> calls_{0};
+};
+
 acecode::ChatMessage registry_msg(std::string role, std::string content) {
     acecode::ChatMessage msg;
     msg.role = std::move(role);
@@ -1100,6 +1160,115 @@ TEST(LocalSessionClient, GoalCreatePersistsVisibleAuditBeforeHiddenContext) {
         return is_goal_audit(msg, "create");
     }), 1);
     EXPECT_FALSE(provider->saw_transcript_only_message());
+
+    fx.registry.destroy(id);
+    std::error_code ec;
+    std::filesystem::remove_all(cwd, ec);
+}
+
+namespace {
+
+template <typename Predicate>
+bool wait_until_true(Predicate pred, std::chrono::milliseconds timeout = 5s) {
+    const auto deadline = std::chrono::steady_clock::now() + timeout;
+    while (std::chrono::steady_clock::now() < deadline) {
+        if (pred()) return true;
+        std::this_thread::sleep_for(10ms);
+    }
+    return pred();
+}
+
+acecode::BuiltinCommandResult run_goal_command(LocalSessionClient& client,
+                                               const std::string& id,
+                                               const std::string& objective) {
+    acecode::BuiltinCommandRequest req;
+    req.name = "goal";
+    req.args = objective;
+    req.display_text = "/goal " + objective;
+    return client.execute_builtin_command(id, req);
+}
+
+bool goal_completed_with_objective(SessionEntry* entry, const std::string& id,
+                                   const std::string& objective) {
+    if (!entry || !entry->sm || !entry->sm->goal_store()) return false;
+    const auto goal = entry->sm->goal_store()->get_thread_goal(id);
+    return goal.has_value() && goal->objective == objective &&
+           goal->status == acecode::ThreadGoalStatus::Complete;
+}
+
+} // namespace
+
+// 触发场景:第一个目标正常完成、会话空闲后,用户在同一会话用 /goal 设置第二个目标。
+// 期望行为:第二个目标立即开出隐藏续跑回合,并能一路做到完成。
+TEST(LocalSessionClient, SecondGoalAfterCompletedGoalStartsContinuation) {
+    auto cwd = temp_cwd("goal_second_after_complete");
+    TestFixture fx;
+    fx.tools.register_tool(acecode::create_update_goal_tool());
+    auto provider = std::make_shared<RepeatingGoalStubProvider>();
+    fx.provider = provider;
+    LocalSessionClient client(fx.registry);
+
+    SessionOptions opts;
+    opts.cwd = cwd.string();
+    auto id = client.create_session(opts);
+    auto* entry = fx.registry.lookup(id);
+    ASSERT_NE(entry, nullptr);
+
+    EXPECT_EQ(run_goal_command(client, id, "first goal").status,
+              acecode::BuiltinCommandStatus::Accepted);
+    ASSERT_TRUE(wait_until_true([&] {
+        return goal_completed_with_objective(entry, id, "first goal") &&
+               !entry->loop->has_pending_work();
+    }));
+    ASSERT_EQ(provider->calls(), 2);
+
+    EXPECT_EQ(run_goal_command(client, id, "second goal").status,
+              acecode::BuiltinCommandStatus::Accepted);
+    EXPECT_TRUE(wait_until_true([&] {
+        return goal_completed_with_objective(entry, id, "second goal");
+    })) << "第二个目标没有开出续跑回合,provider 调用次数=" << provider->calls();
+    EXPECT_GE(provider->calls(), 3);
+
+    fx.registry.destroy(id);
+    std::error_code ec;
+    std::filesystem::remove_all(cwd, ec);
+}
+
+// 触发场景:模型已调用 update_goal(complete),在写收尾总结时用户点了「中断」;
+// 回合结束后目标保持 complete,会话空闲,用户再用 /goal 设置第二个目标。
+// 期望行为:第二个目标照常开出续跑回合并完成。
+// 回归:修复前中断留下的 abort 标志一直没人清(只有 /goal resume 会清),
+// maybe_continue 看到它直接返回 —— 第二个目标显示「进行中」、Web 目标条的
+// 计时一直走,但模型一个请求都没收到。
+TEST(LocalSessionClient, SecondGoalAfterAbortedWrapUpStartsContinuation) {
+    auto cwd = temp_cwd("goal_second_after_abort");
+    TestFixture fx;
+    fx.tools.register_tool(acecode::create_update_goal_tool());
+    auto provider = std::make_shared<RepeatingGoalStubProvider>(2);
+    fx.provider = provider;
+    LocalSessionClient client(fx.registry);
+
+    SessionOptions opts;
+    opts.cwd = cwd.string();
+    auto id = client.create_session(opts);
+    auto* entry = fx.registry.lookup(id);
+    ASSERT_NE(entry, nullptr);
+
+    EXPECT_EQ(run_goal_command(client, id, "first goal").status,
+              acecode::BuiltinCommandStatus::Accepted);
+    // 第 2 次请求就是 complete 之后的收尾正文,provider 在这里停住等中断。
+    ASSERT_TRUE(wait_until_true([&] { return provider->calls() >= 2; }));
+    entry->loop->abort();
+    ASSERT_TRUE(wait_until_true([&] { return !entry->loop->has_pending_work(); }));
+    ASSERT_TRUE(goal_completed_with_objective(entry, id, "first goal"));
+    ASSERT_EQ(provider->calls(), 2);
+
+    EXPECT_EQ(run_goal_command(client, id, "second goal").status,
+              acecode::BuiltinCommandStatus::Accepted);
+    EXPECT_TRUE(wait_until_true([&] {
+        return goal_completed_with_objective(entry, id, "second goal");
+    })) << "第二个目标没有开出续跑回合,provider 调用次数=" << provider->calls();
+    EXPECT_GE(provider->calls(), 3);
 
     fx.registry.destroy(id);
     std::error_code ec;

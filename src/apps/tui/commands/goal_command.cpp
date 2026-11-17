@@ -305,6 +305,8 @@ void cmd_goal(CommandContext& ctx, const std::string& raw_args) {
     auto goal = store->get_thread_goal(sid);
     if (goal.has_value()) emit_goal_updated(ctx, *goal);
     push_goal_message(ctx, goal.has_value() ? format_goal_summary(*goal) : "Goal created.");
+    // 与 /goal resume 同理:先清掉上一回合中断留下的 abort 标志,否则新目标不续跑。
+    ctx.agent_loop.clear_stale_abort_request();
     ctx.agent_loop.maybe_continue_goal();
 }
 

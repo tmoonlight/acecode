@@ -9,12 +9,16 @@
 #include "session/session_manager.hpp"
 #include "session/session_storage.hpp"
 #include "session/thread_goal_store.hpp"
+#include "tool/goal_tool.hpp"
 #include "tool/tool_executor.hpp"
 #include "session/token_tracker.hpp"
 
+#include <chrono>
 #include <filesystem>
 #include <memory>
+#include <optional>
 #include <random>
+#include <thread>
 
 namespace fs = std::filesystem;
 
@@ -129,6 +133,31 @@ TEST(GoalCommand, RejectsInvalidBudget) {
     EXPECT_FALSE(goal.has_value());
     ASSERT_FALSE(h.state_.conversation.empty());
     EXPECT_NE(h.state_.conversation.back().content.find("positive integer"), std::string::npos);
+}
+
+// 触发场景:上一回合被用户中断后会话空闲(abort 标志还留着),用户在 TUI 里
+// /goal 新建目标。期望行为:新目标立即开出续跑回合;本用例 provider 为空,
+// 回合一跑就报「没有模型」并把目标转成 blocked,以此证明回合确实开了。
+// 回归:修复前创建路径不清残留的 abort 标志,maybe_continue 直接返回,
+// 目标一直停在 active,什么也不做。
+TEST(GoalCommand, CreateAfterStaleAbortStartsContinuation) {
+    GoalCommandHarness h("stale_abort_create");
+    // 续跑要求 update_goal 可用;夹具默认工具表是空的。
+    ASSERT_TRUE(h.tools_.register_tool(acecode::create_update_goal_tool()));
+    h.perms_.set_mode(acecode::PermissionMode::Default);
+    h.loop_->abort();
+
+    ASSERT_TRUE(h.dispatch("/goal second goal"));
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    std::optional<acecode::ThreadGoal> goal;
+    while (std::chrono::steady_clock::now() < deadline) {
+        goal = h.goal();
+        if (goal.has_value() && goal->status == acecode::ThreadGoalStatus::Blocked) break;
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    ASSERT_TRUE(goal.has_value());
+    EXPECT_EQ(goal->objective, "second goal");
+    EXPECT_EQ(goal->status, acecode::ThreadGoalStatus::Blocked);
 }
 
 TEST(GoalCommand, ResumeBlockedGoalMakesItActive) {

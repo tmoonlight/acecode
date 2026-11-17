@@ -571,6 +571,9 @@ BuiltinCommandResult execute_goal_builtin(SessionEntry& entry,
     } else {
         notice("goal_started", "Goal created.", {{"objective", objective}});
     }
+    // 与 /goal resume 同理:上一回合被中断留下的 abort 标志只在下一回合开头才清,
+    // 不先清掉,maybe_continue 会直接返回,新目标显示进行中却永远不开回合。
+    entry.loop->clear_stale_abort_request();
     entry.loop->maybe_continue_goal();
     return {BuiltinCommandStatus::Accepted, "completed"};
 }
