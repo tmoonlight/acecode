@@ -369,6 +369,8 @@ int run_print_mode(const HeadlessCliOptions& opts) {
     }
 
     AppConfig cfg = load_config();
+    // Auto-title uses a second provider request with its own system instructions.
+    if (replacement_prompt) cfg.session_title.enabled = false;
     cfg.mcp_servers = effective_mcp_config(
         cfg.mcp_servers, load_project_mcp_config(acecode::current_path_utf8()));
     acecode::environment::bootstrap(cfg, {false, true});
