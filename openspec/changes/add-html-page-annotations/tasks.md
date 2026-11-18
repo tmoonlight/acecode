@@ -44,7 +44,7 @@ native-page readiness assertion under the combined runner; that suite passes sta
 
 ## 5. Full-page native screenshot (#198)
 
-- [ ] 5.1 Add explicit full-page capture on Windows preserving viewport defaults; verify bounds/resource failures and beyond-viewport capture.
+- [x] 5.1 Add explicit full-page capture on Windows preserving viewport defaults; verify bounds/resource failures and beyond-viewport capture.
 - [ ] 5.2 Add explicit full-page capture on macOS preserving viewport defaults; verify native implementation and capture contract tests.
 
 Ticket #198 implementation: explicit `fullPage`/`captureBeyondViewport` routing,
@@ -63,7 +63,8 @@ Native smoke helpers now include a deterministic tall-page probe that decodes PN
 pixels below the viewport, checks viewport/scroll preservation, rejects stale document
 tokens/resource overflow and retries. The native probes have not been executed here.
 Windows full native link/runtime acceptance and macOS compile/runtime/pixel acceptance
-remain unverified; 5.1/5.2 stay unchecked rather than claiming platform acceptance.
+remained unverified at this historical checkpoint; see the final 39cd verification
+below for Windows 5.1. macOS 5.2 remains unchecked.
 `openspec validate add-html-page-annotations --strict` and `git diff --check` pass.
 
 ## 6. Reliable batch send (#199)
@@ -135,8 +136,8 @@ compile passes, and all four strict gates remain clean with unchanged size basel
 
 - [x] 8.5 Extract focused native capture/annotation transport and state serialization boundaries, relocate shared smoke support, and correct ownership scanner header-token classification; verify strict standards gates and isolated native compilation/tests without changing capture behavior or baselines. Verified all four strict gates, 104 Python tests, 23 standalone native tests (including fake-client probe failure regressions), Windows host/transport/bridge/smoke translation-unit compilation, and OpenSpec validation. Probe null/error handling preserves native failures. No shared build, real native capture acceptance, or macOS compilation/runtime claimed.
 
-- [ ] 8.1 Complete interaction-to-submission regressions, security/lifetime checks and source-selection regression; verify focused native tests, pnpm test, pnpm build and git diff --check.
-- [ ] 8.2 Review against baseline 0155a863 on standards and spec axes, fix findings and update API/acceptance documentation; verify final diff and review results.
+- [x] 8.1 Complete interaction-to-submission regressions, security/lifetime checks and source-selection regression; verify focused native tests, pnpm test, pnpm build and git diff --check.
+- [x] 8.2 Review against baseline 0155a863 on standards and spec axes, fix findings and update API/acceptance documentation; verify final diff and review results.
 - [ ] 8.3 Perform real Windows complete desktop workflow including all fields and long-page screenshot pixels; record observed results without substituting automated tests.
 - [ ] 8.4 Build and perform real macOS complete desktop workflow including all fields and long-page screenshot pixels; record observed results and keep draft if unavailable.
 
@@ -183,5 +184,22 @@ integrated; fresh frontend/driver/native compilation and execution remain pendin
 Linux CI `44369114282` had one receipt-test failure among 7,058 tests; the fix retains
 exactly-one real admission and metadata checks while excluding typed internal context.
 Worker replay/isolated compilation is not a passing fresh Linux HTTP/CI run.
-No completion box changes: 2.1 cascade, 5.1/5.2 platform capture acceptance,
-8.1/8.2 final integration/review and 8.3/8.4 complete manual workflows remain open.
+At that checkpoint no completion boxes changed: 2.1 cascade, 5.1/5.2 platform capture
+acceptance, 8.1/8.2 final integration/review and 8.3/8.4 manual workflows remained open.
+
+Final coordinator verification, 2026-11-19, fixed clean start/end HEAD
+`39cd01dbbd97d1d7bd8ee4dc288020e835287821`: native session 37596 passed desktop/unit/smoke
+builds and dependency validation; freshly linked focused native and CTest each passed
+107/107, including new HTTP receipt and MessagePayload tests. Real visible integrated
+smoke and ownership passed; the capture probe covered bottom-green pixels, preserved
+layout/style/viewport/scroll, stale/resource rejection and retry. This completes 5.1.
+Same-HEAD complete pnpm test/build and regex checks, directly rebuilt driver/dedicated
+integration, Edge lifecycle, layers/size/ownership/OpenSpec/diff all passed. Final
+Standards and Spec reviews pinned to 39cd report no open code findings. This completes
+automated integration 8.1 and dual review 8.2, not the whole feature. The prose-only
+documentation-path failure is corrected in this documentation-only follow-up, without
+baseline exemption; strict doc paths, OpenSpec and diff are rerun separately.
+Acceptance records exact TEMP logs and historical failures, including Linux CI
+44369114282 (one receipt failure among 7,058 tests) and the earlier broader native
+11-failure run. Neither is replaced by a passing focused Windows run or a claimed
+Linux rerun. Tasks 2.1, 5.2, 8.3 and 8.4 remain open; keep the pull request draft.
