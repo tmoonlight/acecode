@@ -376,8 +376,12 @@ function fixture() {
   assert.match(popup, /data-ace-native-overlay=\{snapshot.selection_mode \? undefined : 'overlap'\}/);
   assert.doesNotMatch(popup, /onAddContext|submitMessage|fetch\(|aceDesktop_.*(?:Write|Send)/);
   const windows = fs.readFileSync(new URL('../../../src/apps/desktop/agent_browser_host.cpp', import.meta.url), 'utf8');
-  assert.match(windows, /Page.createIsolatedWorld/);
-  assert.match(windows, /"contextId", world\["executionContextId"\]/);
+  assert.match(windows, /#include "agent_browser_native_commands_win\.hpp"/);
+  assert.match(windows, /agent_browser_windows::evaluate_annotation\(page->webview,/);
+  const commands = fs.readFileSync(new URL('../../../src/apps/desktop/agent_browser_native_commands_win.cpp', import.meta.url), 'utf8');
+  assert.match(commands, /Page.createIsolatedWorld/);
+  assert.match(commands, /"contextId", world\["executionContextId"\]/);
+  assert.match(commands, /"grantUniveralAccess", false/);
   assert.doesNotMatch(source, /chrome\.webview|webkit\.messageHandlers|postMessage|fetch\(/);
   console.log('[pass] annotation popup uses local native occlusion and leaves source-selection/conversation path independent');
 }
