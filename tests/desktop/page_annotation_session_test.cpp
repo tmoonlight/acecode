@@ -95,6 +95,72 @@ TEST_F(PageAnnotationSessionTest, CancelAndExitPreserveSavedRecordsAndDoNotAlloc
     EXPECT_EQ(session.snapshot()["records"][1]["number"], 2);
 }
 
+TEST_F(PageAnnotationSessionTest, TextCommandsBindTargetAndSaveOnlyAcknowledgedActualDifferences) {
+    start();
+    select();
+    auto request = command("preview_text");
+    request["target_id"] = "wrong";
+    request["text"] = "New label";
+    EXPECT_FALSE(prepare(request));
+    request["target_id"] = "target-1";
+    request["text"] = std::string(16385, 'x');
+    EXPECT_FALSE(prepare(request));
+    request["text"] = "New label";
+    ASSERT_TRUE(prepare(request)) << error;
+    EXPECT_NE(expression.find("__acecodePageAnnotationsV1"), std::string::npos);
+    EXPECT_NE(expression.find("New label"), std::string::npos);
+    auto selected = target();
+    selected["text_preview"] = {{"value", "New label"}, {"editable", true}, {"error", ""}};
+    ASSERT_TRUE(session.complete(session.sequence(), result(true, true, selected), error)) << error;
+    request = command("save");
+    request["target_id"] = "target-1";
+    request["description"] = "";
+    ASSERT_TRUE(prepare(request)) << error;
+    auto saved = result();
+    saved["differences"] = Json::array({{{"target_id", "target-1"}, {"property", "text"},
+                                         {"old_value", "Click"}, {"new_value", "New label"}}});
+    ASSERT_TRUE(session.complete(session.sequence(), saved, error)) << error;
+    EXPECT_EQ(session.snapshot()["records"][0]["differences"], saved["differences"]);
+    EXPECT_EQ(session.snapshot()["records"][0]["description"], "");
+    const auto records = session.snapshot()["records"];
+    request = command("original");
+    request["enabled"] = "true";
+    EXPECT_FALSE(prepare(request));
+    request["enabled"] = true;
+    ASSERT_TRUE(prepare(request));
+    auto original = result();
+    original["original"] = true;
+    ASSERT_TRUE(session.complete(session.sequence(), original, error));
+    EXPECT_EQ(session.snapshot()["original"], true);
+    EXPECT_EQ(session.snapshot()["records"], records);
+}
+
+TEST_F(PageAnnotationSessionTest, RejectsMalformedTextDifferencesWithoutCreatingRecord) {
+    start();
+    select();
+    auto request = command("save");
+    request["target_id"] = "target-1";
+    request["description"] = "";
+    const Json valid{{"target_id", "target-1"}, {"property", "text"},
+                     {"old_value", "Click"}, {"new_value", "Changed"}};
+    for (const auto& field : {"target_id", "property", "old_value", "new_value"}) {
+        ASSERT_TRUE(prepare(request));
+        auto saved = result();
+        auto malformed = valid;
+        malformed[field] = 42;
+        saved["differences"] = Json::array({malformed});
+        EXPECT_FALSE(session.complete(session.sequence(), saved, error));
+        EXPECT_EQ(session.snapshot()["pending_count"], 0);
+    }
+    ASSERT_TRUE(prepare(request));
+    auto saved = result();
+    auto unchanged = valid;
+    unchanged["new_value"] = unchanged["old_value"];
+    saved["differences"] = Json::array({unchanged});
+    EXPECT_FALSE(session.complete(session.sequence(), saved, error));
+    EXPECT_EQ(session.snapshot()["pending_count"], 0);
+}
+
 TEST_F(PageAnnotationSessionTest, RejectsArbitraryCapabilitiesAndRecordMutation) {
     start();
     for (const auto& action : {"send", "evaluate", "delete", "edit", "write_file", "capture"}) {

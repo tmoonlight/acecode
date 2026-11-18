@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPageAnnotationController, pageAnnotationPopupPosition } from '../lib/pageAnnotations.js';
 import { notifyNativeSurfaceOverlayChange } from '../lib/agentBrowserSurfaceCoordinator.js';
+import { PageAnnotationTextField } from './PageAnnotationTextField.jsx';
 
 export function usePageAnnotations(pageId, nativeState) {
   const [snapshot, setSnapshot] = useState({ active: false, pending_count: 0 });
@@ -38,12 +39,13 @@ export function usePageAnnotations(pageId, nativeState) {
   }, [pageId, snapshot.active, snapshot.document_id]);
   const command = async (action, fields) => {
     const controller = controllerRef.current;
-    if (!controller || working) return { ok: false };
-    setWorking(true);
+    const preview = action === 'preview_text';
+    if (!controller || (working && !preview)) return { ok: false };
+    if (!preview) setWorking(true);
     setError('');
     const result = await controller.command(action, fields);
     if (controllerRef.current === controller) {
-      setWorking(false);
+      if (!preview) setWorking(false);
       if (result?.ok === false) setError(result.error || '网页批注操作失败');
     }
     return result;
@@ -120,6 +122,8 @@ export function PageAnnotationPopup({ snapshot, command, working, viewportRef })
         <span className="truncate">{snapshot.target.tag}</span>
         <button type="button" disabled={working} aria-label="关闭批注" onClick={close} className="rounded px-2 py-1 hover:bg-surface-hi">关闭</button>
       </div>
+      <button type="button" disabled={working} onClick={() => void command('original', { enabled: !snapshot.original })} className="self-start rounded px-2 py-1 hover:bg-surface-hi">{snapshot.original ? '恢复预览' : '查看原图'}</button>
+      <PageAnnotationTextField target={snapshot.target} command={command} working={working} />
       <textarea
         ref={inputRef}
         aria-label="批注描述"

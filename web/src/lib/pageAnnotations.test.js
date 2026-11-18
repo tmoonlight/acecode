@@ -5,6 +5,8 @@ import { createPageAnnotationController, pageAnnotationPopupPosition, runPageAnn
 
 const source = fs.readFileSync(new URL('../../../src/apps/desktop/page_annotation_runtime.hpp', import.meta.url), 'utf8');
 const runtime = source.split('R"ACEANNOTATION(')[1].split(')ACEANNOTATION"')[0];
+const textSource = fs.readFileSync(new URL('../../../src/apps/desktop/page_annotation_text_runtime.hpp', import.meta.url), 'utf8');
+const textRuntime = textSource.split('R"ACETEXT(')[1].split(')ACETEXT"')[0];
 
 function fixture() {
   const documentListeners = new Map();
@@ -13,6 +15,7 @@ function fixture() {
   const element = (tag) => ({
     nodeType: 1, localName: tag, ownerDocument: document, isConnected: true,
     style: { cssText: '' }, children: [], listeners: new Map(), id: '', textContent: '',
+    get childNodes() { return this.children; },
     offsetWidth: 80, offsetHeight: 24,
     append(...children) { children.forEach(child => { child.parent = this; }); this.children.push(...children); },
     remove() { this.parent.children = this.parent.children.filter(child => child !== this); },
@@ -35,11 +38,12 @@ function fixture() {
   target.append(child);
   const context = vm.createContext({
     document, innerWidth: 800, innerHeight: 600,
+    getComputedStyle: () => ({ display: 'block', visibility: 'visible' }),
     addEventListener(type, listener) { windowListeners.set(type, listener); },
     removeEventListener(type) { windowListeners.delete(type); },
   });
   const run = (action, fields = {}) => JSON.parse(JSON.stringify(vm.runInContext(
-    `${runtime}(${JSON.stringify({ action, document_id: 'doc-1', ...fields })})`, context,
+    `${runtime}(${JSON.stringify({ action, document_id: 'doc-1', ...fields })}, ${textRuntime})`, context,
   )));
   const event = (node, trusted = true, fields = {}) => ({
     isTrusted: trusted, button: 0, composedPath: () => [node],

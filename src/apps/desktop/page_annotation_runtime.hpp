@@ -3,7 +3,7 @@
 namespace acecode::desktop {
 
 inline constexpr const char kPageAnnotationRuntime[] = R"ACEANNOTATION(
-(command => {
+((command, createTextPreview) => {
   const key = '__acecodePageAnnotationsV1';
   let runtime = globalThis[key];
   if (runtime && command.action === 'start' && runtime.document_id !== command.document_id) {
@@ -20,6 +20,8 @@ inline constexpr const char kPageAnnotationRuntime[] = R"ACEANNOTATION(
     let sequence = 0;
     const ids = new WeakMap();
     const pins = [];
+    const textPreview = createTextPreview();
+    let original = false;
     const host = document.createElement('div');
     host.style.cssText = 'all:initial;position:fixed;inset:0;pointer-events:none;z-index:2147483647';
     const shadow = host.attachShadow({mode:'closed'});
@@ -63,8 +65,9 @@ inline constexpr const char kPageAnnotationRuntime[] = R"ACEANNOTATION(
         text:(selected.innerText || selected.textContent || '').slice(0, 512),
         locator:selected.localName + (selected.id ? '#' + selected.id.slice(0, 128) : ''),
         bounds:rect(selected),
+        text_preview:textPreview.describe(selected, selectedId),
       } : null;
-      return {document_id:documentId, active, popup:!!target && open, target,
+      return {document_id:documentId, active, popup:!!target && open, target, original,
         viewport:{width:innerWidth, height:innerHeight}};
     };
     const select = event => {
@@ -92,6 +95,7 @@ inline constexpr const char kPageAnnotationRuntime[] = R"ACEANNOTATION(
       event.preventDefault();
       event.stopImmediatePropagation();
       active = false;
+      textPreview.cancel();
       selected = null;
       open = false;
       layout();
@@ -110,6 +114,7 @@ inline constexpr const char kPageAnnotationRuntime[] = R"ACEANNOTATION(
     globalThis.addEventListener('scroll', layout, true);
     globalThis.addEventListener('resize', layout);
     runtime = Object.freeze({document_id:documentId, dispose() {
+      textPreview.dispose();
       document.removeEventListener('pointerdown', suppress, true);
       document.removeEventListener('mousedown', suppress, true);
       document.removeEventListener('click', select, true);
@@ -122,10 +127,19 @@ inline constexpr const char kPageAnnotationRuntime[] = R"ACEANNOTATION(
       switch (next.action) {
         case 'start': active = true; break;
         case 'read': break;
-        case 'exit': active = false; selected = null; open = false; break;
-        case 'cancel': selected = null; open = false; break;
+        case 'exit': textPreview.cancel(); active = false; selected = null; open = false; break;
+        case 'cancel': textPreview.cancel(); selected = null; open = false; break;
+        case 'original': original = next.enabled; textPreview.setOriginal(original); break;
+        case 'preview_text': {
+          if (!active || !open || !connected(selected) || selectedId !== next.target_id) return {error:'stale_target'};
+          const result = textPreview.preview(selected, selectedId, next.text);
+          if (result.error) return result;
+          break;
+        }
         case 'save': {
           if (!active || !open || !connected(selected) || selectedId !== next.target_id) return {error:'stale_target'};
+          const result = textPreview.save();
+          if (result.error) return result;
           const marker = document.createElement('span');
           marker.textContent = String(next.number);
           marker.style.cssText = 'position:fixed;pointer-events:none;border-radius:12px;padding:2px 6px;background:Highlight;color:HighlightText';
@@ -133,7 +147,7 @@ inline constexpr const char kPageAnnotationRuntime[] = R"ACEANNOTATION(
           pins.push({target:selected, marker});
           selected = null;
           open = false;
-          break;
+          return {...snapshot(), differences:result.differences};
         }
         default: return {error:'unsupported_action'};
       }

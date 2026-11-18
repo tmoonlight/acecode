@@ -1,6 +1,9 @@
 // Human-reviewed product terminology and phrases where generic machine
 // translation is ambiguous without ACECode context.
 export const ENGLISH_SOURCE_OVERRIDES = Object.freeze({
+  '可见文本': 'Visible text',
+  '恢复预览': 'Restore preview',
+  '查看原图': 'View original',
   '退出网页批注': 'Exit page annotations',
   '网页批注': 'Page annotations',
   '待发送': 'Pending',

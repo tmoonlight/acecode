@@ -78,3 +78,38 @@ Verification details and outstanding platform checks are recorded in `docs/agent
 establish actual Windows/macOS popup layering, focus, hit testing or complete desktop acceptance.
 Section 8 platform tasks remain unchecked; capture/send/navigation-confirmation scope remains owned by
 the subsequent tickets.
+
+## #196 Text Preview Contract
+
+`page_annotation_text_runtime.hpp` exports a factory injected as runtime argument 2
+(argument 3 remains available for styles). `preview_text {target_id,text}` is a
+restricted document/target-bound command. The trusted popup uses the target's
+`text_preview {value,editable,error}`; typing is serialized before save without
+disabling the text field on each keystroke. Save acknowledgments carry only actual
+`{target_id,property:"text",old_value,new_value}` differences, including text-only
+annotations with an empty description. The baseline is the effective saved text,
+not a previous unsaved draft or the temporarily displayed original.
+
+The helper retains original Text nodes/data and exact parents, applies a common
+prefix/suffix replacement to eligible descendant text nodes, and never replaces
+an element subtree. Hidden/script/style/form-control content is excluded. The
+editor uses concatenated eligible text-node data, not CSS-generated content or
+layout-generated line breaks. Empty elements use an owned temporary text node,
+removed during original view/cancellation/disposal. Saved node layers and draft
+layers are independent; original view disables both without removing pins.
+Original inline styles and all existing child nodes/listeners remain untouched.
+Text beyond 4096 UTF-16 code units is explicitly non-editable, not truncated;
+changed node topology rejects preview/save without selector-based relocation.
+
+Verification: focused native session tests, production runtime/field JavaScript
+behavior tests, and `node tests/desktop/page_annotation_text_smoke.mjs <Chromium>`
+(real DOM identity/listeners and independently toggled stylesheet composition).
+Headless Chromium is not Windows WebView2 or macOS WKWebView desktop acceptance;
+both full native interaction sequences remain unverified under section 8.
+
+The production web build and regex compatibility check pass. The full web runner
+fails at `agentBrowser.test.js:40` when its readiness timer resumes after the
+large static-import workload; the same failure reproduces with the unchanged
+base-commit runner (without the new text suites). That suite passes standalone.
+This unrelated full-suite scheduling failure remains unresolved, not a passed
+acceptance check.

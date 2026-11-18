@@ -14,8 +14,8 @@
 
 ## 3. Visible text previews (#196)
 
-- [ ] 3.1 Implement reversible text-node previews preserving child-node identity; verify nested elements, text changes and exact restoration.
-- [ ] 3.2 Integrate saved/draft/original text layers and actual differences; verify cancellation retains earlier saved text.
+- [x] 3.1 Implement reversible text-node previews preserving child-node identity; verify nested elements, text changes and exact restoration.
+- [x] 3.2 Integrate saved/draft/original text layers and actual differences; verify cancellation retains earlier saved text.
 
 ## 4. Multiple targets and region (#197)
 
