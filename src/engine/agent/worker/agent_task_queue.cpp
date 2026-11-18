@@ -110,6 +110,9 @@ AnnotationSubmissionReceipt AgentTaskQueue::enqueue_annotation(
             }
             return {AnnotationSubmissionStatus::Duplicate, found->first};
         }
+        if (identity.reconcile_only) {
+            return {AnnotationSubmissionStatus::NotAccepted, {}};
+        }
         if (annotation_batches_.size() >= kMaxAnnotationBatches) {
             return {AnnotationSubmissionStatus::Capacity, {}};
         }

@@ -477,7 +477,8 @@ struct WebServer::Impl {
     ParsedSessionUserInputRequest parse_session_user_input_request(
         const std::string& body,
         const std::string& session_id,
-        bool allow_worktree);
+        bool allow_worktree,
+        const char* annotation_reconcile_only = nullptr);
     crow::response handle_turn_input_request(const crow::request& req,
                                              const std::string& session_id,
                                              bool interrupting);

@@ -9,7 +9,7 @@ const deferred = () => { let resolve; const promise = new Promise(done => { reso
 
 function fixture(options = {}) {
   const calls = [];
-  const snapshot = { document_id: 'runtime-doc', records: [record(1), record(2, { description: '', differences: [{ property: 'color', before: 'red', after: 'blue' }] }), record(3, { description: '  ' })] };
+  const snapshot = { document_id: 'runtime-doc', records: [record(1), record(2, { description: '', differences: [{ target_id: 'target-2', property: 'color', old_value: 'red', new_value: 'blue' }] }), record(3, { description: '  ' })] };
   const invoke = async (page, command) => {
     calls.push({ action: command.action, page, command: structuredClone(command) });
     if (options.native) {
@@ -28,9 +28,9 @@ function fixture(options = {}) {
       calls.push({ action: 'upload', session, body });
       return options.upload ? options.upload() : { attachment: { id: 'image-1' } };
     },
-    async sendInput(session, payload) {
-      calls.push({ action: 'send', session, payload: structuredClone(payload) });
-      return options.send ? options.send(payload) : { queued: true, annotation_batch_id: payload.annotation_batch_id };
+    async sendInput(session, payload, mode) {
+      calls.push({ action: 'send', session, payload: structuredClone(payload), ...(mode ? { mode } : {}) });
+      return options.send ? options.send(payload, mode) : { queued: true, annotation_batch_id: payload.annotation_batch_id };
     },
   };
   const api = { snapshotConnection: () => transport };
@@ -50,7 +50,7 @@ function fixture(options = {}) {
   assert.deepEqual(Object.keys(sent.payload).sort(), ['annotation_batch_id', 'attachments', 'text']);
   assert.deepEqual(sent.payload.attachments, [{ id: 'image-1' }]);
   assert.match(sent.payload.text, /Request 1/);
-  assert.match(sent.payload.text, /"after": "blue"/);
+  assert.match(sent.payload.text, /"new_value": "blue"/);
   assert.doesNotMatch(sent.payload.text, /"number": 3/);
   assert.deepEqual(test.calls[0].command.record_ids, ['record-1', 'record-2']);
   assert.equal(test.snapshot.records[2].status, 'pending');
@@ -96,7 +96,9 @@ for (const receipt of [null, {}, { queued: true }, { queued: true, annotation_ba
   const otherApi = { snapshotConnection() { throw new Error('must keep original transport'); } };
   assert.equal((await test.sender.send({ ...test.context, api: otherApi })).ok, true);
   const sends = test.calls.filter(call => call.action === 'send');
-  assert.deepEqual(sends[1], frozen);
+  assert.deepEqual(sends[1].payload, frozen.payload);
+  assert.equal(sends[1].session, frozen.session);
+  assert.deepEqual(sends[1].mode, { reconcileOnly: true });
   assert.equal(test.calls.filter(call => call.action === 'capture').length, 1);
   assert.equal(test.calls.filter(call => call.action === 'upload').length, 1);
 }
@@ -184,6 +186,93 @@ for (const mutate of [
   assert.match(source, /toggleAgentBrowserElementSelection/);
   assert.doesNotMatch(sender + component, /steerTurn|interruptTurn|setComposer|composerAttachments|onAddContext/);
   assert.match(source, /<PageAnnotationSendBar/);
+}
+
+{
+  let valid = true;
+  let admissions = 0;
+  const test = fixture({
+    native: command => command.action === 'validate' && !valid
+      ? { ok: false, page_id: 'page-1', error: 'target removed' } : undefined,
+    send(payload, mode) {
+      if (mode?.reconcileOnly) throw Object.assign(new Error('not accepted'), { code: 'annotation_batch_not_accepted', status: 404 });
+      if (++admissions === 1) throw new Error('request lost before receiver');
+      return { queued: true, annotation_batch_id: payload.annotation_batch_id };
+    },
+  });
+  assert.equal((await test.sender.send(test.context)).ok, false);
+  valid = false;
+  test.snapshot.records[0].valid = false;
+  assert.equal((await test.sender.send(test.context)).ok, false);
+  assert.equal(admissions, 1, 'an invalid uncertain batch may reconcile but must never newly admit');
+  assert.equal(test.snapshot.records[0].status, 'pending');
+}
+
+for (const code of ['annotation_batch_unavailable', 'annotation_batch_capacity', 'annotation_batch_conflict']) {
+  let valid = true;
+  const test = fixture({
+    native: command => command.action === 'validate' && !valid
+      ? { ok: false, error: 'invalid document' } : undefined,
+    send() { throw Object.assign(new Error('rejected'), { code, status: code.endsWith('conflict') ? 409 : 503 }); },
+  });
+  assert.equal((await test.sender.send(test.context)).ok, false);
+  valid = false;
+  assert.equal((await test.sender.send(test.context)).ok, false);
+  assert.equal(test.calls.filter(call => call.action === 'send').length, 1, 'explicit refusal must revalidate before another admission');
+  assert.equal(test.calls.filter(call => call.action === 'validate').length, 2);
+}
+
+{
+  let valid = true;
+  let acceptedPayload;
+  const test = fixture({
+    native: command => command.action === 'validate' && !valid
+      ? { ok: false, error: 'invalid document' } : undefined,
+    send(payload, mode) {
+      if (!mode?.reconcileOnly) { acceptedPayload = structuredClone(payload); throw new Error('receipt lost after admission'); }
+      assert.deepEqual(payload, acceptedPayload);
+      return { queued: true, annotation_batch_id: payload.annotation_batch_id, duplicate: true };
+    },
+  });
+  assert.equal((await test.sender.send(test.context)).ok, false);
+  valid = false;
+  test.snapshot.records[0].valid = false;
+  assert.equal((await test.sender.send(test.context)).ok, true, 'real existing receipt can acknowledge an invalidated document');
+  assert.equal(test.calls.filter(call => call.action === 'validate').length, 1);
+  assert.equal(test.snapshot.records[0].status, 'sent');
+}
+
+{
+  let admissions = 0;
+  const test = fixture({ send(payload, mode) {
+    if (mode?.reconcileOnly) throw Object.assign(new Error('missing'), { code:'annotation_batch_not_accepted', status:404 });
+    if (++admissions === 1) throw new Error('request never arrived');
+    return {queued:true, annotation_batch_id:payload.annotation_batch_id};
+  } });
+  assert.equal((await test.sender.send(test.context)).ok, false);
+  assert.equal((await test.sender.send(test.context)).ok, true);
+  assert.deepEqual(test.calls.map(call => call.action), ['capture', 'upload', 'validate', 'send', 'send', 'validate', 'send', 'acknowledge']);
+  const sends = test.calls.filter(call => call.action === 'send');
+  assert.deepEqual(sends[0].payload, sends[1].payload);
+  assert.deepEqual(sends[0].payload, sends[2].payload);
+  assert.equal(sends[2].mode, undefined);
+}
+
+for (const lookupResult of ['malformed', 'wrong-id', 'generic-404', 'missing-wrong-status', 'network']) {
+  const test = fixture({ send(payload, mode) {
+    if (!mode?.reconcileOnly) throw new Error('uncertain');
+    if (lookupResult === 'malformed') return {};
+    if (lookupResult === 'wrong-id') return { queued:true, annotation_batch_id:'another' };
+    if (lookupResult === 'generic-404') throw Object.assign(new Error('unknown session'), { status:404 });
+    if (lookupResult === 'missing-wrong-status') throw Object.assign(new Error('missing'), { status:503, code:'annotation_batch_not_accepted' });
+    throw new Error('lookup uncertain');
+  } });
+  await test.sender.send(test.context);
+  assert.equal((await test.sender.send(test.context)).ok, false);
+  assert.equal((await test.sender.send(test.context)).ok, false);
+  assert.equal(test.calls.filter(call => call.action === 'validate').length, 1, 'ambiguous lookup must not authorize admission');
+  assert.equal(test.calls.filter(call => call.action === 'send' && !call.mode).length, 1);
+  assert.equal(test.calls.some(call => call.action === 'acknowledge'), false);
 }
 
 console.log('pageAnnotationBatches tests passed');

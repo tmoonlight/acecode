@@ -194,7 +194,8 @@ ParsedSessionUserInputRequest
 WebServer::Impl::parse_session_user_input_request(
     const std::string& body,
     const std::string& session_id,
-    bool allow_worktree) {
+    bool allow_worktree,
+    const char* annotation_reconcile_only) {
     ParsedSessionUserInputRequest result;
     std::string text;
     std::string client_message_id;
@@ -212,6 +213,8 @@ WebServer::Impl::parse_session_user_input_request(
             return result;
         }
         if (!parse_annotation_submission_identity(payload, allow_worktree,
+                result.annotation_identity, result.error)) return result;
+        if (!parse_annotation_reconciliation(annotation_reconcile_only,
                 result.annotation_identity, result.error)) return result;
         if (payload.contains("text") && payload["text"].is_string()) {
             text = payload["text"].get<std::string>();
@@ -2206,7 +2209,8 @@ void WebServer::Impl::register_sessions() {
             }
 
             auto parsed = parse_session_user_input_request(
-                req.body, id, /*allow_worktree=*/true);
+                req.body, id, /*allow_worktree=*/true,
+                req.url_params.get("annotation_reconcile_only"));
             if (!parsed.ok) {
                 crow::response r(parsed.status);
                 r.body = json{{"error", parsed.error}}.dump();
@@ -2246,9 +2250,11 @@ void WebServer::Impl::register_sessions() {
                 if (!annotation_receipt.accepted()) {
                     const bool conflict = annotation_receipt.status == AnnotationSubmissionStatus::Conflict;
                     const bool capacity = annotation_receipt.status == AnnotationSubmissionStatus::Capacity;
-                    crow::response response(conflict ? 409 : 503);
+                    const bool not_accepted = annotation_receipt.status == AnnotationSubmissionStatus::NotAccepted;
+                    crow::response response(conflict ? 409 : not_accepted ? 404 : 503);
                     response.body = json{{"error", conflict ? "annotation_batch_conflict" :
-                        capacity ? "annotation_batch_capacity" : "annotation_batch_unavailable"}}.dump();
+                        capacity ? "annotation_batch_capacity" :
+                        not_accepted ? "annotation_batch_not_accepted" : "annotation_batch_unavailable"}}.dump();
                     response.add_header("Content-Type", "application/json");
                     return with_cors(req, std::move(response));
                 }

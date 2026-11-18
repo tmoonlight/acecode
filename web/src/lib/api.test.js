@@ -36,6 +36,9 @@ await run('annotation transport snapshot freezes daemon credentials and ordinary
       queued: true, annotation_batch_id: 'frozen-id',
     });
     assert.equal(calls[0].url, 'http://original.test/api/sessions/frozen-session/messages');
+    await frozen.sendInput('frozen-session', payload, { reconcileOnly: true });
+    assert.equal(calls[1].url, 'http://original.test/api/sessions/frozen-session/messages?annotation_reconcile_only=1');
+    assert.equal(calls[1].options.body, calls[0].options.body);
     assert.equal(calls[0].options.headers['X-ACECode-Token'], 'original-test-token');
     assert.deepEqual(JSON.parse(calls[0].options.body), payload);
   } finally {

@@ -7,6 +7,17 @@
 
 namespace acecode::web {
 
+inline bool parse_annotation_reconciliation(
+    const char* mode, AnnotationSubmissionIdentity& identity, std::string& error) {
+    if (!mode) return true;
+    if (std::string(mode) != "1" || identity.batch_id.empty()) {
+        error = "invalid annotation_reconcile_only";
+        return false;
+    }
+    identity.reconcile_only = true;
+    return true;
+}
+
 inline bool parse_annotation_submission_identity(
     const nlohmann::json& payload, bool ordinary_message,
     AnnotationSubmissionIdentity& identity, std::string& error) {

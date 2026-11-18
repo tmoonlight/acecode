@@ -81,14 +81,33 @@ export function createAnnotationBatchSender({
         batch.capture = null;
       }
       if (!batch.accepted) {
-        if (!batch.attempted) await nativeCommand('validate');
         publish({ phase: 'receipt' });
-        batch.attempted = true;
-        const receipt = await batch.api.sendInput(batch.sessionId, JSON.parse(batch.payload));
-        if (receipt?.queued !== true || receipt.annotation_batch_id !== batch.id) {
-          throw new Error('尚未收到批注接收回执，请重试');
+        const accept = (receipt) => {
+          if (receipt?.queued !== true || receipt.annotation_batch_id !== batch.id) {
+            throw new Error('尚未收到批注接收回执，请重试');
+          }
+          batch.accepted = true;
+        };
+        if (batch.attempted) {
+          try {
+            accept(await batch.api.sendInput(batch.sessionId, JSON.parse(batch.payload), { reconcileOnly: true }));
+          } catch (error) {
+            if (error?.status !== 404 || error?.code !== 'annotation_batch_not_accepted') throw error;
+            batch.attempted = false;
+          }
         }
-        batch.accepted = true;
+        if (!batch.accepted) {
+          await nativeCommand('validate');
+          batch.attempted = true;
+          try {
+            accept(await batch.api.sendInput(batch.sessionId, JSON.parse(batch.payload)));
+          } catch (error) {
+            if (['annotation_batch_unavailable', 'annotation_batch_capacity', 'annotation_batch_conflict'].includes(error?.code)) {
+              batch.attempted = false;
+            }
+            throw error;
+          }
+        }
       }
       publish({ phase: 'acknowledge' });
       const result = await nativeCommand('acknowledge');

@@ -1,6 +1,8 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPageAnnotationController, pageAnnotationPopupPosition } from '../lib/pageAnnotations.js';
 import { notifyNativeSurfaceOverlayChange } from '../lib/agentBrowserSurfaceCoordinator.js';
+import { dialogEnterAction, resolveDialogTabTarget } from '../lib/dialogKeyboard.js';
+import { isDismissShortcut, isShortcutComposing } from '../lib/shortcutBindings.js';
 import { PageAnnotationTextField } from './PageAnnotationTextField.jsx';
 import { PageAnnotationTargets } from './PageAnnotationTargets.jsx';
 
@@ -152,27 +154,34 @@ export function PageAnnotationPopup({ snapshot, command, working, viewportRef })
   }, [snapshot.selection_mode]);
   const close = () => { if (!working) void command('cancel'); };
   const onKeyDown = (event) => {
-    if (event.key === 'Escape') {
+    if (isShortcutComposing(event)) return;
+    if (isDismissShortcut(event)) {
       event.preventDefault();
       event.stopPropagation();
       close();
+      return;
+    }
+    if (event.key === 'Enter') {
+      const action = dialogEnterAction(event, popupRef.current);
+      if (action.type === 'block') event.preventDefault();
+      else if (action.type === 'activate') {
+        event.preventDefault();
+        action.element.click();
+      }
+      return;
     }
     if (event.key === 'Tab') {
-      const controls = [...popupRef.current.querySelectorAll('button:not(:disabled), textarea:not(:disabled), input:not(:disabled), summary')]
-        .filter(control => control.getClientRects().length > 0);
-      const first = controls[0];
-      const last = controls[controls.length - 1];
-      if (event.shiftKey && document.activeElement === first) {
-        event.preventDefault(); last?.focus();
-      } else if (!event.shiftKey && document.activeElement === last) {
-        event.preventDefault(); first?.focus();
-      }
+      const target = resolveDialogTabTarget(popupRef.current, document.activeElement, event.shiftKey);
+      if (!target) return;
+      event.preventDefault();
+      target.focus?.();
     }
   };
   return (
     <form
       ref={popupRef}
       role="dialog"
+      tabIndex={-1}
       aria-label="网页批注"
       data-ace-native-overlay={snapshot.selection_mode ? undefined : 'overlap'}
       style={snapshot.selection_mode ? { display: 'none' } : undefined}
@@ -196,7 +205,7 @@ export function PageAnnotationPopup({ snapshot, command, working, viewportRef })
       <PageAnnotationTargets snapshot={snapshot} command={selectCommand} working={working || saving} />
       {preview && (
         <details>
-          <summary className="cursor-pointer py-1">样式</summary>
+          <summary tabIndex={0} className="cursor-pointer py-1">样式</summary>
           <fieldset disabled={saving || snapshot.original} className="mt-2 flex flex-col gap-3 disabled:opacity-60">
             {styleGroups.map((group, index) => (
               <div key={index} className="flex flex-col gap-1.5 border-b border-border pb-3 last:border-0 last:pb-0">
@@ -216,7 +225,10 @@ export function PageAnnotationPopup({ snapshot, command, working, viewportRef })
                       }}
                       onBlur={() => { void flushStyles(); }}
                       onKeyDown={event => {
-                        if (event.key === 'Enter') { event.preventDefault(); event.currentTarget.blur(); }
+                        if (event.key === 'Enter' && !event.repeat && !isShortcutComposing(event)) {
+                          event.preventDefault();
+                          event.currentTarget.blur();
+                        }
                       }}
                       className="h-7 w-40 min-w-0 rounded-md border border-border bg-surface-alt px-2 text-[12px] text-fg outline-none focus:border-accent"
                     />

@@ -71,6 +71,95 @@ function fixture(markup = '<button id="target">Hello <strong>world</strong>!<spa
   return {document, target, text, run, select, listeners};
 }
 
+for (const action of ['save', 'cancel', 'exit']) {
+  const {target, run, select} = fixture('<button id="target">Initial live label</button>');
+  run('start');
+  const id = select();
+  target.firstChild.data = 'Updated by page';
+  assert.equal(run('read').target.text_preview.value, 'Updated by page');
+  const result = run(action, action === 'save' ? {target_id:id, number:1} : {});
+  assert.equal(target.textContent, 'Updated by page', `${action} must not restore merely observed text`);
+  assert.deepEqual(result.differences, []);
+}
+
+{
+  const {target, text} = fixture('<button id="target">Initial live label</button>');
+  text.describe(target, 'one');
+  target.firstChild.data = 'Updated by page';
+  text.setOriginal(true);
+  text.setOriginal(false);
+  assert.equal(target.textContent, 'Updated by page');
+  text.preview(target, 'one', 'Requested label');
+  assert.equal(text.differences()[0].old_value, 'Updated by page');
+  text.cancel();
+  assert.equal(target.textContent, 'Updated by page');
+  text.preview(target, 'one', 'Another preview');
+  target.firstChild.data = 'Later page update';
+  assert.equal(text.save().error, 'stale_text_nodes');
+  text.cancel();
+  text.dispose();
+  assert.equal(target.textContent, 'Later page update', 'cleanup cannot overwrite a page write after the owned preview');
+}
+
+for (const saved of [false, true]) {
+  const {target, text} = fixture('<button id="target">Hello <strong>world</strong>!</button>');
+  text.preview(target, 'parent', 'Hi world!');
+  if (saved) text.save();
+  target.childNodes[1].firstChild.data = 'Earth';
+  text.setOriginal(true);
+  assert.equal(target.textContent, 'Hello Earth!');
+  text.setOriginal(false);
+  assert.equal(target.textContent, 'Hi Earth!', 'a preview must not own unchanged descendant text');
+  if (!saved) {
+    assert.equal(text.differences()[0].old_value, 'Hello Earth!');
+    assert.equal(text.differences()[0].new_value, 'Hi Earth!');
+  }
+  text.cancel();
+  assert.equal(target.textContent, saved ? 'Hi Earth!' : 'Hello Earth!');
+  text.dispose();
+  assert.equal(target.textContent, 'Hello Earth!');
+}
+
+{
+  const {target, text} = fixture('<button id="target"></button>');
+  text.preview(target, 'empty', 'Owned insertion');
+  target.firstChild.data = 'Page adopted this text node';
+  assert.equal(text.save().error, 'stale_text_nodes');
+  text.cancel();
+  text.dispose();
+  assert.equal(target.textContent, 'Page adopted this text node');
+}
+
+for (const childFirst of [true, false]) {
+  const {target, text} = fixture('<button id="target">Hello <strong>world</strong>!</button>');
+  const child = target.childNodes[1];
+  const original = target.toString();
+  text.describe(target, 'parent');
+  text.describe(child, 'child');
+  const parentEdit = () => text.preview(target, 'parent', 'Hi world!');
+  const childEdit = () => text.preview(child, 'child', 'Earth');
+  if (childFirst) { childEdit(); parentEdit(); } else { parentEdit(); childEdit(); }
+  const actual = target.textContent;
+  const actualChild = child.textContent;
+  const expected = [{target_id:'parent', property:'text', old_value:'Hello world!', new_value:actual}];
+  if (actualChild !== 'world') expected.push({target_id:'child', property:'text', old_value:'world', new_value:actualChild});
+  const ordered = value => JSON.parse(JSON.stringify(value)).sort((left, right) => left.target_id.localeCompare(right.target_id));
+  assert.deepEqual(ordered(text.differences()), ordered(expected), 'overlapping diffs describe the final DOM, not overwritten requests');
+  text.setOriginal(true);
+  assert.equal(target.toString(), original);
+  assert.deepEqual(ordered(text.differences()), ordered(expected));
+  text.setOriginal(false);
+  assert.equal(target.textContent, actual);
+  assert.deepEqual(ordered(text.save().differences), ordered(expected));
+  assert.equal(target.textContent, actual);
+  text.preview(child, 'child', 'Next');
+  assert.equal(text.differences()[0].old_value, actualChild);
+  text.cancel();
+  assert.equal(target.textContent, actual);
+  text.dispose();
+  assert.equal(target.toString(), original);
+}
+
 {
   const {target, text} = fixture();
   const nodes = [...Array.from(target.childNodes), target.childNodes[1].firstChild];

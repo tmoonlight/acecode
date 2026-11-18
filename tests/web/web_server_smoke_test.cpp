@@ -7253,6 +7253,21 @@ TEST(WebServerHttp, AnnotationBatchReturnsMatchingReceiptAndRejectsConflictingRe
     ASSERT_EQ(failed.status_code, 404) << failed.text;
     EXPECT_FALSE(json::parse(failed.text).contains("annotation_batch_id"));
 
+    const auto reconcile_url = url + "?annotation_reconcile_only=1";
+    const auto missing = cpr::Post(cpr::Url{reconcile_url},
+        cpr::Header{{"Content-Type", "application/json"}}, cpr::Body{payload.dump()});
+    ASSERT_EQ(missing.status_code, 404) << missing.text;
+    EXPECT_EQ(json::parse(missing.text)["error"], "annotation_batch_not_accepted");
+    EXPECT_FALSE(json::parse(missing.text).contains("annotation_batch_id"));
+    for (const auto* mode : {"", "0", "true"}) {
+        const auto invalid = cpr::Post(cpr::Url{url + "?annotation_reconcile_only=" + mode},
+            cpr::Header{{"Content-Type", "application/json"}}, cpr::Body{payload.dump()});
+        EXPECT_EQ(invalid.status_code, 400) << invalid.text;
+    }
+    const auto ordinary_lookup = cpr::Post(cpr::Url{reconcile_url},
+        cpr::Header{{"Content-Type", "application/json"}}, cpr::Body{R"({"text":"not a batch"})"});
+    EXPECT_EQ(ordinary_lookup.status_code, 400) << ordinary_lookup.text;
+
     for (const bool duplicate : {false, true}) {
         const auto response = cpr::Post(cpr::Url{url},
             cpr::Header{{"Content-Type", "application/json"}}, cpr::Body{payload.dump()});
@@ -7262,6 +7277,11 @@ TEST(WebServerHttp, AnnotationBatchReturnsMatchingReceiptAndRejectsConflictingRe
         EXPECT_EQ(receipt["annotation_batch_id"], "batch-http-1");
         EXPECT_EQ(receipt["duplicate"], duplicate);
     }
+    const auto recovered = cpr::Post(cpr::Url{reconcile_url},
+        cpr::Header{{"Content-Type", "application/json"}}, cpr::Body{payload.dump()});
+    ASSERT_EQ(recovered.status_code, 202) << recovered.text;
+    EXPECT_EQ(json::parse(recovered.text)["annotation_batch_id"], "batch-http-1");
+    EXPECT_EQ(json::parse(recovered.text)["duplicate"], true);
     auto changed = payload;
     changed["text"] = "different changes";
     const auto conflict = cpr::Post(cpr::Url{url},
@@ -7269,6 +7289,10 @@ TEST(WebServerHttp, AnnotationBatchReturnsMatchingReceiptAndRejectsConflictingRe
     ASSERT_EQ(conflict.status_code, 409) << conflict.text;
     EXPECT_EQ(json::parse(conflict.text)["error"], "annotation_batch_conflict");
     EXPECT_FALSE(json::parse(conflict.text).contains("annotation_batch_id"));
+    const auto lookup_conflict = cpr::Post(cpr::Url{reconcile_url},
+        cpr::Header{{"Content-Type", "application/json"}}, cpr::Body{changed.dump()});
+    EXPECT_EQ(lookup_conflict.status_code, 409) << lookup_conflict.text;
+    EXPECT_EQ(json::parse(lookup_conflict.text)["error"], "annotation_batch_conflict");
 
     int user_messages = 0;
     const auto deadline = std::chrono::steady_clock::now() + 10s;

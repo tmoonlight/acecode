@@ -5,10 +5,24 @@ namespace acecode::desktop {
 inline constexpr const char kPageAnnotationTextRuntime[] = R"ACETEXT(
 (() => {
   const originals = new Map();
+  const writes = new Map();
   const entries = new Map();
   const saved = [];
   const drafts = new Map();
   let original = false;
+  const synchronize = () => {
+    for (const node of originals.keys()) {
+      if (writes.has(node)) {
+        if (node.data === writes.get(node)) continue;
+        for (const layer of [...saved, ...drafts.values()]) {
+          if (layer.changes.has(node)) layer.entry.stale = true;
+        }
+        for (const entry of entries.values()) if (entry.inserted === node) entry.inserted = null;
+        writes.delete(node);
+      }
+      originals.set(node, node.data);
+    }
+  };
   const collect = target => {
     const nodes = [];
     const visit = element => {
@@ -24,22 +38,36 @@ inline constexpr const char kPageAnnotationTextRuntime[] = R"ACETEXT(
     return nodes;
   };
   const valid = entry => {
+    synchronize();
     const current = collect(entry.target);
     const expected = entry.nodes.filter(node => node !== entry.inserted || node.parentNode);
-    return entry.target.isConnected && current.length === expected.length &&
+    return !entry.stale && entry.target.isConnected && current.length === expected.length &&
       current.every((node, index) => node === expected[index]) && entry.nodes.every((node, index) =>
         node === entry.inserted && !node.parentNode || node.parentNode === entry.parents[index] && entry.target.contains(node));
   };
   const render = () => {
+    synchronize();
     for (const entry of entries.values()) {
       if (entry.inserted && !entry.inserted.parentNode && entry.target.isConnected && !original &&
           (saved.some(layer => layer.entry === entry) || drafts.has(entry.id))) entry.target.append(entry.inserted);
     }
-    for (const [node, value] of originals) node.data = value;
+    const values = new Map(originals);
     if (!original) {
       for (const layer of [...saved, ...drafts.values()]) {
         if (!valid(layer.entry)) continue;
-        layer.entry.nodes.forEach((node, index) => { node.data = layer.values[index]; });
+        for (const [node, value] of layer.changes) values.set(node, value);
+      }
+    }
+    const retained = new Set([...saved, ...drafts.values()].filter(layer => valid(layer.entry))
+      .flatMap(layer => [...layer.changes.keys()]));
+    for (const [node, value] of values) {
+      if (node.data !== value) {
+        node.data = value;
+        writes.set(node, value);
+      }
+      if (writes.has(node)) {
+        if (retained.has(node)) writes.set(node, value);
+        else writes.delete(node);
       }
     }
     for (const entry of entries.values()) {
@@ -63,9 +91,11 @@ inline constexpr const char kPageAnnotationTextRuntime[] = R"ACETEXT(
     return entry;
   };
   const effectiveNodes = (entry, includeDraft = true) => {
+    synchronize();
     const values = new Map(originals);
     for (const layer of [...saved, ...(includeDraft ? drafts.values() : [])]) {
-      layer.entry.nodes.forEach((node, index) => values.set(node, layer.values[index]));
+      if (!valid(layer.entry)) continue;
+      for (const [node, value] of layer.changes) values.set(node, value);
     }
     return entry.nodes.map(node => values.get(node) ?? '');
   };
@@ -74,7 +104,7 @@ inline constexpr const char kPageAnnotationTextRuntime[] = R"ACETEXT(
     const retained = new Set(saved.map(layer => layer.entry));
     for (const [id, entry] of entries) if (!retained.has(entry)) entries.delete(id);
     const nodes = new Set([...retained].flatMap(entry => entry.nodes));
-    for (const node of originals.keys()) if (!nodes.has(node)) originals.delete(node);
+    for (const node of originals.keys()) if (!nodes.has(node)) { originals.delete(node); writes.delete(node); }
   };
   return Object.freeze({
     describe(target, id) {
@@ -112,7 +142,8 @@ inline constexpr const char kPageAnnotationTextRuntime[] = R"ACETEXT(
       const replacement = characters.slice(start, characters.length - suffix).join('');
       let offset = 0;
       let inserted = false;
-      const values = effectiveNodes(entry, false).map(part => {
+      const baselineNodes = effectiveNodes(entry, false);
+      const values = baselineNodes.map(part => {
         const points = Array.from(part);
         const stop = offset + points.length;
         let next = points.slice(0, Math.max(0, start - offset)).join('');
@@ -121,13 +152,16 @@ inline constexpr const char kPageAnnotationTextRuntime[] = R"ACETEXT(
         offset = stop;
         return next;
       });
-      drafts.set(id, {entry, values, old_value:baseline, new_value:value});
+      const changes = new Map(entry.nodes.flatMap((node, index) =>
+        values[index] === baselineNodes[index] ? [] : [[node, values[index]]]));
+      drafts.set(id, {entry, changes});
       render();
       return {};
     },
     differences() {
       return [...drafts.values()].map(layer => ({target_id:layer.entry.id, property:'text',
-        old_value:layer.old_value, new_value:layer.new_value}));
+        old_value:effective(layer.entry, false), new_value:effective(layer.entry)}))
+        .filter(difference => difference.old_value !== difference.new_value);
     },
     save() {
       if ([...drafts.values()].some(layer => !valid(layer.entry))) return {error:'stale_text_nodes'};
@@ -140,7 +174,7 @@ inline constexpr const char kPageAnnotationTextRuntime[] = R"ACETEXT(
     },
     cancel() { drafts.clear(); render(); releaseUnused(); },
     setOriginal(enabled) { original = enabled; render(); },
-    dispose() { saved.length = 0; drafts.clear(); original = true; render(); entries.clear(); originals.clear(); },
+    dispose() { saved.length = 0; drafts.clear(); original = true; render(); entries.clear(); originals.clear(); writes.clear(); },
   });
 })
 )ACETEXT";

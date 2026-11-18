@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 import { transformWithEsbuild } from 'vite';
+import * as dialogKeyboard from './dialogKeyboard.js';
+import * as shortcutBindings from './shortcutBindings.js';
 
 const filename = new URL('../components/PageAnnotations.jsx', import.meta.url);
 const compiled = await transformWithEsbuild(fs.readFileSync(filename, 'utf8'), filename.pathname, {
@@ -30,7 +32,8 @@ function fixture(command) {
   };
   const context = vm.createContext({
     React, module: { exports: {} },
-    require: name => name === 'react' ? React : { notifyNativeSurfaceOverlayChange() {} },
+    require: name => name === 'react' ? React : name.endsWith('/dialogKeyboard.js') ? dialogKeyboard
+      : name.endsWith('/shortcutBindings.js') ? shortcutBindings : { notifyNativeSurfaceOverlayChange() {} },
     document: { activeElement: null, body: {} },
     CSS: { supports: (_field, value) => value !== 'invalid' },
     setTimeout: callback => { const id = ++sequence; timers.set(id, callback); return id; },
@@ -48,6 +51,7 @@ function fixture(command) {
     timers,
     dispose() { cleanups.forEach(cleanup => cleanup?.()); },
     snapshot,
+    document: context.document,
   };
 }
 
@@ -63,6 +67,29 @@ function find(tree, predicate) {
 
 const input = (tree, field) => find(tree, node => node.type === 'input' && node.props.placeholder === field);
 const tick = () => new Promise(resolve => setImmediate(resolve));
+
+{
+  const calls = [];
+  const page = fixture(async action => { calls.push(action); return {ok:true}; });
+  const tree = page.render();
+  const event = fields => ({key:'Escape', preventDefault() { this.prevented = true; },
+    stopPropagation() { this.stopped = true; }, ...fields});
+  for (const fields of [{isComposing:true}, {nativeEvent:{key:'Escape', isComposing:true}}]) {
+    const composing = event(fields);
+    tree.props.onKeyDown(composing);
+    assert.deepEqual(calls, [], 'IME Escape must not cancel a draft');
+    assert.equal(composing.prevented, undefined);
+  }
+  const escape = event({});
+  tree.props.onKeyDown(escape);
+  assert.deepEqual(calls, ['cancel']);
+  assert.equal(escape.prevented, true);
+  assert.equal(escape.stopped, true);
+  page.render({working:true}).props.onKeyDown(event({}));
+  assert.deepEqual(calls, ['cancel']);
+  page.dispose();
+  console.log('[pass] IME Escape preserves the draft while ordinary Escape cancels once and busy Escape cannot cancel');
+}
 
 {
   const calls = [];
@@ -90,6 +117,57 @@ const tick = () => new Promise(resolve => setImmediate(resolve));
   assert.equal(calls[1].fields.description, '');
   page.dispose();
   console.log('[pass] trusted style editor starts ratio-off and flushes unblurred style edits before differences-only save');
+}
+
+{
+  const page = fixture(async () => ({ok:true}));
+  const tree = page.render();
+  const control = (tagName, visible = true) => ({tagName, getClientRects:() => visible ? [{}] : [],
+    getAttribute:() => null, focus() { page.document.activeElement = this; },
+    matches:() => tagName === 'TEXTAREA', closest:() => true});
+  const first = control('BUTTON');
+  const middle = control('TEXTAREA');
+  const last = control('BUTTON');
+  const hidden = control('INPUT', false);
+  const dialog = {querySelectorAll:() => [first, middle, last, hidden],
+    contains:target => [first, middle, last, hidden].includes(target),
+    focus() { page.document.activeElement = this; }};
+  tree.props.ref.current = dialog;
+  const key = (fields = {}) => {
+    const event = {key:'Tab', preventDefault() { this.prevented = true; }, ...fields};
+    tree.props.onKeyDown(event);
+    return event;
+  };
+  for (const [from, shiftKey, expected] of [[last, false, first], [first, true, last],
+    [page.document.body, false, first], [page.document.body, true, last]]) {
+    page.document.activeElement = from;
+    assert.equal(key({shiftKey}).prevented, true);
+    assert.equal(page.document.activeElement, expected);
+  }
+  page.document.activeElement = middle;
+  assert.equal(key().prevented, undefined);
+  assert.equal(page.document.activeElement, middle);
+  assert.equal(key({key:'Enter', target:first, repeat:true}).prevented, true);
+  assert.equal(key({key:'Enter', target:middle, repeat:true}).prevented, undefined);
+  assert.equal(key({key:'Enter', target:first, repeat:true, nativeEvent:{isComposing:true}}).prevented, undefined);
+  assert.equal(key({key:'Enter', target:middle}).prevented, undefined);
+  dialog.querySelectorAll = () => [];
+  assert.equal(key().prevented, true);
+  assert.equal(page.document.activeElement, dialog);
+  assert.equal(tree.props.tabIndex, -1);
+  assert.equal(find(tree, node => node.type === 'summary').props.tabIndex, 0);
+  let blurs = 0;
+  const styleEnter = {key:'Enter', nativeEvent:{isComposing:true}, currentTarget:{blur() { ++blurs; }},
+    preventDefault() { this.prevented = true; }};
+  input(tree, '100px').props.onKeyDown(styleEnter);
+  assert.equal(blurs, 0, 'IME Enter must not blur the style editor');
+  assert.equal(styleEnter.prevented, undefined);
+  styleEnter.nativeEvent.isComposing = false;
+  input(tree, '100px').props.onKeyDown(styleEnter);
+  assert.equal(blurs, 1);
+  assert.equal(styleEnter.prevented, true);
+  page.dispose();
+  console.log('[pass] popup shares dialog Tab wrapping/recapture and Enter repeat/multiline/composition behavior');
 }
 
 {

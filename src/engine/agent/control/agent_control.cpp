@@ -33,7 +33,7 @@ bool AgentLoop::submit(const UserInput& input) {
 
 AnnotationSubmissionReceipt AgentLoop::submit_annotation(
     const UserInput& input, const AnnotationSubmissionIdentity& identity) {
-    clear_stale_abort_request();
+    if (!identity.reconcile_only) clear_stale_abort_request();
     WorkerTask task;
     task.input = input;
     return task_queue_->enqueue_annotation(std::move(task), identity);

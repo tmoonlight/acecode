@@ -57,3 +57,20 @@ TEST(AnnotationSubmissionRequest, OrdinaryAndSelectionPayloadsRemainUnchanged) {
     EXPECT_TRUE(parse(payload).batch_id.empty());
     EXPECT_TRUE(parse(payload, false).batch_id.empty());
 }
+
+TEST(AnnotationSubmissionRequest, ReconciliationIsStrictTransportMetadataNotPayloadIdentity) {
+    const json payload{{"annotation_batch_id", "batch-1"}, {"text", "changes"}};
+    auto identity = parse(payload);
+    const auto fingerprint = identity.payload_hash;
+    std::string error;
+    EXPECT_TRUE(acecode::web::parse_annotation_reconciliation(nullptr, identity, error));
+    EXPECT_FALSE(identity.reconcile_only);
+    EXPECT_TRUE(acecode::web::parse_annotation_reconciliation("1", identity, error));
+    EXPECT_TRUE(identity.reconcile_only);
+    EXPECT_EQ(identity.payload_hash, fingerprint);
+    for (const auto* invalid : {"", "0", "true", "2"}) {
+        EXPECT_FALSE(acecode::web::parse_annotation_reconciliation(invalid, identity, error));
+    }
+    acecode::AnnotationSubmissionIdentity ordinary;
+    EXPECT_FALSE(acecode::web::parse_annotation_reconciliation("1", ordinary, error));
+}

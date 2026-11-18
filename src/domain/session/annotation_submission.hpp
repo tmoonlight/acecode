@@ -7,10 +7,11 @@ namespace acecode {
 struct AnnotationSubmissionIdentity {
     std::string batch_id;
     std::string payload_hash;
+    bool reconcile_only = false;
 };
 
 enum class AnnotationSubmissionStatus {
-    Accepted, Duplicate, Conflict, Capacity, Unavailable, Invalid
+    Accepted, Duplicate, Conflict, Capacity, Unavailable, Invalid, NotAccepted
 };
 
 struct AnnotationSubmissionReceipt {

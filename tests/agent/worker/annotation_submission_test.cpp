@@ -130,6 +130,10 @@ TEST(AnnotationSubmission, CapacityNeverEvictsReceiptsAndDoesNotBlockOrdinaryInp
     }
     EXPECT_EQ(queue.enqueue_annotation(annotation_task(), identity("overflow")).status,
               AnnotationSubmissionStatus::Capacity);
+    auto missing = identity("overflow");
+    missing.reconcile_only = true;
+    EXPECT_EQ(queue.enqueue_annotation(annotation_task(), missing).status,
+              AnnotationSubmissionStatus::NotAccepted);
     EXPECT_EQ(queue.enqueue_annotation(annotation_task(), identity("0")).status,
               AnnotationSubmissionStatus::Duplicate);
     EXPECT_TRUE(queue.enqueue(annotation_task("ordinary")));
@@ -137,4 +141,52 @@ TEST(AnnotationSubmission, CapacityNeverEvictsReceiptsAndDoesNotBlockOrdinaryInp
     queue.request_shutdown();
     const auto pending = queue.take_pending();
     EXPECT_EQ(pending.ordinary.size(), AgentTaskQueue::kMaxAnnotationBatches + 2);
+}
+
+TEST(AnnotationSubmission, ReconciliationCannotAdmitOrConsumeAnUnknownIdentity) {
+    std::atomic<bool> busy{false};
+    AgentTaskQueue queue(busy);
+    auto lookup = identity();
+    lookup.reconcile_only = true;
+    const auto missing = queue.enqueue_annotation(annotation_task(), lookup);
+    EXPECT_EQ(missing.status, AnnotationSubmissionStatus::NotAccepted);
+    EXPECT_FALSE(missing.accepted());
+    EXPECT_TRUE(missing.batch_id.empty());
+    EXPECT_FALSE(queue.has_user_work());
+    EXPECT_EQ(queue.enqueue_annotation(annotation_task(), identity()).status,
+              AnnotationSubmissionStatus::Accepted);
+    EXPECT_EQ(queue.enqueue_annotation(annotation_task(), lookup).status,
+              AnnotationSubmissionStatus::Duplicate);
+    lookup.payload_hash = std::string(64, 'b');
+    EXPECT_EQ(queue.enqueue_annotation(annotation_task("different"), lookup).status,
+              AnnotationSubmissionStatus::Conflict);
+    queue.request_shutdown();
+    EXPECT_EQ(queue.take_pending().ordinary.size(), 1u);
+}
+
+TEST(AnnotationSubmission, ConcurrentReconciliationAndAdmissionQueueExactlyOneTask) {
+    std::atomic<bool> busy{false};
+    AgentTaskQueue queue(busy);
+    std::promise<void> start;
+    const auto ready = start.get_future().share();
+    std::vector<std::future<acecode::AnnotationSubmissionReceipt>> calls;
+    for (int index = 0; index < 24; ++index) {
+        calls.push_back(std::async(std::launch::async, [queue_ptr = &queue, ready, index] {
+            ready.wait();
+            auto request = identity();
+            request.reconcile_only = index % 2 == 0;
+            return queue_ptr->enqueue_annotation(annotation_task(), request);
+        }));
+    }
+    start.set_value();
+    int accepted = 0;
+    for (auto& call : calls) {
+        const auto receipt = call.get();
+        if (receipt.status == AnnotationSubmissionStatus::Accepted) ++accepted;
+        EXPECT_TRUE(receipt.accepted() || receipt.status == AnnotationSubmissionStatus::NotAccepted);
+        EXPECT_EQ(receipt.batch_id, receipt.accepted() ? "batch-1" : "");
+    }
+    EXPECT_EQ(accepted, 1);
+    queue.request_shutdown();
+    EXPECT_EQ(queue.take_pending().ordinary.size(), 1u);
 }
