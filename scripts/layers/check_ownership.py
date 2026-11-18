@@ -11,7 +11,7 @@ import re
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "refactor"))
-from layout import load_policy, mask_cpp
+from layout import INCLUDE, load_policy, mask_cpp
 from repo_files import SOURCE_SUFFIXES, emit_json, repo_root, tracked_files
 
 METRICS = ("raw_new", "raw_delete", "detach", "std_thread", "unsafe_capture", "delayed_injection", "raw_handle")
@@ -89,6 +89,11 @@ def synchronous_capture(code: bytes, match, scopes: list[tuple[int, int, str]]) 
 
 def scan(data: bytes, path: str, synchronous: list[dict] | None = None) -> list[dict]:
     code = mask_cpp(data)
+    masked = bytearray(code)
+    for include in INCLUDE.finditer(code):
+        start, end = include.span(2)
+        masked[start:end] = b" " * (end - start)
+    code = bytes(masked)
     scopes = named_scopes(code)
     occurrences = []
     for metric, expression in PATTERNS.items():

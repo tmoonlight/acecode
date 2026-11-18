@@ -1,4 +1,8 @@
 import './desktopOffice.test.js';
+import './pageAnnotations.test.js';
+import './pageAnnotationText.test.js';
+import './pageAnnotationTextField.test.js';
+import './pageAnnotationBatches.test.js';
 import './inviteLink.test.js';
 import './inviteClipboardStore.test.js';
 import './androidPhoneSettings.test.js';
@@ -419,3 +423,4 @@ import './composerSelection.test.js';
 
 // The hook fixture controls browser globals; isolate it from other test modules.
 runHookTest(process.execPath, [hookTestPath(new URL('./sessionTranscriptLoading.test.js', import.meta.url))], { stdio: 'inherit' });
+runHookTest(process.execPath, [hookTestPath(new URL('./pageAnnotationPopup.test.js', import.meta.url))], { stdio: 'inherit' });

@@ -92,6 +92,42 @@ bool AgentTaskQueue::enqueue(WorkerTask task) {
     return true;
 }
 
+AnnotationSubmissionReceipt AgentTaskQueue::enqueue_annotation(
+    WorkerTask task, const AnnotationSubmissionIdentity& identity) {
+    if (identity.batch_id.empty() || identity.batch_id.size() > 128 ||
+        identity.payload_hash.size() != 64 || task.kind != WorkerTask::Kind::Chat ||
+        task.input.empty() || task.hidden_goal_context || task.mailbox_wake) {
+        return {AnnotationSubmissionStatus::Invalid, {}};
+    }
+    task.input.metadata["annotation_batch_id"] = identity.batch_id;
+    {
+        Lock lock(*this);
+        if (shutdown_requested_) return {};
+        const auto found = annotation_batches_.find(identity.batch_id);
+        if (found != annotation_batches_.end()) {
+            if (found->second != identity.payload_hash) {
+                return {AnnotationSubmissionStatus::Conflict, {}};
+            }
+            return {AnnotationSubmissionStatus::Duplicate, found->first};
+        }
+        if (identity.reconcile_only) {
+            return {AnnotationSubmissionStatus::NotAccepted, {}};
+        }
+        if (annotation_batches_.size() >= kMaxAnnotationBatches) {
+            return {AnnotationSubmissionStatus::Capacity, {}};
+        }
+        const auto inserted = annotation_batches_.emplace(identity.batch_id, identity.payload_hash);
+        try {
+            ordinary_.push_back(std::move(task));
+        } catch (...) {
+            annotation_batches_.erase(inserted.first);
+            throw;
+        }
+    }
+    notify();
+    return {AnnotationSubmissionStatus::Accepted, identity.batch_id};
+}
+
 void AgentTaskQueue::enqueue_mailbox_wake() {
     const bool queued = with_locked([](Locked& state) {
         if (state.stopped()) return false;

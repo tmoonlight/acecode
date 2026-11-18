@@ -1,5 +1,6 @@
 // routes_sessions.cpp — Route registrations extracted from server.cpp
 #include "web/server_impl.hpp"
+#include "web/annotation_submission_request.hpp"
 #include "session/session_load_metrics.hpp"
 #include "session/session_file_reader.hpp"
 #include "web/handlers/session_history_handler.hpp"
@@ -193,7 +194,8 @@ ParsedSessionUserInputRequest
 WebServer::Impl::parse_session_user_input_request(
     const std::string& body,
     const std::string& session_id,
-    bool allow_worktree) {
+    bool allow_worktree,
+    const char* annotation_reconcile_only) {
     ParsedSessionUserInputRequest result;
     std::string text;
     std::string client_message_id;
@@ -210,6 +212,10 @@ WebServer::Impl::parse_session_user_input_request(
             result.error = "request body must be an object";
             return result;
         }
+        if (!parse_annotation_submission_identity(payload, allow_worktree,
+                result.annotation_identity, result.error)) return result;
+        if (!parse_annotation_reconciliation(annotation_reconcile_only,
+                result.annotation_identity, result.error)) return result;
         if (payload.contains("text") && payload["text"].is_string()) {
             text = payload["text"].get<std::string>();
         }
@@ -2203,7 +2209,8 @@ void WebServer::Impl::register_sessions() {
             }
 
             auto parsed = parse_session_user_input_request(
-                req.body, id, /*allow_worktree=*/true);
+                req.body, id, /*allow_worktree=*/true,
+                req.url_params.get("annotation_reconcile_only"));
             if (!parsed.ok) {
                 crow::response r(parsed.status);
                 r.body = json{{"error", parsed.error}}.dump();
@@ -2235,7 +2242,24 @@ void WebServer::Impl::register_sessions() {
                 }
             }
 
-            bool ok = deps.session_client->send_input(id, parsed.input);
+            AnnotationSubmissionReceipt annotation_receipt;
+            const bool annotation_batch = !parsed.annotation_identity.batch_id.empty();
+            if (annotation_batch) {
+                annotation_receipt = deps.session_client->send_annotation_batch(
+                    id, parsed.input, parsed.annotation_identity);
+                if (!annotation_receipt.accepted()) {
+                    const bool conflict = annotation_receipt.status == AnnotationSubmissionStatus::Conflict;
+                    const bool capacity = annotation_receipt.status == AnnotationSubmissionStatus::Capacity;
+                    const bool not_accepted = annotation_receipt.status == AnnotationSubmissionStatus::NotAccepted;
+                    crow::response response(conflict ? 409 : not_accepted ? 404 : 503);
+                    response.body = json{{"error", conflict ? "annotation_batch_conflict" :
+                        capacity ? "annotation_batch_capacity" :
+                        not_accepted ? "annotation_batch_not_accepted" : "annotation_batch_unavailable"}}.dump();
+                    response.add_header("Content-Type", "application/json");
+                    return with_cors(req, std::move(response));
+                }
+            }
+            bool ok = annotation_batch || deps.session_client->send_input(id, parsed.input);
             if (!ok) {
                 crow::response r(404);
                 r.body = R"({"error":"unknown session"})";
@@ -2244,6 +2268,10 @@ void WebServer::Impl::register_sessions() {
             }
 
             json body{{"queued", true}};
+            if (annotation_batch) {
+                body["annotation_batch_id"] = annotation_receipt.batch_id;
+                body["duplicate"] = annotation_receipt.status == AnnotationSubmissionStatus::Duplicate;
+            }
             if (!parsed.worktree_path.empty()) {
                 body["worktree"] = {
                     {"name", parsed.worktree_name},

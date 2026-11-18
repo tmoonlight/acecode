@@ -522,11 +522,12 @@ export function createApi(base = null) {
     ),
     clearSessionTodos: (id, workspaceHash = '') =>
       request('DELETE', sessionTodosPath(id, workspaceHash), undefined, base),
-    sendInput:        (id, payload)  => {
+    sendInput:        (id, payload, options = {})  => {
       const body = payload && typeof payload === 'object' && !Array.isArray(payload)
         ? payload
         : { text: payload };
-      return request('POST', `/api/sessions/${encodeURIComponent(id)}/messages`, body, base);
+      const query = options.reconcileOnly === true ? '?annotation_reconcile_only=1' : '';
+      return request('POST', `/api/sessions/${encodeURIComponent(id)}/messages${query}`, body, base);
     },
     retryLastUserMessage: (id, expectedUserMessageId) => request(
       'POST',
@@ -1040,6 +1041,7 @@ export function createApi(base = null) {
     enumerable: false,
     value: () => connectionScopeForBase(base),
   });
+  client.snapshotConnection = () => createApi({ origin: baseOrigin(base), token: baseToken(base) });
   return client;
 }
 

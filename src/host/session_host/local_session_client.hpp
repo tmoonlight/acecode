@@ -35,6 +35,9 @@ public:
                       const std::string& text,
                       const std::string& display_text) override;
     bool send_input(const std::string& session_id, const UserInput& input) override;
+    AnnotationSubmissionReceipt send_annotation_batch(
+        const std::string& session_id, const UserInput& input,
+        const AnnotationSubmissionIdentity& identity) override;
     bool retry_last_user_message(const std::string& session_id,
                                  const std::string& expected_user_message_id,
                                  std::string& error) override;

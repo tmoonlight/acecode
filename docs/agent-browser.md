@@ -103,6 +103,41 @@ CSS 缩放或 Browser 面板宽高影响，返回同样的图片附件与文件�
 像素、总计最多 32 兆像素、PNG 最多 16 MiB。无效、未就绪或不可见的画板会报错，
 不会改用页面截图。
 
+### Explicit full-page capture
+
+`browser_screenshot(full_page: true)` uses the existing screenshot/attachment path.
+At the authenticated native proxy boundary, send `Page.captureScreenshot` with
+`{"fullPage":true}` (the existing `captureBeyondViewport:true` spelling is also
+supported). Omitted/false flags retain the existing viewport behavior. Conflicting
+flags, a crop/quality override, or a non-PNG full-page request are rejected rather
+than silently downgraded. This adds no webpage messaging or conversation capability.
+
+Windows uses CDP document CSS bounds and an explicit beyond-viewport clip, normalized
+to one PNG pixel per CSS pixel without changing device emulation or viewport size.
+macOS uses WebKit's full-document PDF capture boundary and rasterizes its single
+complete page in memory, without resizing the view or scrolling/stitching viewport
+snapshots. The original viewport snapshot path remains unchanged. WebKit PDF rendering
+is not a promise to capture protected media or every accelerated/video surface.
+
+Full-page success returns one base64 PNG, `fullPage:true`, `captureBeyondViewport:true`,
+`width`, `height`, and an opaque `documentId`. Callers may supply that returned
+`documentId` to reject a later capture of a replaced document; it is a capture-backend
+token, not an annotation-runtime document identifier. The selected native page/view,
+navigation, sharing permission, document identity and full bounds are checked across
+capture. Changed documents/layouts fail instead of returning an image of another page.
+The dimensions and PNG chunk integrity are checked before publishing success.
+
+Limits are 32768 pixels per side, 32 Mi pixels total and 32 MiB encoded PNG (before
+base64). Invalid bounds, resource exhaustion, missing/incomplete native output,
+navigation/close, timeout or shutdown fail; no clipped/viewport substitute is returned.
+Capture-operation errors carry `ok:false`, `recoverable:true`, `page_id`, and a
+`capture_*` error (for example `capture_resource_limit`, `capture_document_changed`,
+`capture_incomplete_image`, `capture_native_failed`, or `capture_timeout`). Existing
+proxy authentication/page-resolution errors keep their existing response contract.
+Keep the pending batch on failure and retry explicitly. Real Windows/macOS long-page
+pixel acceptance remains a separate required check; automated contract tests alone
+do not establish native rendering fidelity.
+
 macOS 的交互工具（click/fill/type/press/hover/drag/scroll）额外暴露
 `input_mode: "synthetic" | "native"`，由 Agent 按页面需要显式选择：
 
@@ -269,8 +304,8 @@ Agent 浏览器」都能切换三档，默认**共享**：
 
 - 只在 macOS 14+ 激活；更低系统版本、Linux 或没有完整 Desktop bridge 时前端不会把它
   视为可用 backend。
-- `browser_screenshot` 使用 `takeSnapshotWithConfiguration`，当前返回可见 viewport 的
-  PNG，不承诺 CDP `captureBeyondViewport` 的整页语义。
+- `browser_screenshot` 默认使用 `takeSnapshotWithConfiguration` 返回可见 viewport；
+  显式整页请求使用上述 PDF 捕获/PNG 栅格化边界，失败时不降级为 viewport。
 - 页面理解和 synthetic 输入依赖 DOM，可访问当前文档和同源 frame；跨源 iframe、浏览器
   原生弹层以及站点封闭的实现细节不保证可操作。遇到 trusted-event 检查可显式改用
   `native`，但 native 仍不能绕过网页权限、系统安全提示或不可见页面约束。
@@ -346,6 +381,106 @@ ctest --test-dir build -C Release --output-on-failure
 `typeof window.aceDesktop_agentBrowserGetState === "undefined"`。还要验证新标签页不显示
 原生空白 WebView、导航失败不闪出 WebView2 错误文档、重试可恢复，以及模拟 OOM/
 renderer failure 时显示对应 ACECode 状态并隐藏 controller。
+
+## 网页描述批注（#194）
+
+已加载网页的工具栏提供“批注”。开启后点击一个元素，再点选框旁的 Annotate
+按钮，在覆盖原生浏览器的宿主浮窗中填写描述并保存。关闭浮窗取消当前草稿；退出模式
+隐藏选框和控制按钮，但保留已保存的编号图钉。底部显示待发送数量。保存记录不可编辑或
+删除，编号持续递增；没有会话也可保存。此步骤只在当前 Desktop 运行期保留数据，
+不会发送消息、写 HTML/CSS 文件或持久化记录。源码元素引用仍使用原有“将元素添加到聊天”
+入口，两种模式不共用事件或草稿。
+
+### 实现与扩展接口
+
+- `src/apps/desktop/page_annotation_bridge.{hpp,cpp}` 注册唯一的可信入口
+  `aceDesktop_agentBrowserAnnotationCommand({page_id, command})`。安装返回的生命周期
+  token 在 browser 析构前撤销。网页没有该 bridge。
+- `AgentBrowserHost::annotation_command` 只接受 `start/read/exit/cancel/save`，由
+  `PageAnnotationSession::prepare/complete/fail` 串行处理。命令必须带 `document_id`，
+  首次 start 可传空字符串；save 还必须带当前 `target_id` 与有界 `description`。
+  未知动作/字段、旧文档、旧回调和不匹配的目标被拒绝。
+- `src/apps/desktop/page_annotation_runtime.hpp` 由宿主执行，Windows 使用主框架的
+  CDP isolated world，macOS 使用 `WKContentWorld`。运行时保存精确 DOM 引用及
+  document 身份，仅返回选框/浮窗意图、目标摘要和视口；描述不会注入网页。
+  闭合 shadow root 只有选框、控制按钮及图钉，没有第二套描述编辑器或消息通道。
+- `PageAnnotationSession::snapshot()` 返回 `document_id/active/popup/target/viewport/records/
+  pending_count/revision`；记录包含稳定 `id/number/page_id/document_id`、`description`、
+  `targets`、`differences`、`region`、`status`、`valid`。描述批注的真实属性差异为
+  空数组、region 为 null、status 为 pending。返回值是快照，不授予修改已保存记录的能力。
+  文档替换使旧记录失效，不按 locator 重新匹配。
+- `web/src/lib/pageAnnotations.js` 的 `createPageAnnotationController` 串行调用可信
+  bridge，绑定入队时的文档/目标身份，丢弃旧 revision 和卸载后的结果。
+  `web/src/components/PageAnnotations.jsx` 的 `PageAnnotationPopup` 使用现有
+  `data-ace-native-overlay="overlap"` 局部遮挡协议，在 Windows window region / macOS
+  layer mask 与 hit-test 路径上露出可信表单，不是聊天栏替代。选择状态通过宿主发起的
+  read 读取，不接受网页主动发来的特权请求。
+
+后续样式、文本、多目标/区域功能分别扩展上述运行时、原生草稿模型及可信浮窗，不要改走
+`selected_element`（它仍会创建聊天上下文）。截图、批量发送及完整导航确认由其他票负责；
+#194 未改动 `capture_screenshot`。
+
+### #194 验证范围
+
+自动化覆盖实际嵌入的 JavaScript 运行时选择/打开/取消/保存/退出、synthetic 输入拒绝、
+DOM 原样保留、精确目标失效、文档重新绑定、宿主命令序列、迟到结果、不可变记录和编号，
+以及原有源码选择回归。验证命令为 `node web/src/lib/pageAnnotations.test.js`、
+`pnpm --dir web test`、`pnpm --dir web build` 和原生
+`PageAnnotationSessionTest.*`。Windows 还单独编译了 host、main 和 annotation bridge
+翻译单元；这不等于完整 Desktop 链接或运行验收。
+
+2026-11-18 在 #194 独立工作树的结果：运行时/控制器定向测试通过，原生模型 6/6
+通过，完整 `pnpm test`、`pnpm build`（含 regex compatibility 检查）通过，三个
+Windows 翻译单元编译通过，`openspec validate add-html-page-annotations --strict`
+和 `git diff --check` 通过。Web build 仍有大 chunk 提示；未因此更改无关打包策略。
+
+**尚未执行：** Windows 真正 Desktop 中的浮窗重叠、点击穿透/焦点、缩放/DPR、切页和
+进程故障交互；macOS 编译及同类真实交互；完整原生 CMake/ctest。两个平台的完整工作流
+验收仍待 #201，不能用 Node 的模拟 DOM 或单文件编译代替。
+
+### #195 样式扩展与验证范围
+
+样式入口仍为可信浮窗，不复用源码选择。`page_annotation_style_runtime.hpp` 的
+`kPageAnnotationStyleRuntime` 通过运行时第三参数注入，第二参数留给文本 helper。
+接口为 `select/preview/describe/differences/save/cancel/setOriginal/dispose`；
+`preview(target,id,styles,ratioLock?)` 接受 CSS 属性和值，`save()` 返回真实差异数组。
+每个目标分别保留已保存声明、当前草稿、计算值基线和默认关闭的当前比例锁。
+多目标接入时应保留各目标草稿，不沿用单目标选择入口的全局 cancel。
+
+可信命令新增 `preview_style {target_id,styles,ratio_lock?}`、`original {enabled}`。
+快照新增 `original/differences`，目标的 `style_preview` 包含
+`values/styles/ratio_locked/ratio/errors`。控制器在入队时绑定目标和文档，浮窗保存前
+刷新尚未失焦的编辑；失败保留输入以便重试。样式差异使用展开后的 CSS 属性与实际
+计算值，原始输入的等价写法不形成差异。边框原为 none 时，宽度编辑派生 solid，
+该真实变化也进入差异。没有 HTML/CSS 磁盘写入或页面可访问的会话 bridge。
+
+样式层采用各 Document/ShadowRoot 的独立 constructed stylesheet，不改原行内声明；
+取消仅撤当前草稿，模式退出保留已保存层。原始页面比较临时停用两层，保留图钉；
+恢复时草稿与已保存预览重现。原页面长过渡在取消/比较时即时结算后恢复原声明。
+
+**尚存限制，不视为完整关闭 #195：** 原始 inline `!important` 无法被独立 author
+stylesheet 覆盖且同时保持原声明不变。界面显示冲突，差异只保留实际生效的变化；
+author cascade layer 内的 important 也可能优先于未分层预览规则。任务 2.1 因此
+保持未完成，不能把未生效请求记录为成功。全部批准字段在普通 CSS 下已由真实
+Chromium CSS 引擎验证；这一结果不等于任意站点的完整层叠覆盖。
+
+新增验证：`pnpm --dir web test:annotations:browser` 启动独立临时 headless Chromium
+profile，覆盖全部属性、简写展开、真实差异、比例锁、同目标保存/取消、原始比较、
+过渡、克隆清理、ShadowRoot、trusted 鼠标输入与实际隔离运行时。可通过
+`ACECODE_TEST_BROWSER` 指定 Chromium 可执行文件。浮窗 JSX 行为由
+`node web/src/lib/pageAnnotationPopup.test.js` 覆盖，原生模型测试为
+`PageAnnotationSessionTest.*`。新增测试不使用共享原生 build 输出目录。
+
+2026-11-19 在 #195 独立工作树：原生模型 10/10、运行时/控制器、浮窗 JSX 4 项、
+真实 Chromium 样式/隔离运行时测试通过；完整 `pnpm --dir web test` 最终通过。
+较早完整测试曾出现测试结束后的异步断言失败，未修改无关基线测试；带诊断监听的
+完整重跑及最终 pnpm 重跑均通过。`pnpm --dir web build`（含 regex compatibility）、
+`openspec validate add-html-page-annotations --strict` 与 `git diff --check` 通过。
+构建仍有既有大 chunk 提示。原生测试直接编译到系统临时目录，只读借用已安装依赖，
+未触及集成工作树、原始工作树或共享原生 build 的输出。
+
+未执行真实 Windows/macOS Desktop 浮窗、焦点、遮挡和全部属性交互验收，未执行
+macOS 编译、完整原生链接或 CTest；这些检查不能由 headless CSS 测试代替。
 
 ## 常见故障
 

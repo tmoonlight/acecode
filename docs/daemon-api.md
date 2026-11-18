@@ -1848,6 +1848,118 @@ whether a paste stayed inline or became a file. Expansion is also skipped when
 the first non-empty composer piece is an inline pasted block.
 Returns `202 {"queued":true}`.
 
+#### Annotation batch receipt
+
+Trusted annotation senders may opt into receiver idempotency by adding
+`annotation_batch_id` (`[A-Za-z0-9_-]{1,128}`) to this ordinary messages endpoint:
+
+```json
+{
+  "annotation_batch_id": "annotation-batch-uuid",
+  "text": "Numbered targets, descriptions and old/new differences",
+  "attachments": [{"id": "att-prepared-full-page-image"}],
+  "client_message_id": "optional-client-message-id"
+}
+```
+
+Only these four fields are allowed for a batch. Non-empty `text` is required;
+the sender prepares and freezes the attachment before submitting. Batch IDs
+are rejected on steer, interrupt and question-interjection paths. Ordinary
+messages without `annotation_batch_id`, including source selections and
+`client_message_id` reconciliation, retain their existing behavior.
+
+First acceptance returns `202` with
+`{"queued":true,"annotation_batch_id":"annotation-batch-uuid","duplicate":false}`.
+An identical retry returns the same accepted ID and `duplicate:true`, with no
+additional user turn or auto-title request. The sender must match the returned
+ID to its frozen batch before acknowledging it. This acknowledges queue
+admission, not model completion or a durable transcript write.
+
+Identity is scoped to the receiving session's live AgentLoop. The receiver hashes
+the complete parsed JSON request using SHA-256 (object key order and whitespace
+do not matter; array order, field omission and all values do). Reuse the exact
+original payload and attachment references on retry; changed payload under an
+accepted ID returns `409 {"error":"annotation_batch_conflict"}`. Checking the ID,
+remembering its fingerprint and enqueueing the ordinary Chat task share the
+existing queue admission lock, including concurrent requests and busy turns.
+Failed admission does not remember an ID. The fingerprint is computed before
+prompt expansion, so retry comparison does not depend on changing workspace
+context. Existing authentication, migration, attachment and mesh checks remain
+in force before acceptance.
+
+Each live receiver retains at most 1024 accepted batch fingerprints, including
+completed turns. Records are never evicted to make room for new batches:
+`503 {"error":"annotation_batch_capacity"}` rejects a new ID at the limit while
+known identical retries still succeed. Other admission failures return
+`503 {"error":"annotation_batch_unavailable"}` without a success receipt;
+normal parse/security errors retain their existing status. Receipt state is
+runtime-only and is lost when the receiving session is destroyed or the daemon
+restarts; there is no restart-recovery guarantee. Do not retry an uncertain
+batch against a recreated receiver as though its earlier receipt survived.
+
+For an uncertain HTTP outcome, query only the existing receipt using
+`POST /api/sessions/:id/messages?annotation_reconcile_only=1`. The query accepts
+only literal `1`, and requires a valid annotation batch identity and payload as
+defined above; other values, an ordinary non-batch body or malformed batch return
+`400` (invalid query usage reports `invalid annotation_reconcile_only`). Send the
+same frozen batch ID and exact original payload, including attachment references
+and optional client identity. The query is transport metadata, not part of the
+payload fingerprint. It is parsed before request side effects; existing
+authentication, migration, attachment, mesh and receiver-lifetime checks still apply.
+
+This mode never admits a new task or consumes an unknown ID, even at receipt
+capacity. Within the existing queue admission lock:
+
+- A known ID with the same fingerprint returns `202` with
+  `{"queued":true,"annotation_batch_id":"annotation-batch-uuid","duplicate":true}`.
+- An unknown ID returns `404 {"error":"annotation_batch_not_accepted"}` without
+  a receipt ID, enqueueing work or remembering that identity.
+- A known ID with a changed fingerprint returns
+  `409 {"error":"annotation_batch_conflict"}`.
+- An unavailable receiver returns `503 {"error":"annotation_batch_unavailable"}`;
+  normal parse/security errors retain their existing status.
+
+Ordinary POST without this query remains an admission attempt, not a safe
+receipt-only lookup. The sender first reconciles every uncertain attempt. A
+matching accepted receipt may be acknowledged even if the old target is now
+invalid. Only an exact `404` with `annotation_batch_not_accepted` permits native
+document/target revalidation followed, if valid, by a possible first ordinary
+admission. Ambiguous lookup errors, malformed receipts and mismatched receipt IDs
+must not authorize admission. Explicit original refusals
+(`annotation_batch_unavailable`, `annotation_batch_capacity`,
+`annotation_batch_conflict`) clear sender uncertainty and require native
+revalidation before another ordinary attempt. All retries keep the frozen session,
+connection, batch ID and payload; none recapture or reupload.
+
+The desktop annotation sender freezes the initiating conversation, daemon connection,
+sendable saved record IDs and serialized message before submission. It captures one
+full-page PNG through the trusted native annotation command and uploads it with
+`POST /api/sessions/:id/attachments`; the message references the returned attachment
+ID, never a screenshot path. Description-only and differences-only records are
+sendable; empty records are excluded. New annotations belong to the next batch.
+The sender does not read, clear or replace composer text/attachments, and uses this
+ordinary messages endpoint even while the conversation is busy, never steer.
+
+Trusted desktop annotation commands `capture` and `validate` accept only
+`{action, document_id, record_ids}`. Native-owned records bind that membership to
+the current annotation document. The native host verifies the isolated runtime's
+exact document and saved target references before and after full-page capture,
+alongside capture's existing page/view/navigation/bounds guards. The successful
+response includes `annotation_document_id` and the independent capture
+`result.documentId`; these tokens are not equal or interchangeable. This trusted
+user capture does not require sharing the page with the agent; automation proxy
+sharing/security gates remain unchanged. A final native validation before the first
+HTTP attempt rejects target removal or document replacement during upload.
+
+Capture/upload/validation failures preserve pending records. Once an HTTP attempt
+has occurred, uncertain retries keep the original session, exact payload, batch ID
+and attachment reference without recapture/reupload; switching conversations does
+not redirect them. A matching `queued:true` receipt alone authorizes trusted native
+`acknowledge` for the frozen record IDs. An acknowledgement failure retries only that
+step, not submission. Accepted records retain their pins, previews and numbers;
+concurrent additions remain pending. Failed/in-flight batches survive panel remounts
+in memory, bounded by the owning browser page lifetime, not application restart.
+
 ### `POST /api/sessions/:id/turn/steer`
 
 Appends structured user input to the currently running regular agent turn.

@@ -310,6 +310,7 @@ function PreviewTabScrollbar({ scrollRef, onOverflowChange }) {
 export function PreviewDetailsPanel({
   owner,
   api,
+  sessionId,
   cwd,
   workspaceCwd = cwd,
   tabs = [],
@@ -425,6 +426,8 @@ export function PreviewDetailsPanel({
         <AgentBrowserPanel
           key={active.pageId}
           pageId={active.pageId}
+          api={api}
+          sessionId={sessionId}
           agentActive={agentBrowserActive && active.pageId === agentBrowserActive}
           surfaceEnabled={nativeSurfacesVisible}
           onAddContext={onAddBrowserContext}
@@ -516,7 +519,7 @@ export function PreviewDetailsPanel({
         onRefresh={() => onRefreshTab?.(active.key)}
       />
     );
-  }, [active, agentBrowserActive, api, backgroundTasksContent, browserRecentFiles, busy, changeGroups, changeSummary, cwd, fileActionsHost, nativeSurfacesVisible, onAddBrowserContext, onEditFileTab, onOpenBrowser, onOpenFilePreview, onRefreshTab, onReplaceBrowserTabWithFile, onRetargetSimulatorTab, onSelectChangeFile, onSelectGitChangeFile, owner, selectionContexts, sessionChangesReady, setWrapPreview, textZoom, turnChangeSets, wrapPreview]);
+  }, [active, agentBrowserActive, api, backgroundTasksContent, browserRecentFiles, busy, changeGroups, changeSummary, cwd, fileActionsHost, nativeSurfacesVisible, onAddBrowserContext, onEditFileTab, onOpenBrowser, onOpenFilePreview, onRefreshTab, onReplaceBrowserTabWithFile, onRetargetSimulatorTab, onSelectChangeFile, onSelectGitChangeFile, owner, selectionContexts, sessionChangesReady, sessionId, setWrapPreview, textZoom, turnChangeSets, wrapPreview]);
 
   const handleTabWheel = useCallback((event) => {
     const el = tabListRef.current;

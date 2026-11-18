@@ -7,6 +7,8 @@
   "scripts": {
     "dev": "vite",
     "test": "node src/lib/runTests.js",
+    "test:annotations:browser": "node src/lib/pageAnnotationStyles.browser.test.js",
+    "test:annotations:integration": "node src/lib/pageAnnotationIntegration.browser.test.js",
     "i18n:audit": "node scripts/i18n-audit.mjs",
     "i18n:catalog": "node scripts/generate-source-catalog.mjs",
     "sync:provider-logos": "node scripts/sync-provider-logos.mjs",
