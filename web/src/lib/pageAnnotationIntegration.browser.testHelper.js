@@ -38,6 +38,7 @@ export async function runAnnotationIntegration({ evaluate, request }) {
     child.stdin.write(`${JSON.stringify(fields)}\n`);
   });
   const calls = [];
+  const leaseEvents = [];
   const captureEntered = deferred();
   const releaseCapture = deferred();
   let gateCapture = true;
@@ -45,11 +46,28 @@ export async function runAnnotationIntegration({ evaluate, request }) {
     assert.equal(pageId, 'page-integration');
     calls.push(command.action);
     let response;
-    if (['capture', 'validate', 'acknowledge'].includes(command.action)) {
+    if (['capture', 'validate', 'acknowledge', 'release'].includes(command.action)) {
       response = await native({ operation: 'submission', command });
+      if (command.action === 'release') {
+        assert.equal(response.ok, true, response.error);
+        assert.equal(response.navigation_sending, false, 'Matching release must clear the real native lease');
+        leaseEvents.push('released');
+      }
       if (response.ok && response.expression) {
         const validation = await evaluate(response.expression);
-        if (validation?.valid !== true) return { ok: false, page_id: pageId, error: 'Disconnected exact target' };
+        if (command.action === 'validate') {
+          if (command.lease_id) {
+            assert.equal(response.navigation_sending, true, 'Validation must hold the real native lease');
+            leaseEvents.push('acquired');
+          }
+          const current = await native({ operation: 'lifecycle', result: validation });
+          if (validation?.valid !== true || !current.ok) {
+            const released = await native({ operation: 'lifecycle', result: null, release: command.lease_id || '' });
+            assert.equal(released.navigation_sending, false, 'Failed host validation must release its matching lease');
+            if (command.lease_id) leaseEvents.push('validation-failed-released');
+            return { ok: false, page_id: pageId, error: 'Disconnected exact target' };
+          }
+        } else if (validation?.valid !== true) return { ok: false, page_id: pageId, error: 'Disconnected exact target' };
       }
       if (response.ok && command.action === 'capture') {
         if (gateCapture) {
@@ -209,6 +227,8 @@ export async function runAnnotationIntegration({ evaluate, request }) {
     assert.equal(snapshot.records[1].number, 2);
     releaseCapture.resolve();
     assert.equal((await flight).ok, false);
+    assert.equal((await native({ operation: 'snapshot' })).navigation_sending, false);
+    assert.deepEqual(leaseEvents, ['acquired', 'released']);
     assert.equal((await native({ operation: 'snapshot' })).annotations.pending_count, 2);
     assert.equal((await sender.send({ ...context, sessionId: 'other-session' })).ok, false);
     assert.equal(messages.length, 1);
@@ -224,6 +244,7 @@ export async function runAnnotationIntegration({ evaluate, request }) {
     assert.equal(calls.filter(action => action === 'capture').length, 1);
     assert.equal(calls.filter(action => action === 'validate').length, 1);
     assert.equal(calls.filter(action => action === 'acknowledge').length, 1);
+    assert.equal(calls.filter(action => action === 'release').length, 1);
     assert.deepEqual(messages[1], messages[0]);
     assert.equal(messageBodies[1], messageBodies[0]);
     assert.deepEqual(reconciliationModes, [null, '1']);
@@ -259,7 +280,9 @@ export async function runAnnotationIntegration({ evaluate, request }) {
     assert.equal((await uncertainSender.send(retryContext)).ok, false);
     assert.equal(messages.length, 5);
     await evaluate('globalThis.impostor = parentTarget.cloneNode(true); parentTarget.replaceWith(impostor)');
-    assert.equal((await invoke('page-integration', validation)).ok, false);
+    assert.equal((await invoke('page-integration', { ...validation, lease_id: 'failed-validation-probe' })).ok, false);
+    assert.equal(leaseEvents.at(-1), 'validation-failed-released');
+    assert.equal((await native({ operation: 'snapshot' })).navigation_sending, false);
     assert.equal((await retrySender.send(retryContext)).ok, false,
       'An explicitly rejected batch must not first-admit after its exact target is replaced');
     assert.equal(messages.length, 5, 'Explicitly rejected invalid retry must stop before another HTTP admission');
@@ -271,6 +294,7 @@ export async function runAnnotationIntegration({ evaluate, request }) {
     assert.equal(receipts.at(-1).status, 404);
     assert.equal(receipts.at(-1).error, 'annotation_batch_not_accepted');
     assert.equal(receipts.at(-1).annotation_batch_id, '');
+    assert.equal((await native({ operation: 'snapshot' })).navigation_sending, false);
     assert.equal((await native({ operation: 'snapshot' })).annotations.pending_count, 1);
     const drained = await native({ operation: 'drain' });
     assert.equal(drained.priority_count, 0);

@@ -30,6 +30,16 @@ int main() {
             } else if (operation == "submission") {
                 response["ok"] = session.submission(request.at("command"), expression, error);
                 response["expression"] = expression;
+            } else if (operation == "lifecycle") {
+                const auto release = request.value("release", std::string{});
+                if (!release.empty()) session.navigation.release(release);
+                const auto& result = request.at("result");
+                if (result.is_object() && result.value("error", std::string{}) == "replaced_document") {
+                    session.replace_document();
+                    response["ok"] = false;
+                } else {
+                    response["ok"] = !session.navigation.blocked() && session.observe_lifecycle(result);
+                }
             } else if (operation == "replace") {
                 session.replace_document();
                 response["ok"] = true;
@@ -78,6 +88,7 @@ int main() {
             }
             response["error"] = error;
             response["annotations"] = session.snapshot();
+            response["navigation_sending"] = session.navigation.sending();
             std::cout << response.dump() << std::endl;
         } catch (const std::exception& error) {
             std::cout << json{{"ok", false}, {"error", error.what()}}.dump() << std::endl;

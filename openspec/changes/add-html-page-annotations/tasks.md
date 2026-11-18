@@ -157,3 +157,17 @@ OpenSpec strict validation and `git diff --check` pass.
 8.1 remains unchecked pending #200/final integrated native verification; complete
 review and both real desktop workflows are also unverified here. See the acceptance
 document for runnable commands and injected-boundary limits.
+
+#201 follow-up at integrated base `4b0c00c4`: the dedicated browser/native-driver
+suite passes with the #200 lease-aware test adapter. It asserts real native lease
+acquisition, matching release after HTTP failure and lifecycle-validation failure,
+while retaining exact-target retry/no-admission, real queue and actual-DOM diff
+assertions. The TEMP driver was directly recompiled, outside the shared Ninja graph.
+This test-only correction does not complete 8.1 or the real platform workflows;
+reliable integrated native recompilation and final review remain pending.
+The follow-up's four strict gates report zero findings, OpenSpec strict and diff
+checks pass, and the frontend build plus seven focused Node files pass. Full
+`pnpm test` and a diagnostic rerun fail at `agentBrowser.test.js:40` (readiness
+`undefined` instead of `true`); that file passes standalone. The failure remains
+recorded, not waived or attributed to a proven baseline. See acceptance execution
+records and TEMP `acecode-201-lease-web-diagnostic.log` for the captured stack.
