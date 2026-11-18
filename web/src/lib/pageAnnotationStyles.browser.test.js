@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
+import { runAnnotationIntegration } from './pageAnnotationIntegration.browser.testHelper.js';
 
 const executable = process.env.ACECODE_TEST_BROWSER || 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe';
 assert.ok(fs.existsSync(executable), 'Set ACECODE_TEST_BROWSER to a Chromium-compatible browser executable');
@@ -201,6 +202,7 @@ try {
   assert.equal(await value('color'), 'rgb(255, 0, 0)');
   assert.equal(await evaluate('target.getAttribute("style") === originalInline && target.firstElementChild === originalChild'), true);
   console.log('[pass] isolated runtime/trusted browser input integrates preview/save/differences, mode exit, original compare, cancel, and document rebinding');
+  await runAnnotationIntegration({ evaluate, request });
 } finally {
   for (const waiter of pending.values()) clearTimeout(waiter.timeout);
   pending.clear();

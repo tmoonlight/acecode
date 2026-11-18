@@ -107,3 +107,17 @@ extraction is being implemented separately; no baseline exceptions are added her
 - [ ] 8.2 Review against baseline 0155a863 on standards and spec axes, fix findings and update API/acceptance documentation; verify final diff and review results.
 - [ ] 8.3 Perform real Windows complete desktop workflow including all fields and long-page screenshot pixels; record observed results without substituting automated tests.
 - [ ] 8.4 Build and perform real macOS complete desktop workflow including all fields and long-page screenshot pixels; record observed results and keep draft if unavailable.
+
+#201 automated checkpoint at base `8f2e060e`: extraction ownership assertions now
+verify the serializer/native-command helper and reachable production call sites,
+without removing favicon/owner/state/security contracts. Own-worktree `pnpm test`
+and `pnpm build` pass. A new opt-in browser/native integration runner exercises
+real interaction/save records through sender/API/ordinary queue/receipt and checks
+exact document ownership and late callbacks. Its parent/child DOM assertion
+reproduces review finding F2 (`Earth` diff versus `world` actual child text), so
+8.1 remains unchecked pending the separate product fix and final integrated rerun.
+An additional real HTTP refusal followed by exact-target clone replacement also
+reproduces F1: the old retry first-admits invalid work despite native validation
+rejecting the replacement. The latest run stops at F1; both regressions stay red.
+Navigation #200, complete review and both real desktop workflows remain unverified
+here. See the acceptance document for runnable commands and injected-boundary limits.
