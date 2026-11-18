@@ -1,4 +1,5 @@
 #include "agent_browser_host.hpp"
+#include "page_annotation_session.hpp"
 
 #include "agent_browser_cookie_jars.hpp"
 #include "agent_browser_capture.hpp"
@@ -86,6 +87,7 @@ struct AgentBrowserHost::Impl
 
     struct Page {
         std::string id;
+        PageAnnotationSession annotations;
         AgentBrowserState state;
         AgentBrowserBounds requested_bounds;
         bool creation_started = false;
@@ -1484,6 +1486,13 @@ struct AgentBrowserHost::Impl
                         BOOL new_document = FALSE;
                         if (args) args->get_IsNewDocument(&new_document);
                         if (new_document) {
+                            if (current) {
+                                current->annotations.replace_document();
+                                const auto annotations = current->annotations.snapshot().dump();
+                                self->update_page(current, [annotations](AgentBrowserState& state) {
+                                    state.page_annotations_json = annotations;
+                                });
+                            }
                             self->clear_console_logs(current);
                             self->invalidate_element_selection(current);
                         }
@@ -1562,8 +1571,10 @@ struct AgentBrowserHost::Impl
                         current, "[browser] " + technical);
                     if (failure_kind.empty()) return S_OK;
 
+                    current->annotations.replace_document();
                     self->invalidate_element_selection(current);
                     self->update_page(current, [&](AgentBrowserState& state) {
+                        state.page_annotations_json = current->annotations.snapshot().dump();
                         state.loading = false;
                         state.content_state =
                             kAgentBrowserContentStateProcessFailed;
@@ -1690,6 +1701,7 @@ struct AgentBrowserHost::Impl
         // 页面关闭后仍会有在途导航回调,标记之后一律忽略。
         page->navigation.close();
         teardown_page(page);
+        page->annotations.replace_document();
         std::vector<QueuedCdpCall> queued;
         queued.swap(page->queued_cdp);
         std::string next_active;
@@ -1740,6 +1752,7 @@ struct AgentBrowserHost::Impl
             url = page->state.url;
         }
         teardown_page(page);
+        page->annotations.replace_document();
         page->creation_started = false;
         page->store_prepared = false;
         page->navigation = AgentBrowserNavigationTracker{};
@@ -1749,7 +1762,8 @@ struct AgentBrowserHost::Impl
         ++page->favicon_generation;
         page->restore_url = (url.empty() || url == "about:blank") ? std::string() : url;
         const bool restoring = !page->restore_url.empty();
-        update_page(page, [restoring](AgentBrowserState& state) {
+        update_page(page, [restoring, page](AgentBrowserState& state) {
+            state.page_annotations_json = page->annotations.snapshot().dump();
             state.ready = false;
             state.loading = restoring;
             state.visible = false;
@@ -2164,6 +2178,84 @@ struct AgentBrowserHost::Impl
             return false;
         }
         return true;
+    }
+
+    using AnnotationResult = std::function<void(bool, nlohmann::json)>;
+
+    void annotation_cdp(const std::shared_ptr<Page>& page,
+                        std::uint64_t sequence, const wchar_t* method,
+                        const nlohmann::json& params, AnnotationResult completion) {
+        const auto weak = weak_from_this();
+        const std::weak_ptr<Page> weak_page = page;
+        const auto incarnation = page->controller_generation;
+        const auto serialized = acecode::utf8_to_wide(params.dump());
+        auto callback = Microsoft::WRL::Callback<
+            ICoreWebView2CallDevToolsProtocolMethodCompletedHandler>(
+            [weak, weak_page, incarnation, sequence, completion](HRESULT status, LPCWSTR raw) -> HRESULT {
+                const auto self = weak.lock();
+                const auto current = weak_page.lock();
+                if (!self || !current || current->closing ||
+                    self->find_page(current->id) != current ||
+                    current->controller_generation != incarnation ||
+                    current->annotations.sequence() != sequence) {
+                    completion(false, nullptr);
+                    return S_OK;
+                }
+                const auto result = raw ? nlohmann::json::parse(
+                    acecode::wide_to_utf8(raw), nullptr, false) : nlohmann::json();
+                completion(SUCCEEDED(status) && result.is_object(), result);
+                return S_OK;
+            });
+        const auto status = page->webview->CallDevToolsProtocolMethod(
+            method, serialized.c_str(), callback.Get());
+        if (FAILED(status)) completion(false, nullptr);
+    }
+
+    void evaluate_annotation(const std::shared_ptr<Page>& page,
+                             std::uint64_t sequence, std::string expression,
+                             AnnotationResult completion) {
+        const auto weak = weak_from_this();
+        const std::weak_ptr<Page> weak_page = page;
+        annotation_cdp(page, sequence, L"Page.getFrameTree", nlohmann::json::object(),
+            [weak, weak_page, sequence, expression, completion](bool ok, nlohmann::json result) {
+                const auto self = weak.lock();
+                const auto current = weak_page.lock();
+                if (!ok || !self || !current ||
+                    !result.contains("frameTree") || !result["frameTree"].is_object() ||
+                    !result["frameTree"].contains("frame") || !result["frameTree"]["frame"].is_object() ||
+                    !result["frameTree"]["frame"].contains("id") ||
+                    !result["frameTree"]["frame"]["id"].is_string()) {
+                    completion(false, nullptr);
+                    return;
+                }
+                const nlohmann::json params{
+                    {"frameId", result["frameTree"]["frame"]["id"]},
+                    {"worldName", "acecode-page-annotations-v1"},
+                    {"grantUniveralAccess", false},
+                };
+                self->annotation_cdp(current, sequence, L"Page.createIsolatedWorld", params,
+                    [weak, weak_page, sequence, expression, completion](bool created, nlohmann::json world) {
+                        const auto owner = weak.lock();
+                        const auto target = weak_page.lock();
+                        if (!created || !owner || !target ||
+                            !world.contains("executionContextId") ||
+                            !world["executionContextId"].is_number_integer()) {
+                            completion(false, nullptr);
+                            return;
+                        }
+                        owner->annotation_cdp(target, sequence, L"Runtime.evaluate", {
+                            {"expression", expression}, {"contextId", world["executionContextId"]},
+                            {"returnByValue", true}, {"awaitPromise", true},
+                        }, [completion](bool evaluated, nlohmann::json response) {
+                            if (!evaluated || response.contains("exceptionDetails") ||
+                                !response.contains("result") || !response["result"].is_object()) {
+                                completion(false, nullptr);
+                                return;
+                            }
+                            completion(true, response["result"].value("value", nlohmann::json()));
+                        });
+                    });
+            });
     }
 
     bool open_developer_tools_on_ui(const std::string& page_id,
@@ -2900,6 +2992,52 @@ bool AgentBrowserHost::toggle_element_selection(const std::string& page_id,
     (void)page_id;
     assign_error(error, "Agent Browser is unavailable on this platform");
     return false;
+#endif
+}
+
+void AgentBrowserHost::annotation_command(
+    const std::string& page_id, const std::string& command_json,
+    std::function<void(std::string)> completion) {
+#ifdef _WIN32
+    const auto page = impl_ ? impl_->find_page(page_id) : nullptr;
+    if (!page || page->closing || !page->webview ||
+        page->state.content_state != kAgentBrowserContentStateLive) {
+        completion(nlohmann::json{{"ok", false}, {"error", "Annotation page is unavailable"}}.dump());
+        return;
+    }
+    const auto command = nlohmann::json::parse(command_json, nullptr, false);
+    std::string expression;
+    std::string error;
+    if (!page->annotations.prepare(page_id, command, expression, error)) {
+        completion(nlohmann::json{{"ok", false}, {"error", error}}.dump());
+        return;
+    }
+    const auto sequence = page->annotations.sequence();
+    const std::weak_ptr<Impl> weak = impl_;
+    const std::weak_ptr<Impl::Page> weak_page = page;
+    impl_->evaluate_annotation(page, sequence, expression,
+        [weak, weak_page, sequence, completion](bool ok, nlohmann::json result) {
+            const auto self = weak.lock();
+            const auto current = weak_page.lock();
+            std::string error;
+            if (!self || !current || current->closing ||
+                self->find_page(current->id) != current || !ok ||
+                !current->annotations.complete(sequence, result, error)) {
+                if (current) current->annotations.fail(sequence);
+                completion(nlohmann::json{{"ok", false}, {"error", error.empty() ? "Annotation document changed or runtime failed" : error}}.dump());
+                return;
+            }
+            const auto snapshot = current->annotations.snapshot();
+            const auto serialized = snapshot.dump();
+            self->update_page(current, [serialized](AgentBrowserState& state) {
+                state.page_annotations_json = serialized;
+            });
+            completion(nlohmann::json{{"ok", true}, {"page_id", current->id}, {"annotations", snapshot}}.dump());
+        });
+#else
+    (void)page_id;
+    (void)command_json;
+    completion("{\"ok\":false,\"error\":\"Annotations unavailable\"}");
 #endif
 }
 

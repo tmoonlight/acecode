@@ -382,6 +382,62 @@ ctest --test-dir build -C Release --output-on-failure
 原生空白 WebView、导航失败不闪出 WebView2 错误文档、重试可恢复，以及模拟 OOM/
 renderer failure 时显示对应 ACECode 状态并隐藏 controller。
 
+## 网页描述批注（#194）
+
+已加载网页的工具栏提供“批注”。开启后点击一个元素，再点选框旁的 Annotate
+按钮，在覆盖原生浏览器的宿主浮窗中填写描述并保存。关闭浮窗取消当前草稿；退出模式
+隐藏选框和控制按钮，但保留已保存的编号图钉。底部显示待发送数量。保存记录不可编辑或
+删除，编号持续递增；没有会话也可保存。此步骤只在当前 Desktop 运行期保留数据，
+不会发送消息、写 HTML/CSS 文件或持久化记录。源码元素引用仍使用原有“将元素添加到聊天”
+入口，两种模式不共用事件或草稿。
+
+### 实现与扩展接口
+
+- `src/apps/desktop/page_annotation_bridge.{hpp,cpp}` 注册唯一的可信入口
+  `aceDesktop_agentBrowserAnnotationCommand({page_id, command})`。安装返回的生命周期
+  token 在 browser 析构前撤销。网页没有该 bridge。
+- `AgentBrowserHost::annotation_command` 只接受 `start/read/exit/cancel/save`，由
+  `PageAnnotationSession::prepare/complete/fail` 串行处理。命令必须带 `document_id`，
+  首次 start 可传空字符串；save 还必须带当前 `target_id` 与有界 `description`。
+  未知动作/字段、旧文档、旧回调和不匹配的目标被拒绝。
+- `src/apps/desktop/page_annotation_runtime.hpp` 由宿主执行，Windows 使用主框架的
+  CDP isolated world，macOS 使用 `WKContentWorld`。运行时保存精确 DOM 引用及
+  document 身份，仅返回选框/浮窗意图、目标摘要和视口；描述不会注入网页。
+  闭合 shadow root 只有选框、控制按钮及图钉，没有第二套描述编辑器或消息通道。
+- `PageAnnotationSession::snapshot()` 返回 `document_id/active/popup/target/viewport/records/
+  pending_count/revision`；记录包含稳定 `id/number/page_id/document_id`、`description`、
+  `targets`、`differences`、`region`、`status`、`valid`。描述批注的真实属性差异为
+  空数组、region 为 null、status 为 pending。返回值是快照，不授予修改已保存记录的能力。
+  文档替换使旧记录失效，不按 locator 重新匹配。
+- `web/src/lib/pageAnnotations.js` 的 `createPageAnnotationController` 串行调用可信
+  bridge，绑定入队时的文档/目标身份，丢弃旧 revision 和卸载后的结果。
+  `web/src/components/PageAnnotations.jsx` 的 `PageAnnotationPopup` 使用现有
+  `data-ace-native-overlay="overlap"` 局部遮挡协议，在 Windows window region / macOS
+  layer mask 与 hit-test 路径上露出可信表单，不是聊天栏替代。选择状态通过宿主发起的
+  read 读取，不接受网页主动发来的特权请求。
+
+后续样式、文本、多目标/区域功能分别扩展上述运行时、原生草稿模型及可信浮窗，不要改走
+`selected_element`（它仍会创建聊天上下文）。截图、批量发送及完整导航确认由其他票负责；
+#194 未改动 `capture_screenshot`。
+
+### #194 验证范围
+
+自动化覆盖实际嵌入的 JavaScript 运行时选择/打开/取消/保存/退出、synthetic 输入拒绝、
+DOM 原样保留、精确目标失效、文档重新绑定、宿主命令序列、迟到结果、不可变记录和编号，
+以及原有源码选择回归。验证命令为 `node web/src/lib/pageAnnotations.test.js`、
+`pnpm --dir web test`、`pnpm --dir web build` 和原生
+`PageAnnotationSessionTest.*`。Windows 还单独编译了 host、main 和 annotation bridge
+翻译单元；这不等于完整 Desktop 链接或运行验收。
+
+2026-11-18 在 #194 独立工作树的结果：运行时/控制器定向测试通过，原生模型 6/6
+通过，完整 `pnpm test`、`pnpm build`（含 regex compatibility 检查）通过，三个
+Windows 翻译单元编译通过，`openspec validate add-html-page-annotations --strict`
+和 `git diff --check` 通过。Web build 仍有大 chunk 提示；未因此更改无关打包策略。
+
+**尚未执行：** Windows 真正 Desktop 中的浮窗重叠、点击穿透/焦点、缩放/DPR、切页和
+进程故障交互；macOS 编译及同类真实交互；完整原生 CMake/ctest。两个平台的完整工作流
+验收仍待 #201，不能用 Node 的模拟 DOM 或单文件编译代替。
+
 ## 常见故障
 
 - “Open ACECode Desktop”：工具运行在 daemon，但没有兼容的 Windows Desktop 或

@@ -2,9 +2,9 @@
 
 ## 1. Element annotation closed loop (#194)
 
-- [ ] 1.1 Add document-bound annotation runtime and restricted native/trusted commands; verify stale-document and untrusted-command rejection.
-- [ ] 1.2 Add toolbar entry, element outline/control and host-controlled popup over the browser; verify save creates a numbered pin and pending count without submission or file writes.
-- [ ] 1.3 Preserve saved pins on mode exit and immutable saved records; verify behavior and existing source-selection regression tests.
+- [x] 1.1 Add document-bound annotation runtime and restricted native/trusted commands; verify stale-document and untrusted-command rejection.
+- [x] 1.2 Add toolbar entry, element outline/control and host-controlled popup over the browser; verify save creates a numbered pin and pending count without submission or file writes.
+- [x] 1.3 Preserve saved pins on mode exit and immutable saved records; verify behavior and existing source-selection regression tests.
 
 ## 2. Reversible style previews (#195)
 

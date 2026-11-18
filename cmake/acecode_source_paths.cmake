@@ -6,6 +6,7 @@ set(ACECODE_WINPTY_AGENT_LOCATION_SOURCE "${CMAKE_SOURCE_DIR}/src/base/pty/winpt
 set(ACECODE_DEEPIN_WINDOW_EFFECTS_SOURCE "${CMAKE_SOURCE_DIR}/src/apps/desktop/deepin_window_effects.cpp")
 set(ACECODE_DESKTOP_MAIN_SOURCE "${CMAKE_SOURCE_DIR}/src/apps/desktop/main.cpp"
     "${CMAKE_SOURCE_DIR}/src/apps/desktop/agent_browser_cookie_bridge.cpp"
+    "${CMAKE_SOURCE_DIR}/src/apps/desktop/page_annotation_bridge.cpp"
     "${CMAKE_SOURCE_DIR}/src/apps/desktop/open_in_explorer_bridge.cpp")
 set(ACECODE_MACOS_CLI_LAUNCHER_SOURCE "${CMAKE_SOURCE_DIR}/src/apps/desktop/macos_cli_launcher.cpp")
 set(ACECODE_DESKTOP_SPLASH_SOURCE "${CMAKE_SOURCE_DIR}/src/apps/desktop/splash_screen.cpp")

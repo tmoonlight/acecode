@@ -1,4 +1,5 @@
 #include "agent_browser_host.hpp"
+#include "page_annotation_session.hpp"
 
 #ifdef __APPLE__
 
@@ -443,6 +444,8 @@ struct AgentBrowserHost::Impl final
 
     struct Page {
         std::string id;
+        PageAnnotationSession annotations;
+        std::uint64_t annotation_incarnation = 0;
         AgentBrowserState state;
         AgentBrowserBounds requested_bounds;
         ACECodeAgentBrowserSurfaceView* surface = nil;
@@ -1012,6 +1015,7 @@ struct AgentBrowserHost::Impl final
 
     void teardown_page(const std::shared_ptr<Page>& page) {
         if (!page) return;
+        ++page->annotation_incarnation;
         clear_dialog(page, true);
         clear_history(page);
         if (page->webview) {
@@ -1264,6 +1268,7 @@ struct AgentBrowserHost::Impl final
             changed = sync_agent_target_flags_locked();
         }
         teardown_page(page);
+        page->annotations.replace_document();
         page->state.closed = true;
         page->state.ready = false;
         page->state.visible = false;
@@ -1305,12 +1310,14 @@ struct AgentBrowserHost::Impl final
             url = page->state.url;
         }
         teardown_page(page);
+        page->annotations.replace_document();
         page->navigation = AgentBrowserNavigationTracker{};
         ++page->element_selection_generation;
         page->console_logs.clear();
         page->restore_url = (url.empty() || url == "about:blank") ? std::string() : url;
         const bool restoring = !page->restore_url.empty();
-        update_page(page, [restoring](AgentBrowserState& value) {
+        update_page(page, [restoring, page](AgentBrowserState& value) {
+            value.page_annotations_json = page->annotations.snapshot().dump();
             value.ready = false;
             value.loading = restoring;
             value.visible = false;
@@ -1574,6 +1581,10 @@ struct AgentBrowserHost::Impl final
                               WKWebView* webview) override {
         auto page = find_page(page_id);
         if (!page || page->webview != webview) return;
+        page->annotations.replace_document();
+        update_page(page, [page](AgentBrowserState& value) {
+            value.page_annotations_json = page->annotations.snapshot().dump();
+        });
         LOG_INFO(("[agent-browser][macos] " + json{
             {"event", "navigation_committed"},
             {"page_id", page_id},
@@ -1910,12 +1921,14 @@ struct AgentBrowserHost::Impl final
     void process_terminated(const std::string& page_id) override {
         auto page = find_page(page_id);
         if (!page) return;
+        page->annotations.replace_document();
         LOG_ERROR(("[agent-browser][macos] " + json{
             {"event", "web_content_process_terminated"},
             {"page_id", page_id},
             {"url", page->state.url},
         }.dump()));
-        update_page(page, [](AgentBrowserState& value) {
+        update_page(page, [page](AgentBrowserState& value) {
+            value.page_annotations_json = page->annotations.snapshot().dump();
             value.loading = false;
             value.visible = false;
             value.content_state = kAgentBrowserContentStateProcessFailed;
@@ -3181,6 +3194,46 @@ bool AgentBrowserHost::set_shared_with_agent(const std::string& page_id,
 bool AgentBrowserHost::toggle_element_selection(const std::string& page_id,
                                                  std::string* error) {
     return impl_ && impl_->toggle_element_selection_on_ui(page_id, error);
+}
+
+void AgentBrowserHost::annotation_command(
+    const std::string& page_id, const std::string& command_json,
+    std::function<void(std::string)> completion) {
+    const auto page = impl_ ? impl_->find_page(page_id) : nullptr;
+    if (!page || page->closing || !page->webview ||
+        page->state.content_state != kAgentBrowserContentStateLive) {
+        completion(json{{"ok", false}, {"error", "Annotation page is unavailable"}}.dump());
+        return;
+    }
+    const auto command = json::parse(command_json, nullptr, false);
+    std::string expression;
+    std::string error;
+    if (!page->annotations.prepare(page_id, command, expression, error)) {
+        completion(json{{"ok", false}, {"error", error}}.dump());
+        return;
+    }
+    const auto sequence = page->annotations.sequence();
+    const std::weak_ptr<Impl> weak = impl_;
+    const std::weak_ptr<Impl::Page> weak_page = page;
+    const auto incarnation = page->annotation_incarnation;
+    impl_->evaluate_value(page, expression,
+        [weak, weak_page, sequence, incarnation, completion](bool ok, json result, std::string error) {
+            const auto self = weak.lock();
+            const auto current = weak_page.lock();
+            if (!self || !current || current->closing ||
+                self->find_page(current->id) != current || current->annotation_incarnation != incarnation || !ok ||
+                !current->annotations.complete(sequence, result, error)) {
+                if (current) current->annotations.fail(sequence);
+                completion(json{{"ok", false}, {"error", error.empty() ? "Annotation document changed or runtime failed" : error}}.dump());
+                return;
+            }
+            const auto snapshot = current->annotations.snapshot();
+            const auto serialized = snapshot.dump();
+            self->update_page(current, [serialized](AgentBrowserState& state) {
+                state.page_annotations_json = serialized;
+            });
+            completion(json{{"ok", true}, {"page_id", current->id}, {"annotations", snapshot}}.dump());
+        });
 }
 
 std::string AgentBrowserHost::console_logs(const std::string& page_id,

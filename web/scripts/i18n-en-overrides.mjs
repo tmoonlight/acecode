@@ -1,6 +1,16 @@
 // Human-reviewed product terminology and phrases where generic machine
 // translation is ambiguous without ACECode context.
 export const ENGLISH_SOURCE_OVERRIDES = Object.freeze({
+  '退出网页批注': 'Exit page annotations',
+  '网页批注': 'Page annotations',
+  '待发送': 'Pending',
+  '无法读取网页批注，请退出后重试': 'Could not read page annotations. Exit and try again.',
+  '网页批注操作失败': 'Page annotation operation failed',
+  '关闭批注': 'Close annotation',
+  '批注描述': 'Annotation description',
+  '描述修改要求': 'Describe the requested change',
+  '保存批注': 'Save annotation',
+  '当前桌面版本不支持网页批注': 'This desktop version does not support page annotations',
   '已存在的链接': 'Existing links',
   '打开可交互会话会消耗共享用户的token额度。': "Enabling interactive sessions consumes the sharing user's token allowance.",
   '持有链接即可访问，仅限可信局域网。提问消耗你的模型额度。': 'Anyone with the link can access this session. Use trusted local networks only. Questions use your model allowance.',

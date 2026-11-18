@@ -49,3 +49,32 @@ See proposal.md for motivation and GitHub spec #193 for the complete approved co
 ## Migration Plan
 
 Additive APIs preserve existing viewport capture and source selection. Implement eight approved vertical tickets (#194–201) on one integration branch, with independent implementer worktrees and merger integration. Keep PR draft throughout incomplete acceptance. Rollback is removal of new annotation entry/handlers without rewriting persisted source-selection data. No new mandatory dependencies or persisted annotation migration are assumed.
+
+## #194 Implementation Contracts
+
+The description-only slice uses `page_annotation_runtime.hpp` for exact document/element references,
+`page_annotation_session.hpp` for native-owned immutable records, and `page_annotation_bridge.{hpp,cpp}`
+for the trusted WebUI entry. Windows resolves the main frame and creates an isolated CDP world before
+evaluation; macOS uses its existing automation `WKContentWorld`. There is no page message handler for
+annotations and no description, conversation identity or file capability in runtime commands.
+
+`AgentBrowserHost::annotation_command(page_id, command_json, completion)` accepts only
+`start/read/exit/cancel/save`. `PageAnnotationSession::prepare/sequence/complete/fail` serializes commands
+and rejects stale completions; native callbacks additionally validate weak host/page identity and
+controller incarnation. `replace_document` cancels the draft and invalidates retained records. Only
+start accepts an empty initial document ID; save binds the current target ID. Saved records carry
+`targets`, empty `differences`, null `region`, pending status and stable page/document/record identity.
+Future tickets can extend these explicit fields without conflating actual differences with descriptions.
+
+`createPageAnnotationController` in `web/src/lib/pageAnnotations.js` binds queued document/target
+identity and ignores stale revisions/disposed results. `PageAnnotationPopup` in
+`web/src/components/PageAnnotations.jsx` is the trusted editor; its `snapshot/command/working/viewportRef`
+interface and existing local native occlusion coordinator are the popup extension seam. The runtime's
+closed shadow root contains only outline/control/pins, not a competing editor. Source selection's
+`selected_element` event and chat-context behavior remain separate.
+
+Verification details and outstanding platform checks are recorded in `docs/agent-browser.md` under
+“网页描述批注（#194）”. Automated behavioral coverage and Windows translation-unit compilation do not
+establish actual Windows/macOS popup layering, focus, hit testing or complete desktop acceptance.
+Section 8 platform tasks remain unchecked; capture/send/navigation-confirmation scope remains owned by
+the subsequent tickets.

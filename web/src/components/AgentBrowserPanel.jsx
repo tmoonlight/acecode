@@ -35,6 +35,7 @@ import {
 } from '../lib/agentBrowserSurfaceCoordinator.js';
 import { AgentBrowserMoreMenu } from './AgentBrowserMoreMenu.jsx';
 import { AgentBrowserNewTab } from './AgentBrowserNewTab.jsx';
+import { PageAnnotationPopup, usePageAnnotations } from './PageAnnotations.jsx';
 import { NavigationArrowIcon, RefreshIcon, VsIcon } from './Icon.jsx';
 import { toast } from './Toast.jsx';
 
@@ -75,6 +76,7 @@ export function AgentBrowserPanel({
   const [address, setAddress] = useState('');
   const nativePageVisible = agentBrowserShowsNativePage(state);
   const surface = agentBrowserSurfacePresentation(state);
+  const annotations = usePageAnnotations(pageId, state.page_id === pageId ? state.annotations : null);
 
   useEffect(() => {
     let cancelled = false;
@@ -452,11 +454,21 @@ export function AgentBrowserPanel({
         <div className="ace-agent-browser-toolbar-actions">
           <button
             type="button"
+            className={clsx('ace-agent-browser-toolbar-button', annotations.snapshot.active && 'is-checked')}
+            disabled={!nativePageVisible || state.element_selection_active || annotations.working}
+            aria-pressed={!!annotations.snapshot.active}
+            aria-label={annotations.snapshot.active ? '退出网页批注' : '网页批注'}
+            onClick={() => annotations.command(annotations.snapshot.active ? 'exit' : 'start')}
+          >
+            批注
+          </button>
+          <button
+            type="button"
             className={clsx(
               'ace-agent-browser-toolbar-button',
               state.element_selection_active && 'is-checked',
             )}
-            disabled={!nativePageVisible}
+            disabled={!nativePageVisible || annotations.snapshot.active || annotations.working}
             aria-pressed={state.element_selection_active ? 'true' : 'false'}
             title={state.element_selection_active ? '停止选择元素 (Esc)' : '将元素添加到聊天'}
             aria-label="将元素添加到聊天"
@@ -483,6 +495,15 @@ export function AgentBrowserPanel({
       </div>
       <div className={clsx('ace-agent-browser-frame', agentActive && 'is-agent-active')}>
         <div ref={viewportRef} className="ace-agent-browser-native-viewport">
+          {nativePageVisible && annotations.snapshot.popup && annotations.snapshot.target && (
+            <PageAnnotationPopup
+              key={`${pageId}:${annotations.snapshot.document_id}:${annotations.snapshot.target.id}`}
+              snapshot={annotations.snapshot}
+              command={annotations.command}
+              working={annotations.working}
+              viewportRef={viewportRef}
+            />
+          )}
           {surface.kind === 'empty' && (
             <AgentBrowserNewTab
               recentFiles={recentFiles}
@@ -494,6 +515,12 @@ export function AgentBrowserPanel({
           {!nativePageVisible && surface.kind !== 'empty' && statusSurface}
         </div>
       </div>
+      {(annotations.snapshot.pending_count > 0 || annotations.error) && (
+        <div className="flex items-center gap-3 border-t border-border px-3 py-1.5 text-[12px] text-fg-2">
+          {annotations.snapshot.pending_count > 0 && <span aria-live="polite">待发送 {annotations.snapshot.pending_count}</span>}
+          {annotations.error && <span role="alert" className="text-err">{annotations.error}</span>}
+        </div>
+      )}
     </div>
   );
 }

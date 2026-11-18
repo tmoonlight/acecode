@@ -67,6 +67,7 @@ struct AgentBrowserState {
     // Transient event payload. It is populated only on the state snapshot that
     // completes a user element pick and is not retained in the page state.
     std::string selected_element_json;
+    std::string page_annotations_json;
 };
 
 // cookie 存储相关的异步结果(切档、清除浏览数据、删除会话存储)。清除 / 删除是
@@ -136,6 +137,9 @@ public:
                                std::string* error = nullptr);
     bool toggle_element_selection(const std::string& page_id,
                                   std::string* error = nullptr);
+    void annotation_command(const std::string& page_id,
+                            const std::string& command_json,
+                            std::function<void(std::string)> completion);
     std::string console_logs(const std::string& page_id,
                              std::string* error = nullptr) const;
     bool open_developer_tools(const std::string& page_id,

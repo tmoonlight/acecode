@@ -16,6 +16,7 @@
 #include "daemon_pool.hpp"
 #include "agent_browser_host.hpp"
 #include "agent_browser_cookie_bridge.hpp"
+#include "page_annotation_bridge.hpp"
 #include "ios_simulator_view.hpp"
 #include "ipc/agent_browser_runtime.hpp"
 #include "context_items.hpp"
@@ -140,6 +141,10 @@ nlohmann::json agent_browser_state_json(
         const auto selected = nlohmann::json::parse(
             state.selected_element_json, nullptr, false);
         if (!selected.is_discarded()) result["selected_element"] = selected;
+    }
+    if (!state.page_annotations_json.empty()) {
+        const auto annotations = nlohmann::json::parse(state.page_annotations_json, nullptr, false);
+        if (annotations.is_object()) result["annotations"] = annotations;
     }
     return result;
 }
@@ -1082,6 +1087,7 @@ int main(int argc, char** argv) {
         },
         [&host](std::function<void()> task) { host.dispatch(std::move(task)); });
     acecode::desktop::install_agent_browser_cookie_bridge(host, agent_browser);
+    const auto annotation_bridge = acecode::desktop::install_page_annotation_bridge(host, agent_browser);
     const auto ios_simulator_view = install_ios_simulator_view(host);
     std::atomic<bool> restart_requested{false};
     const bool reveal_in_foreground = note_desktop_version_launch(ACECODE_VERSION) || relaunched;
