@@ -3,7 +3,10 @@
 #include "platform/process/piped_process.hpp"
 #include "platform/unique_sqlite.hpp"
 #include <sqlite3.h>
+#include <filesystem>
+#include <fstream>
 #include <stdexcept>
+#include <string>
 #include <type_traits>
 #ifdef _WIN32
 #include <windows.h>
@@ -76,6 +79,37 @@ TEST(UniqueResources, RepeatedFailedSpawnDoesNotLeakPipeHandles) {
     }
     ASSERT_TRUE(GetProcessHandleCount(GetCurrentProcess(), &after));
     EXPECT_LE(after, before + 2); // 容忍同进程测试基础设施的少量临时句柄波动。
+}
+
+TEST(UniqueResources, PipedChildDoesNotInheritUnrelatedOpenFiles) {
+    // 触发场景:一个线程正用 std::ifstream 读文件(MSVC 运行库打开的句柄默认可继承,
+    // 且不允许别人删除 / 改名),此时启动一个常驻子进程(LSP server、通道桥、平台插件都走这里)。
+    // 期望:子进程只拿到自己的三个标准流;父进程关掉文件后马上就能给它改名。
+    // 回归:CreateProcess 以 bInheritHandles=TRUE 启动且没有限定句柄清单,子进程把那一刻
+    // 所有可继承句柄都带走并一直持有到退出。实际表现:升级备份安装目录里的文件时报
+    // 「另一个程序正在使用此文件」(错误 32),重试多少次都一样,直到那个子进程退出。
+    const auto root = std::filesystem::temp_directory_path() /
+        ("acecode-piped-inherit-" + std::to_string(GetCurrentProcessId()) + "-" +
+         std::to_string(GetTickCount64()));
+    std::filesystem::create_directories(root);
+    const auto file = root / "being-read.json";
+    { std::ofstream out(file, std::ios::binary); out << "{}"; }
+
+    std::ifstream reader(file, std::ios::binary);
+    ASSERT_TRUE(reader.is_open());
+    SpawnOptions options;
+    // 子进程要活过下面的改名;测试结束时 PipedProcess 析构会结束它。
+    options.argv = {"ping", "-n", "30", "127.0.0.1"};
+    std::string error;
+    PipedProcess child;
+    ASSERT_TRUE(child.start(options, &error)) << error;
+    reader.close();
+
+    std::error_code ec;
+    std::filesystem::rename(file, root / "renamed.json", ec);
+    EXPECT_FALSE(ec) << "error " << ec.value();
+    child.terminate();
+    std::filesystem::remove_all(root, ec);
 }
 
 TEST(UniqueResources, ProcessOwnerKillsSuspendedChildOnException) {

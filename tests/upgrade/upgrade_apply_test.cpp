@@ -389,6 +389,46 @@ TEST(UpgradeApply, LogsReplacementFailureAndRollbackErrors) {
     fs::remove_all(root, ec);
 }
 
+TEST(UpgradeApply, RollbackKeepsUntouchedFilesAfterTheFailurePoint) {
+    // 触发场景:安装目录里的 channels/locked.json 被别的进程占着(这里用不带
+    // FILE_SHARE_DELETE 的句柄模拟),升级备份它时失败。包里排在它后面的
+    // share/later.txt 在安装目录里本来就有,此刻既没备份也没被替换。
+    // 处理顺序按层级再按名字:README.md、acecode.exe、channels/locked.json、share/later.txt。
+    // 期望:回滚后 share/later.txt 还是原内容;已替换的 acecode.exe 还原成旧版;
+    // 本次新写进去的 README.md(原来没有)被清掉;被占用的文件原样留着。
+    // 回归:回滚原先按整份包清单删除目标,失败点之后的原有文件被删掉且无从还原,
+    // 表现为一次失败的升级之后安装目录里 share/ 下的资源整批消失。
+    const auto root = temp_root("acecode-apply-rollback-untouched");
+    const auto install = root / "install";
+    const auto staging = root / "staging";
+    const auto backup = root / "backup";
+    write_file(install / "acecode.exe", "old exe");
+    write_file(install / "channels" / "locked.json", "old locked");
+    write_file(install / "share" / "later.txt", "old later");
+    write_file(staging / "README.md", "new readme");
+    write_file(staging / "acecode.exe", "new exe");
+    write_file(staging / "channels" / "locked.json", "new locked");
+    write_file(staging / "share" / "later.txt", "new later");
+    {
+        struct FileHandle {
+            HANDLE value;
+            ~FileHandle() { if (value != INVALID_HANDLE_VALUE) ::CloseHandle(value); }
+        } handle{::CreateFileW((install / "channels" / "locked.json").c_str(), GENERIC_READ,
+            FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING,
+            FILE_ATTRIBUTE_NORMAL, nullptr)};
+        ASSERT_NE(handle.value, INVALID_HANDLE_VALUE);
+        std::string error;
+        EXPECT_FALSE(apply_staged_update(staging, install, backup, "windows-x64", &error));
+        EXPECT_NE(error.find("failed to move"), std::string::npos) << error;
+    }
+    EXPECT_EQ(read_file(install / "share" / "later.txt"), "old later");
+    EXPECT_EQ(read_file(install / "acecode.exe"), "old exe");
+    EXPECT_EQ(read_file(install / "channels" / "locked.json"), "old locked");
+    EXPECT_FALSE(fs::exists(install / "README.md"));
+    std::error_code ec;
+    fs::remove_all(root, ec);
+}
+
 TEST(UpgradeApply, ReplacesExecutableWhileItIsRunning) {
     fs::path root = temp_root("acecode-apply-running-exe");
     fs::path install = root / "install";

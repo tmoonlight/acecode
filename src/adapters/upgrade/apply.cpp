@@ -202,6 +202,7 @@ bool copy_package_files(const fs::path& content_root,
                         const fs::path& backup_dir,
                         const StagedPathSet& paths,
                         std::vector<fs::path>& backed_up,
+                        std::vector<fs::path>& written,
                         std::string* error,
                         DiagnosticLog* diagnostics) {
     std::error_code ec;
@@ -211,6 +212,8 @@ bool copy_package_files(const fs::path& content_root,
         if (!backup_existing_path(install_dir, backup_dir, rel, backed_up, error, diagnostics)) {
             return false;
         }
+        // 复制之前就登记:复制到一半失败留下的残片也要由回滚清掉。
+        written.push_back(rel);
         fs::create_directories(dest.parent_path(), ec);
         record_file_operation(diagnostics, "install_parent_directory", {}, dest.parent_path(), ec);
         if (ec) {
@@ -230,10 +233,12 @@ bool copy_package_files(const fs::path& content_root,
     return true;
 }
 
-void remove_package_targets(const fs::path& install_dir, const StagedPathSet& paths,
+// 回滚只清本次真正写过的目标。失败点之后的包内文件还是安装目录里的原件,
+// 既没备份也没动过,按整份包清单去删就再也还原不回来(失败一次升级丢掉 share/ 下的资源)。
+void remove_written_targets(const fs::path& install_dir, const std::vector<fs::path>& written,
                             DiagnosticLog* diagnostics) {
     std::error_code ec;
-    for (const auto& rel : paths.files) {
+    for (const auto& rel : written) {
         fs::remove_all(install_dir / rel, ec);
         record_file_operation(diagnostics, "rollback_remove", {}, install_dir / rel, ec);
     }
@@ -534,10 +539,11 @@ bool apply_staged_update(const fs::path& staging_dir,
     }
 
     std::vector<fs::path> backed_up;
+    std::vector<fs::path> written;
     if (!prepare_package_directories(install_dir, backup_dir, staged_paths,
                                      backed_up, error, diagnostics) ||
         !copy_package_files(staged->content_root, install_dir, backup_dir,
-                            staged_paths, backed_up, error, diagnostics) ||
+                            staged_paths, backed_up, written, error, diagnostics) ||
         !fs::is_regular_file(install_dir / expected_executable_name_for_target(target)) ||
         (!expected_version.empty() &&
          !verify_executable_version(install_dir / expected_executable_name_for_target(target),
@@ -547,7 +553,7 @@ bool apply_staged_update(const fs::path& staging_dir,
         }
         if (diagnostics) diagnostics->record("rollback_started", {
             {"error", error ? *error : "installation failed"}, {"backed_up_paths", backed_up.size()}});
-        remove_package_targets(install_dir, staged_paths, diagnostics);
+        remove_written_targets(install_dir, written, diagnostics);
         restore_backed_up_paths(install_dir, backup_dir, backed_up, diagnostics);
         if (diagnostics) diagnostics->record("rollback_finished", {
             {"backup", path_to_utf8(backup_dir)}});

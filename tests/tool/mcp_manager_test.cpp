@@ -267,6 +267,36 @@ TEST(McpManagerAsync, WindowsStdioPreservesExecutableAndArgumentBoundaries) {
     manager.shutdown();
 }
 
+TEST(McpManagerAsync, WindowsStdioServerDoesNotInheritUnrelatedOpenFiles) {
+    // 触发场景:宿主的一个线程正用 std::ifstream 读文件(MSVC 运行库打开的句柄默认
+    // 可继承,且不允许别人删除 / 改名),同一时刻启动阶段的后台线程拉起 stdio MCP 服务。
+    // 期望:MCP 服务进程只拿到自己的两个管道;宿主关掉文件后马上就能给它改名。
+    // 回归:stdio 客户端以 bInheritHandles=TRUE 起进程且没有限定句柄清单,服务进程把
+    // 那一刻所有可继承句柄都带走并持有到退出。实际表现:daemon 启动时恰好在读安装目录
+    // 里的文件,之后升级备份这个文件报「另一个程序正在使用此文件」(错误 32),
+    // 重试多少次都一样,直到那个 MCP 服务退出。
+    ScopedTempDirectory temp;
+    const fs::path file = temp.path / "being-read.json";
+    { std::ofstream out(file, std::ios::binary); out << "{}"; }
+    std::ifstream reader(file, std::ios::binary);
+    ASSERT_TRUE(reader.is_open());
+
+    auto cfg = config_with_stdio_server("alpha", helper_args({"--tool", "echo"}));
+    acecode::ToolExecutor tools;
+    acecode::McpManager manager;
+    ASSERT_TRUE(manager.connect_all(cfg));
+    manager.start_async(tools);
+    ASSERT_TRUE(manager.wait_for_startup_settled(std::chrono::seconds(5)));
+    // 服务进程连着才说明它还活着:句柄要是被带走了,此刻一定还占着。
+    ASSERT_EQ(manager.connected_server_count(), 1u);
+    reader.close();
+
+    std::error_code ec;
+    fs::rename(file, temp.path / "renamed.json", ec);
+    EXPECT_FALSE(ec) << "error " << ec.value();
+    manager.shutdown();
+}
+
 TEST(McpManagerAsync, WindowsStdioRetainsBatchScriptCompatibility) {
     ScopedTempDirectory temp;
     const fs::path fixture_dir = temp.path / "fixture directory";

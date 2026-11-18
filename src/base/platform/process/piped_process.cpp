@@ -1,5 +1,6 @@
 #include "piped_process.hpp"
 
+#include "inherited_handles.hpp"
 #include "utils/logger.hpp"
 #include "utils/utf8_path.hpp"
 
@@ -193,12 +194,23 @@ bool PipedProcess::start(const SpawnOptions& opts, std::string* error) {
                                FILE_SHARE_WRITE | FILE_SHARE_READ, &sa,
                                OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr));
 
-    STARTUPINFOW si{};
-    si.cb = sizeof(si);
-    si.dwFlags = STARTF_USESTDHANDLES;
-    si.hStdInput = child_stdin_read.get();
-    si.hStdOutput = child_stdout_write.get();
-    si.hStdError = child_stderr ? child_stderr.get() : child_stdout_write.get();
+    // 子进程只继承自己的三个标准流。不限定的话,别的线程此刻正开着的文件
+    // (运行库打开的句柄默认可继承)会被这个常驻子进程一直占到退出。
+    InheritedHandleList inherited(
+        {child_stdin_read.get(), child_stdout_write.get(), child_stderr.get()});
+    if (!inherited.ready()) {
+        if (error) *error = "Cannot restrict inherited handles: " +
+            windows_error_message(inherited.error_code());
+        return false;
+    }
+
+    STARTUPINFOEXW si{};
+    si.StartupInfo.cb = sizeof(si);
+    si.StartupInfo.dwFlags = STARTF_USESTDHANDLES;
+    si.StartupInfo.hStdInput = child_stdin_read.get();
+    si.StartupInfo.hStdOutput = child_stdout_write.get();
+    si.StartupInfo.hStdError = child_stderr ? child_stderr.get() : child_stdout_write.get();
+    si.lpAttributeList = inherited.attribute_list();
 
     PROCESS_INFORMATION pi{};
     std::wstring wide_command = utf8_to_wide(command_line);
@@ -207,7 +219,7 @@ bool PipedProcess::start(const SpawnOptions& opts, std::string* error) {
 
     std::wstring env_block;
     LPVOID env_ptr = nullptr;
-    DWORD creation_flags = CREATE_NO_WINDOW;
+    DWORD creation_flags = CREATE_NO_WINDOW | EXTENDED_STARTUPINFO_PRESENT;
     if (!opts.extra_env.empty()) {
         env_block = build_environment_block(opts.extra_env);
         env_ptr = env_block.data();
@@ -223,7 +235,7 @@ bool PipedProcess::start(const SpawnOptions& opts, std::string* error) {
                              creation_flags,
                              env_ptr,
                              wide_cwd.empty() ? nullptr : wide_cwd.c_str(),
-                             &si, &pi);
+                             &si.StartupInfo, &pi);
     if (!ok) {
         if (error) *error = "CreateProcess failed for `" + command_line + "`: " +
             windows_error_message(GetLastError());
