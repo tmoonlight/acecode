@@ -171,3 +171,17 @@ checks pass, and the frontend build plus seven focused Node files pass. Full
 `undefined` instead of `true`); that file passes standalone. The failure remains
 recorded, not waived or attributed to a proven baseline. See acceptance execution
 records and TEMP `acecode-201-lease-web-diagnostic.log` for the captured stack.
+
+Coordinator evidence update, 2026-11-19: reliable full native rebuild session 50005
+passed with start/end HEAD fixed at `4b0c00c4`; `routes_ws` recorded 747 dependencies.
+Focused native and CTest each passed 90/90, and a real visible integrated smoke
+emitted `SMOKE_OK` and `SMOKE_OWNERSHIP_OK`. The first hidden-launch attempt failed
+the active-visible harness check and remains recorded in acceptance. These results
+supersede the pending reliable-rebuild status only for 4b0, not later merged sources.
+S4 `5752ff65`, S2/S3 `67a0a021` and the two-file CI assertion fix `d298130f` are now
+integrated; fresh frontend/driver/native compilation and execution remain pending.
+Linux CI `44369114282` had one receipt-test failure among 7,058 tests; the fix retains
+exactly-one real admission and metadata checks while excluding typed internal context.
+Worker replay/isolated compilation is not a passing fresh Linux HTTP/CI run.
+No completion box changes: 2.1 cascade, 5.1/5.2 platform capture acceptance,
+8.1/8.2 final integration/review and 8.3/8.4 complete manual workflows remain open.
