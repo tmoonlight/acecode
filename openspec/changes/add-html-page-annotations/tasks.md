@@ -68,9 +68,31 @@ remain unverified; 5.1/5.2 stay unchecked rather than claiming platform acceptan
 
 ## 6. Reliable batch send (#199)
 
-- [ ] 6.1 Freeze sendable membership and initiating session, capture/upload one full-page image before submitting; verify composer preservation, differences-only requests and concurrent additions.
-- [ ] 6.2 Submit through existing conversation boundary with queue semantics, receipts and receiver-side batch deduplication; verify busy mode, switching sessions and uncertain retry.
-- [ ] 6.3 Retain pending data on preparation/submission failure and acknowledge only accepted records; verify pin retention, counts and increasing numbers.
+- [x] 6.1 Freeze sendable membership and initiating session, capture/upload one full-page image before submitting; verify composer preservation, differences-only requests and concurrent additions.
+- [x] 6.2 Submit through existing conversation boundary with queue semantics, receipts and receiver-side batch deduplication; verify busy mode, switching sessions and uncertain retry.
+- [x] 6.3 Retain pending data on preparation/submission failure and acknowledge only accepted records; verify pin retention, counts and increasing numbers.
+
+Ticket #199 sender: extracted page-scoped in-memory batch controller and send bar;
+existing composer/source-selection paths are not used as buffers or modified. Native
+trusted capture/validate/acknowledge commands validate owned membership and exact
+runtime document/targets, without equating annotation and capture identity tokens.
+Ordinary session message admission uses the already integrated bounded receiver
+idempotency prerequisite; no new receiver work or steer path is introduced.
+
+Verified: batch-controller freeze/concurrency/additions/conversation/transport tests,
+description/differences filtering, every capture/upload/validate/receipt/ack failure,
+matching receipt before acknowledgement, exact payload retries and source/composer
+boundary regressions; native session membership/acknowledgement and runtime exact
+target tests; 19 isolated MSVC session/capture tests; Windows host syntax compile;
+full `pnpm test`, `pnpm build` and regenerated source i18n catalog. The prior receiver
+prerequisite separately verified concurrent duplicate acceptance/conflict/rejection
+and ordinary/busy queue admission. Native full integration/link, actual Windows
+workflow and macOS compile/runtime remain section 8 acceptance, not claimed here.
+Sender/receiver retention is runtime-only with no restart-recovery guarantee.
+Strict layer/ownership scans still report the inherited host/main size, capture
+test-helper location, capture allocation and annotation-bridge capture findings.
+The sender adds host lines but no new dependency/ownership findings. Native boundary
+extraction is being implemented separately; no baseline exceptions are added here.
 
 ## 7. Navigation and invalidation (#200)
 

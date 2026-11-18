@@ -6914,6 +6914,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
             key={workbenchOwner}
             owner={workbenchOwner}
             api={api}
+            sessionId={sid}
             cwd={sidePanelCwd}
             workspaceCwd={sessionIsNoWorkspace ? '' : sidePanelCwd}
             tabs={previewTabs}

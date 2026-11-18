@@ -2,6 +2,7 @@ import './desktopOffice.test.js';
 import './pageAnnotations.test.js';
 import './pageAnnotationText.test.js';
 import './pageAnnotationTextField.test.js';
+import './pageAnnotationBatches.test.js';
 import './inviteLink.test.js';
 import './inviteClipboardStore.test.js';
 import './androidPhoneSettings.test.js';

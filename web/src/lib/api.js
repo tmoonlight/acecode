@@ -1040,6 +1040,7 @@ export function createApi(base = null) {
     enumerable: false,
     value: () => connectionScopeForBase(base),
   });
+  client.snapshotConnection = () => createApi({ origin: baseOrigin(base), token: baseToken(base) });
   return client;
 }
 

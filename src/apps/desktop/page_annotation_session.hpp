@@ -4,6 +4,7 @@
 #include "page_annotation_text_runtime.hpp"
 #include "page_annotation_targets.hpp"
 #include "page_annotation_style_runtime.hpp"
+#include "page_annotation_submission.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -19,11 +20,57 @@ class PageAnnotationSession {
 public:
     using Json = nlohmann::json;
 
+    const std::string& document_id() const { return document_id_; }
+
     Json snapshot() const {
+        const auto pending_count = std::count_if(records_.begin(), records_.end(),
+            [](const auto& record) { return record["status"] != "sent"; });
         return {{"document_id", document_id_}, {"active", active_},
                 {"popup", popup_}, {"target", target_}, {"targets", targets_}, {"region", region_},
                 {"selection_mode", selection_mode_}, {"viewport", viewport_}, {"records", records_},
-                {"pending_count", records_.size()}, {"original", original_}, {"differences", differences_}, {"revision", revision_}};
+                {"pending_count", pending_count}, {"original", original_}, {"differences", differences_}, {"revision", revision_}};
+    }
+
+    bool submission(const Json& command, std::string& expression, std::string& error) {
+        if (!command.is_object() || command.dump().size() > 262144 ||
+            !command.contains("action") || !command["action"].is_string() ||
+            !command.contains("document_id") || !command["document_id"].is_string()) {
+            error = "Invalid annotation submission";
+            return false;
+        }
+        const bool acknowledge = command["action"] == "acknowledge";
+        if (!acknowledge && command["action"] != "capture" && command["action"] != "validate") {
+            error = "Invalid submission action";
+            return false;
+        }
+        for (const auto& field : command.items()) {
+            if (field.key() != "action" && field.key() != "document_id" &&
+                field.key() != "record_ids") {
+                error = "Unsupported submission field";
+                return false;
+            }
+        }
+        Json selected;
+        if (!annotation_submission_records(command, records_, selected, error)) return false;
+        for (const auto& record : selected) {
+            if (record["document_id"] != command["document_id"] ||
+                (!acknowledge && (record["valid"] != true || record["status"] == "sent" ||
+                    command["document_id"] != document_id_))) {
+                error = "Annotation document or target is invalid";
+                return false;
+            }
+        }
+        if (acknowledge) {
+            for (auto& record : records_) {
+                for (const auto& accepted : selected) {
+                    if (record["id"] == accepted["id"]) record["status"] = "sent";
+                }
+            }
+            ++revision_;
+        } else {
+            expression = annotation_submission_expression(document_id_, selected);
+        }
+        return true;
     }
 
     void replace_document() {

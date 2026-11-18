@@ -440,6 +440,7 @@ struct AgentBrowserHost::Impl final
         std::condition_variable ready;
         bool completed = false;
         json response;
+        std::function<void(json)> completion;
     };
 
     struct Page {
@@ -672,13 +673,16 @@ struct AgentBrowserHost::Impl final
     static void finish_proxy_call(
         const std::shared_ptr<PendingProxyCall>& pending,
         json response) {
+        std::function<void(json)> completion;
         {
             std::lock_guard<std::mutex> lock(pending->mutex);
             if (pending->completed) return;
             pending->completed = true;
-            pending->response = std::move(response);
+            completion = std::move(pending->completion);
+            if (!completion) pending->response = std::move(response);
         }
         pending->ready.notify_all();
+        if (completion) completion(std::move(response));
     }
 
     void start() {
@@ -2024,7 +2028,7 @@ struct AgentBrowserHost::Impl final
         const std::shared_ptr<PendingProxyCall>&);
     void capture_screenshot(
         const std::shared_ptr<Page>&, const json&,
-        const std::shared_ptr<PendingProxyCall>&);
+        const std::shared_ptr<PendingProxyCall>&, const std::string& = {});
     bool prepare_native_input(
         const std::shared_ptr<Page>&, std::string&);
     CGPoint native_screen_point(
@@ -2315,7 +2319,8 @@ void AgentBrowserHost::Impl::run_native_input(
 void AgentBrowserHost::Impl::capture_screenshot(
     const std::shared_ptr<Page>& page,
     const json& params,
-    const std::shared_ptr<PendingProxyCall>& pending) {
+    const std::shared_ptr<PendingProxyCall>& pending,
+    const std::string& annotation_validation) {
     bool full_page = false;
     const auto request_error = browser_capture::request_mode(params, full_page);
     if (!request_error.empty()) {
@@ -2328,7 +2333,10 @@ void AgentBrowserHost::Impl::capture_screenshot(
         const auto navigation_id = page->navigation.current_navigation_id();
         const auto view = std::shared_ptr<WKWebView>([page->webview retain],
             [](WKWebView* value) { [value release]; });
-        const auto current = [weak, page, view, navigation_id, pending] {
+        const auto annotation_document = page->annotations.document_id();
+        const auto current = [weak, page, view, navigation_id, pending,
+                              annotation_document,
+                              trusted_annotation = !annotation_validation.empty()] {
             const auto self = weak.lock();
             {
                 std::lock_guard<std::mutex> lock(pending->mutex);
@@ -2338,7 +2346,8 @@ void AgentBrowserHost::Impl::capture_screenshot(
                 page->webview == view.get() && !page->state.loading &&
                 page->navigation.current_navigation_id() == navigation_id &&
                 page->state.content_state == kAgentBrowserContentStateLive &&
-                self->page_shared_with_agent(page);
+                (!trusted_annotation || page->annotations.document_id() == annotation_document) &&
+                (trusted_annotation || self->page_shared_with_agent(page));
         };
         const browser_capture::Measure measure = [weak, page, current](
             browser_capture::Measured done) {
@@ -2428,8 +2437,22 @@ void AgentBrowserHost::Impl::capture_screenshot(
                 }
             }];
         };
+        browser_capture::Measure verified_measure = measure;
+        if (!annotation_validation.empty()) {
+            verified_measure = [weak, page, current, measure, annotation_validation](browser_capture::Measured done) {
+                const auto self = weak.lock();
+                if (!self || !current()) { done({}, "capture_document_changed"); return; }
+                self->evaluate_value(page, annotation_validation,
+                    [measure, current, done](bool ok, json value, std::string) {
+                        if (!ok || !current() || !value.is_object() || value.value("valid", false) != true) {
+                            done({}, "annotation_target_or_document_changed"); return;
+                        }
+                        measure(done);
+                    });
+            };
+        }
         std::make_shared<browser_capture::FullPageCapture>(page->id,
-            params.value("documentId", ""), measure, capture, current,
+            params.value("documentId", ""), verified_measure, capture, current,
             [pending](json response) { finish_proxy_call(pending, std::move(response)); })
             ->start();
         return;
@@ -3208,6 +3231,43 @@ void AgentBrowserHost::annotation_command(
     const auto command = json::parse(command_json, nullptr, false);
     std::string expression;
     std::string error;
+    if (command.is_object() && command.contains("action") &&
+        (command["action"] == "capture" || command["action"] == "validate" || command["action"] == "acknowledge")) {
+        if (!page->annotations.submission(command, expression, error)) {
+            completion(json{{"ok", false}, {"error", error}}.dump());
+            return;
+        }
+        if (command["action"] == "acknowledge") {
+            const auto snapshot = page->annotations.snapshot();
+            const auto serialized = snapshot.dump();
+            impl_->update_page(page, [serialized](AgentBrowserState& state) {
+                state.page_annotations_json = serialized;
+            });
+            completion(json{{"ok", true}, {"page_id", page_id}, {"annotations", snapshot}}.dump());
+        } else if (command["action"] == "validate") {
+            const auto incarnation = page->annotation_incarnation;
+            const std::weak_ptr<Impl> weak = impl_;
+            const std::weak_ptr<Impl::Page> weak_page = page;
+            impl_->evaluate_value(page, expression,
+                [completion, page_id, incarnation, weak, weak_page](bool ok, json result, std::string) {
+                    const auto self = weak.lock();
+                    const auto current = weak_page.lock();
+                    const bool valid = ok && self && current && !current->closing &&
+                        self->find_page(page_id) == current && current->annotation_incarnation == incarnation &&
+                        result.is_object() && result.value("valid", false);
+                    completion(json{{"ok", valid}, {"page_id", page_id},
+                        {"error", "Annotation target or document changed"}}.dump());
+                });
+        } else {
+            auto pending = std::make_shared<Impl::PendingProxyCall>();
+            pending->completion = [completion, document = command["document_id"]](json response) {
+                if (response.value("ok", false)) response["annotation_document_id"] = document;
+                completion(response.dump());
+            };
+            impl_->capture_screenshot(page, {{"fullPage", true}}, pending, expression);
+        }
+        return;
+    }
     if (!page->annotations.prepare(page_id, command, expression, error)) {
         completion(json{{"ok", false}, {"error", error}}.dump());
         return;

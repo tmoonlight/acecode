@@ -50,6 +50,42 @@ See proposal.md for motivation and GitHub spec #193 for the complete approved co
 
 Additive APIs preserve existing viewport capture and source selection. Implement eight approved vertical tickets (#194–201) on one integration branch, with independent implementer worktrees and merger integration. Keep PR draft throughout incomplete acceptance. Rollback is removal of new annotation entry/handlers without rewriting persisted source-selection data. No new mandatory dependencies or persisted annotation migration are assumed.
 
+## #199 Sender Contracts
+
+`pageAnnotationBatches.js` owns runtime-only frozen batches, independent of composer
+state and the annotation popup controller. Membership, descriptions/differences,
+page metadata, initiating conversation and daemon credentials are snapshotted at
+send time. One native full-page PNG is uploaded through the existing session
+attachment API, then the exact ordinary-message payload is retained under one
+`annotation_batch_id`. Busy conversations use ordinary queue admission, not steer.
+Concurrent calls share one flight; additions remain eligible for a later batch.
+
+Native `PageAnnotationSession::submission` validates saved record membership and
+document identity. Trusted host `capture` evaluates isolated `validate_batch` against
+the exact saved DOM references before and after screenshot measurement. Native
+page/view/navigation/current-annotation-document guards and the existing capture
+document/bounds/PNG checks must all pass. Capture `documentId` is deliberately a
+different identity from runtime `document_id`; only native validation establishes
+their relationship. `validate` repeats the runtime check after upload before the
+first HTTP attempt. User-initiated annotation capture is available without agent
+sharing, without bypassing any automation proxy permission checks.
+
+Preparation failures retain the frozen membership; upload retries reuse a successful
+capture. Uncertain HTTP retries reuse the original payload and connection without
+recapture or target revalidation, so a previously accepted receipt can be recovered
+even after navigation. No retry is redirected to a newly selected conversation.
+Only a matching `queued:true` batch receipt triggers native `acknowledge`; failure of
+that final step retries acknowledgement alone. Saved records remain immutable except
+their sent status, preserving pins/previews/numbering and retaining invalid records.
+The page-scoped sender survives panel unmount; page closure ends its retention.
+Neither sender nor receiver claims restart recovery.
+
+Automated coverage exercises freeze/additions/session changes, concurrent flights,
+independent document tokens, capture/upload/validation/submission/ack failures,
+malformed/mismatched/duplicate receipts, exact uncertain retries, native membership
+validation and saved-pin retention. Full desktop interaction and platform screenshot
+pixel acceptance remain section 8 work, not implied by these tests.
+
 ## #194 Implementation Contracts
 
 The description-only slice uses `page_annotation_runtime.hpp` for exact document/element references,

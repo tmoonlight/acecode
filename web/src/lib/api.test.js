@@ -19,6 +19,30 @@ import {
   sessionTodosPath,
 } from './api.js';
 
+await run('annotation transport snapshot freezes daemon credentials and ordinary queue endpoint', async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url, options) => {
+    calls.push({ url, options });
+    return { ok: true, status: 202, headers: { get: () => 'application/json' },
+      json: async () => ({ queued: true, annotation_batch_id: 'frozen-id' }) };
+  };
+  try {
+    const base = { origin: 'http://original.test', token: 'original-test-token' };
+    const frozen = createApi(base).snapshotConnection();
+    Object.assign(base, { origin: 'http://changed.test', token: 'changed-test-token' });
+    const payload = { annotation_batch_id: 'frozen-id', text: 'annotations', attachments: [{ id: 'image' }] };
+    assert.deepEqual(await frozen.sendInput('frozen-session', payload), {
+      queued: true, annotation_batch_id: 'frozen-id',
+    });
+    assert.equal(calls[0].url, 'http://original.test/api/sessions/frozen-session/messages');
+    assert.equal(calls[0].options.headers['X-ACECode-Token'], 'original-test-token');
+    assert.deepEqual(JSON.parse(calls[0].options.body), payload);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 await run('archive aggregation scopes its compatibility request to no-workspace metadata', async () => {
   const originalFetch = globalThis.fetch;
   const calls = [];

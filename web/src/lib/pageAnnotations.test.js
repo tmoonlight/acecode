@@ -112,6 +112,11 @@ function fixture() {
   assert.equal(saved.target, null);
   const shadow = page.document.documentElement.children[0].shadow;
   assert.equal(shadow.children[3].textContent, '1');
+  assert.equal(page.run('validate_batch', { target_ids: ['target-1'] }).valid, true);
+  assert.equal(page.run('validate_batch', { target_ids: ['unknown'] }).valid, false);
+  page.target.isConnected = false;
+  assert.equal(page.run('validate_batch', { target_ids: ['target-1'] }).valid, false);
+  page.target.isConnected = true;
   page.run('exit');
   assert.equal(shadow.children[0].style.display, 'none');
   assert.equal(shadow.children[1].style.display, 'none');
@@ -348,13 +353,14 @@ function fixture() {
   assert.equal(textarea(tree).props.value, 'Shared request for every target');
   assert.equal(tree.props['data-ace-native-overlay'], 'overlap');
   nodes(tree).find(node => node.props['aria-pressed'] === false).props.onClick();
+  await Promise.resolve();
   assert.equal(calls.at(-1)[0], 'select_target');
   snapshot.region = { x: 0, y: 500, width: 40, height: 30 };
   snapshot.target = null;
   tree = render();
   assert.equal(nodes(tree).filter(node => node.type === 'textarea').length, 1);
   assert.equal(nodes(tree).filter(node => node.type === 'input').length, 0);
-  tree.props.onSubmit({ preventDefault() {} });
+  await tree.props.onSubmit({ preventDefault() {} });
   assert.equal(calls.at(-1)[0], 'save');
   assert.equal(calls.at(-1)[1].description, 'Shared request for every target');
   const panel = fs.readFileSync(new URL('../components/AgentBrowserPanel.jsx', import.meta.url), 'utf8');

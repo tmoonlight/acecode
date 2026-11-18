@@ -63,6 +63,7 @@ struct AgentBrowserHost::Impl
         std::condition_variable ready;
         bool completed = false;
         nlohmann::json response;
+        std::function<void(nlohmann::json)> completion;
     };
 
     void* parent_window = nullptr;
@@ -380,13 +381,16 @@ struct AgentBrowserHost::Impl
     static void finish_proxy_call(
         const std::shared_ptr<PendingProxyCall>& pending,
         nlohmann::json response) {
+        std::function<void(nlohmann::json)> completion;
         {
             std::lock_guard<std::mutex> lock(pending->mutex);
             if (pending->completed) return;
             pending->completed = true;
-            pending->response = std::move(response);
+            completion = std::move(pending->completion);
+            if (!completion) pending->response = std::move(response);
         }
         pending->ready.notify_all();
+        if (completion) completion(std::move(response));
     }
 
 #ifdef _WIN32
@@ -2313,12 +2317,16 @@ struct AgentBrowserHost::Impl
 
     void capture_screenshot(
         const std::shared_ptr<Page>& page, const nlohmann::json& params,
-        const std::shared_ptr<PendingProxyCall>& pending) {
+        const std::shared_ptr<PendingProxyCall>& pending,
+        const std::string& annotation_validation = {}) {
         const auto weak = weak_from_this();
         const auto webview = page->webview;
         const auto navigation_id = page->navigation.current_navigation_id();
         const auto controller_generation = page->controller_generation;
-        const auto current = [weak, page, webview, navigation_id, controller_generation, pending] {
+        const auto annotation_document = page->annotations.document_id();
+        const auto current = [weak, page, webview, navigation_id, controller_generation, pending,
+                              annotation_document,
+                              trusted_annotation = !annotation_validation.empty()] {
             const auto self = weak.lock();
             {
                 std::lock_guard<std::mutex> lock(pending->mutex);
@@ -2329,7 +2337,8 @@ struct AgentBrowserHost::Impl
                 page->navigation.current_navigation_id() == navigation_id &&
                 !page->state.loading &&
                 page->state.content_state == kAgentBrowserContentStateLive &&
-                self->page_shared_with_agent(page);
+                (!trusted_annotation || page->annotations.document_id() == annotation_document) &&
+                (trusted_annotation || self->page_shared_with_agent(page));
         };
         const browser_capture::Measure measure = [weak, page, current](browser_capture::Measured done) {
             const auto self = weak.lock();
@@ -2417,8 +2426,22 @@ struct AgentBrowserHost::Impl
                     done(bytes.value_or(""), bytes ? "" : "capture_invalid_png");
                 });
         };
+        browser_capture::Measure verified_measure = measure;
+        if (!annotation_validation.empty()) {
+            verified_measure = [weak, page, current, measure, annotation_validation](browser_capture::Measured done) {
+                const auto self = weak.lock();
+                if (!self || !current()) { done({}, "capture_document_changed"); return; }
+                self->evaluate_annotation(page, page->annotations.sequence(), annotation_validation,
+                    [measure, current, done](bool ok, nlohmann::json value) {
+                        if (!ok || !current() || !value.is_object() || value.value("valid", false) != true) {
+                            done({}, "annotation_target_or_document_changed"); return;
+                        }
+                        measure(done);
+                    });
+            };
+        }
         std::make_shared<browser_capture::FullPageCapture>(
-            page->id, params.value("documentId", ""), measure, capture, current,
+            page->id, params.value("documentId", ""), verified_measure, capture, current,
             [pending](nlohmann::json response) { finish_proxy_call(pending, std::move(response)); })
             ->start();
     }
@@ -3008,6 +3031,35 @@ void AgentBrowserHost::annotation_command(
     const auto command = nlohmann::json::parse(command_json, nullptr, false);
     std::string expression;
     std::string error;
+    if (command.is_object() && command.contains("action") &&
+        (command["action"] == "capture" || command["action"] == "validate" || command["action"] == "acknowledge")) {
+        if (!page->annotations.submission(command, expression, error)) {
+            completion(nlohmann::json{{"ok", false}, {"error", error}}.dump());
+            return;
+        }
+        if (command["action"] == "acknowledge") {
+            const auto snapshot = page->annotations.snapshot();
+            const auto serialized = snapshot.dump();
+            impl_->update_page(page, [serialized](AgentBrowserState& state) {
+                state.page_annotations_json = serialized;
+            });
+            completion(nlohmann::json{{"ok", true}, {"page_id", page_id}, {"annotations", snapshot}}.dump());
+        } else if (command["action"] == "validate") {
+            impl_->evaluate_annotation(page, page->annotations.sequence(), expression,
+                [completion, page_id](bool ok, nlohmann::json result) {
+                    completion(nlohmann::json{{"ok", ok && result.is_object() && result.value("valid", false)},
+                        {"page_id", page_id}, {"error", "Annotation target or document changed"}}.dump());
+                });
+        } else {
+            auto pending = std::make_shared<Impl::PendingProxyCall>();
+            pending->completion = [completion, document = command["document_id"]](nlohmann::json response) {
+                if (response.value("ok", false)) response["annotation_document_id"] = document;
+                completion(response.dump());
+            };
+            impl_->capture_screenshot(page, {{"fullPage", true}}, pending, expression);
+        }
+        return;
+    }
     if (!page->annotations.prepare(page_id, command, expression, error)) {
         completion(nlohmann::json{{"ok", false}, {"error", error}}.dump());
         return;

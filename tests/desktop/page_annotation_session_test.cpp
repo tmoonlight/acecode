@@ -444,5 +444,62 @@ TEST_F(PageAnnotationSessionTest, OriginalToggleIsIndependentOfModeAndRetainsRec
     EXPECT_EQ(session.snapshot()["differences"], Json::array());
 }
 
+TEST_F(PageAnnotationSessionTest, SubmissionFreezesExactMembershipAndAcknowledgesOnlyAcceptedRecords) {
+    start();
+    select();
+    save("First");
+    auto request = command("capture");
+    const auto first = session.snapshot()["records"][0];
+    request["record_ids"] = Json::array({first["id"]});
+    ASSERT_TRUE(session.submission(request, expression, error)) << error;
+    EXPECT_NE(expression.find("validate_batch"), std::string::npos);
+    EXPECT_NE(expression.find("target-1"), std::string::npos);
+    EXPECT_EQ(expression.find("First"), std::string::npos);
+    select();
+    save("Next batch");
+    request["action"] = "acknowledge";
+    ASSERT_TRUE(session.submission(request, expression, error)) << error;
+    auto snapshot = session.snapshot();
+    EXPECT_EQ(snapshot["pending_count"], 1);
+    EXPECT_EQ(snapshot["records"].size(), 2);
+    EXPECT_EQ(snapshot["records"][0]["status"], "sent");
+    EXPECT_EQ(snapshot["records"][0]["targets"], first["targets"]);
+    EXPECT_EQ(snapshot["records"][1]["status"], "pending");
+    ASSERT_TRUE(session.submission(request, expression, error));
+    EXPECT_EQ(session.snapshot()["pending_count"], 1);
+    select();
+    save("Third");
+    EXPECT_EQ(session.snapshot()["records"][2]["number"], 3);
+}
+
+TEST_F(PageAnnotationSessionTest, SubmissionRejectsInvalidDocumentMembershipAndCapabilitiesAtomically) {
+    start();
+    select();
+    save("Retain me");
+    const auto before = session.snapshot();
+    auto request = command("capture");
+    const auto id = before["records"][0]["id"];
+    for (const auto& ids : {Json::array(), Json::array({"absent"}), Json::array({id, id}), Json::array({id, "absent"})}) {
+        request["record_ids"] = ids;
+        EXPECT_FALSE(session.submission(request, expression, error));
+        EXPECT_EQ(session.snapshot(), before);
+    }
+    request["record_ids"] = Json::array({id});
+    request["text"] = "Untrusted model input";
+    EXPECT_FALSE(session.submission(request, expression, error));
+    request.erase("text");
+    request["document_id"] = "other-document";
+    EXPECT_FALSE(session.submission(request, expression, error));
+    request["document_id"] = before["document_id"];
+    session.replace_document();
+    EXPECT_FALSE(session.submission(request, expression, error));
+    EXPECT_EQ(session.snapshot()["pending_count"], 1);
+    request["action"] = "acknowledge";
+    EXPECT_TRUE(session.submission(request, expression, error));
+    EXPECT_EQ(session.snapshot()["pending_count"], 0);
+    EXPECT_EQ(session.snapshot()["records"].size(), 1);
+    EXPECT_EQ(session.snapshot()["records"][0]["valid"], false);
+}
+
 } // namespace
 } // namespace acecode::desktop

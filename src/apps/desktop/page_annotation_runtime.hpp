@@ -211,6 +211,9 @@ inline constexpr const char kPageAnnotationRuntime[] = R"ACEANNOTATION(
     }, run(next) {
       if (document !== rootDocument || next.document_id !== documentId) return {error:'stale_document'};
       switch (next.action) {
+        case 'validate_batch':
+          return {valid:Array.isArray(next.target_ids) && next.target_ids.every(id =>
+            pins.some(pin => pin.targets.some(target => connected(target) && ids.get(target) === id)))};
         case 'start': active = true; break;
         case 'read': break;
         case 'exit': textPreview.cancel(); styles.cancel(); active = false; clearDraft(); break;

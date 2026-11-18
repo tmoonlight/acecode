@@ -1897,6 +1897,35 @@ runtime-only and is lost when the receiving session is destroyed or the daemon
 restarts; there is no restart-recovery guarantee. Do not retry an uncertain
 batch against a recreated receiver as though its earlier receipt survived.
 
+The desktop annotation sender freezes the initiating conversation, daemon connection,
+sendable saved record IDs and serialized message before submission. It captures one
+full-page PNG through the trusted native annotation command and uploads it with
+`POST /api/sessions/:id/attachments`; the message references the returned attachment
+ID, never a screenshot path. Description-only and differences-only records are
+sendable; empty records are excluded. New annotations belong to the next batch.
+The sender does not read, clear or replace composer text/attachments, and uses this
+ordinary messages endpoint even while the conversation is busy, never steer.
+
+Trusted desktop annotation commands `capture` and `validate` accept only
+`{action, document_id, record_ids}`. Native-owned records bind that membership to
+the current annotation document. The native host verifies the isolated runtime's
+exact document and saved target references before and after full-page capture,
+alongside capture's existing page/view/navigation/bounds guards. The successful
+response includes `annotation_document_id` and the independent capture
+`result.documentId`; these tokens are not equal or interchangeable. This trusted
+user capture does not require sharing the page with the agent; automation proxy
+sharing/security gates remain unchanged. A final native validation before the first
+HTTP attempt rejects target removal or document replacement during upload.
+
+Capture/upload/validation failures preserve pending records. Once an HTTP attempt
+has occurred, uncertain retries keep the original session, exact payload, batch ID
+and attachment reference without recapture/reupload; switching conversations does
+not redirect them. A matching `queued:true` receipt alone authorizes trusted native
+`acknowledge` for the frozen record IDs. An acknowledgement failure retries only that
+step, not submission. Accepted records retain their pins, previews and numbers;
+concurrent additions remain pending. Failed/in-flight batches survive panel remounts
+in memory, bounded by the owning browser page lifetime, not application restart.
+
 ### `POST /api/sessions/:id/turn/steer`
 
 Appends structured user input to the currently running regular agent turn.

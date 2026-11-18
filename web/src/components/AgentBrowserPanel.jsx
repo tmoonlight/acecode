@@ -36,6 +36,7 @@ import {
 import { AgentBrowserMoreMenu } from './AgentBrowserMoreMenu.jsx';
 import { AgentBrowserNewTab } from './AgentBrowserNewTab.jsx';
 import { PageAnnotationPopup, usePageAnnotations } from './PageAnnotations.jsx';
+import { PageAnnotationSendBar } from './PageAnnotationSendBar.jsx';
 import { NavigationArrowIcon, RefreshIcon, VsIcon } from './Icon.jsx';
 import { toast } from './Toast.jsx';
 
@@ -60,6 +61,8 @@ const INITIAL_STATE = Object.freeze({
 
 export function AgentBrowserPanel({
   pageId,
+  api,
+  sessionId,
   agentActive = false,
   surfaceEnabled = true,
   onAddContext,
@@ -526,9 +529,10 @@ export function AgentBrowserPanel({
           {!nativePageVisible && surface.kind !== 'empty' && statusSurface}
         </div>
       </div>
-      {(annotations.snapshot.pending_count > 0 || annotations.error) && (
+      <PageAnnotationSendBar pageId={pageId} snapshot={annotations.snapshot}
+        api={api} sessionId={sessionId} page={state} />
+      {annotations.error && (
         <div className="flex items-center gap-3 border-t border-border px-3 py-1.5 text-[12px] text-fg-2">
-          {annotations.snapshot.pending_count > 0 && <span aria-live="polite">待发送 {annotations.snapshot.pending_count}</span>}
           {annotations.error && <span role="alert" className="text-err">{annotations.error}</span>}
         </div>
       )}
