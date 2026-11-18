@@ -46,10 +46,11 @@ public:
     AnnotationPoller& operator=(const AnnotationPoller&) = delete;
     ~AnnotationPoller() { stop(); }
     void stop() {
+        std::function<void()> retired;
         if (state_) {
             std::lock_guard<std::mutex> lock(state_->mutex);
             state_->active = false;
-            state_->tick = {};
+            retired = std::move(state_->tick);
         }
 #ifdef _WIN32
         if (timer_) {

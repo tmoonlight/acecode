@@ -6,6 +6,7 @@
 #include "page_annotation_style_runtime.hpp"
 #include "page_annotation_submission.hpp"
 #include "page_annotation_navigation.hpp"
+#include "page_annotation_requests.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -21,8 +22,11 @@ class PageAnnotationSession {
 public:
     using Json = nlohmann::json;
 
+    ~PageAnnotationSession() { requests.stop(); }
+
     const std::string& document_id() const { return document_id_; }
     AnnotationNavigationGuard navigation;
+    AnnotationRequests requests;
     std::uint64_t revision() const { return revision_; }
     bool has_unsent_work() const {
         return !targets_.empty() || !region_.is_null() || !selection_mode_.is_null() || busy_ ||
@@ -153,6 +157,8 @@ public:
             record["invalid_reason"] = "document_replaced";
         }
         ++revision_;
+        requests.cancel("Annotation document replaced");
+        requests.restart();
     }
 
     bool prepare(const std::string& page_id, const Json& command,
@@ -277,7 +283,13 @@ public:
     }
 
     std::uint64_t sequence() const { return sequence_; }
-    void suspend() { ++sequence_; busy_ = false; poll_pending_ = false; ++poll_token_; }
+    void suspend() {
+        ++sequence_;
+        busy_ = false;
+        poll_pending_ = false;
+        ++poll_token_;
+        requests.cancel("Annotation navigation started");
+    }
     bool pollable() const {
         return !document_id_.empty() && !busy_ && !poll_pending_ && !navigation.blocked() && !navigation.sending();
     }

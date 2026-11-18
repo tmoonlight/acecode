@@ -76,20 +76,25 @@ inline bool annotation_host_submission(PageAnnotationSession& session,
             {"annotations", snapshot}}.dump());
     } else if (command["action"] == "validate") {
         const auto lease = command.value("lease_id", "");
-        evaluate(expression, [completion, page_id, lifecycle, lease](bool ok, nlohmann::json result) {
+        const auto pending = session.requests.add([completion, lifecycle, lease](nlohmann::json response) {
+            if (!response.value("ok", false) && lifecycle) lifecycle(nlohmann::json(), lease);
+            completion(response.dump());
+        });
+        if (!pending) return true;
+        evaluate(expression, [pending, page_id, lifecycle](bool ok, nlohmann::json result) {
+            if (pending->completed()) return;
             const bool valid = ok && result.is_object() && result.contains("valid") && result["valid"] == true;
-            const bool current = !lifecycle || lifecycle(result, valid ? "" : lease);
-            if (valid && !current && lifecycle) lifecycle(nlohmann::json(), lease);
-            completion(nlohmann::json{{"ok", valid && current},
-                {"page_id", page_id}, {"error", "Annotation target or document changed"}}.dump());
+            const bool current = !lifecycle || lifecycle(result, "");
+            pending->finish(nlohmann::json{{"ok", valid && current},
+                {"page_id", page_id}, {"error", "Annotation target or document changed"}});
         });
     } else {
-        auto pending = std::make_shared<PendingProxyCall>(
+        auto pending = session.requests.add(
             [completion, document = command["document_id"]](nlohmann::json response) {
                 if (response.value("ok", false)) response["annotation_document_id"] = document;
                 completion(response.dump());
             });
-        capture(pending, expression);
+        if (pending) capture(pending, expression);
     }
     return true;
 }

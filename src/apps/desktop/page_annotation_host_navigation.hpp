@@ -80,7 +80,8 @@ void poll_annotations(const std::weak_ptr<Host>& weak, Evaluate evaluate) {
     if (!host) return;
     for (const auto& state : host->states()) {
         const auto page = host->find_page(state.page_id);
-        if (!page || page->closing || !page->webview ||
+        if (page) page->annotations.requests.expire();
+        if (!page || host->find_page(page->id) != page || page->closing || !page->webview ||
             state.content_state != kAgentBrowserContentStateLive || !page->annotations.pollable()) continue;
         const auto expression = std::string(kPageAnnotationRuntime) + "(" + nlohmann::json{
             {"action", "read"}, {"document_id", page->annotations.document_id()}}.dump() + ")";

@@ -1005,8 +1005,7 @@ struct AgentBrowserHost::Impl final
     }
 
     void teardown_page(const std::shared_ptr<Page>& page) {
-        if (!page) return;
-        ++page->annotation_incarnation;
+        if (!annotation_retire(page)) return;
         clear_dialog(page, true);
         clear_history(page);
         if (page->webview) {

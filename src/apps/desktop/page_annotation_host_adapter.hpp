@@ -14,6 +14,17 @@ namespace acecode::desktop {
 
 using AnnotationCompletion = std::function<void(bool, nlohmann::json)>;
 
+template <typename Page>
+bool annotation_retire(const std::shared_ptr<Page>& page) {
+    if (!page) return false;
+    page->annotations.requests.stop();
+    page->annotations.suspend();
+#ifdef __APPLE__
+    ++page->annotation_incarnation;
+#endif
+    return true;
+}
+
 #ifdef _WIN32
 template <typename Host>
 auto annotation_event_page(Host& host, const std::string& id, ICoreWebView2* source) {
@@ -68,20 +79,28 @@ bool annotation_reserve_pages(Host& host, const std::vector<std::shared_ptr<Page
 template <typename Host, typename Page>
 void annotation_evaluate(const std::shared_ptr<Host>& host, const std::shared_ptr<Page>& page,
                          std::uint64_t sequence, const std::string& script, AnnotationCompletion done) {
+    const auto pending = page->annotations.requests.add([done](nlohmann::json response) {
+        done(response.value("ok", false), response.value("result", nlohmann::json()));
+    });
+    if (!pending) return;
+    const auto finish = [pending](bool ok, nlohmann::json result) {
+        pending->finish({{"ok", ok}, {"result", std::move(result)}});
+    };
 #ifdef _WIN32
-    host->evaluate_annotation(page, sequence, script, std::move(done));
+    host->evaluate_annotation(page, sequence, script, finish,
+        [pending] { return !pending->completed(); });
 #elif defined(__APPLE__)
     const auto incarnation = page->annotation_incarnation;
     const std::weak_ptr<Host> weak = host;
     const std::weak_ptr<Page> weak_page = page;
     host->evaluate_value(page, script,
-        [weak, weak_page, sequence, incarnation, done](bool ok, nlohmann::json result, std::string) {
+        [weak, weak_page, sequence, incarnation, finish](bool ok, nlohmann::json result, std::string) {
             const auto current_host = weak.lock();
             const auto current = weak_page.lock();
             const bool accepted = ok && current_host && current && !current->closing &&
                 current_host->find_page(current->id) == current &&
                 current->annotation_incarnation == incarnation && current->annotations.sequence() == sequence;
-            done(accepted, accepted ? std::move(result) : nlohmann::json());
+            finish(accepted, accepted ? std::move(result) : nlohmann::json());
         });
 #endif
 }

@@ -1645,7 +1645,7 @@ struct AgentBrowserHost::Impl
     }
 
     void teardown_page(const std::shared_ptr<Page>& page) {
-        if (!page) return;
+        if (!annotation_retire(page)) return;
         remove_events(page);
         if (page->controller) {
             page->controller->put_IsVisible(FALSE);
@@ -2168,18 +2168,18 @@ struct AgentBrowserHost::Impl
 
     void evaluate_annotation(const std::shared_ptr<Page>& page,
                              std::uint64_t sequence, std::string expression,
-                             AnnotationResult completion) {
+                             AnnotationResult completion, browser_capture::Current active = {}) {
         const auto weak = weak_from_this();
         const std::weak_ptr<Page> weak_page = page;
         const auto incarnation = page->controller_generation;
         agent_browser_windows::evaluate_annotation(page->webview,
-            [weak, weak_page, incarnation, sequence] {
+            [weak, weak_page, incarnation, sequence, active] {
                 const auto self = weak.lock();
                 const auto current = weak_page.lock();
                 return self && current && !current->closing &&
                     self->find_page(current->id) == current &&
                     current->controller_generation == incarnation &&
-                    current->annotations.sequence() == sequence;
+                    current->annotations.sequence() == sequence && (!active || active());
             }, std::move(expression), std::move(completion));
     }
 

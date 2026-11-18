@@ -2,6 +2,8 @@
 #include <vector>
 
 #include "desktop/page_annotation_session.hpp"
+#include "desktop/agent_browser_host.hpp"
+#include "desktop/page_annotation_host_submission.hpp"
 
 namespace acecode::desktop {
 namespace {
@@ -89,6 +91,118 @@ TEST_F(PageAnnotationSessionTest, PassivePollIsBoundedAndNeverAdvancesCommandSeq
     EXPECT_TRUE(session.navigation.release("batch"));
     EXPECT_TRUE(session.navigation.reserve());
     EXPECT_EQ(session.begin_poll(), 0);
+}
+
+TEST_F(PageAnnotationSessionTest, HeldCaptureCancelsOnReplacementAndDeadlineExactlyOnce) {
+    for (const bool replace : {true, false}) {
+        start();
+        select();
+        save("Held capture");
+        auto request = command("capture");
+        request["record_ids"] = Json::array({session.snapshot()["records"].back()["id"]});
+        int completions = 0;
+        Json response;
+        std::shared_ptr<PendingProxyCall> held;
+        ASSERT_TRUE(annotation_host_submission(session, "page-1", request,
+            [&](std::string value) { ++completions; response = Json::parse(value); },
+            [](const auto&, auto) {}, [](const auto&) {},
+            [&](const auto& pending, const auto&) { held = pending; }));
+        ASSERT_TRUE(held);
+        EXPECT_EQ(completions, 0);
+        if (replace) session.replace_document();
+        else session.requests.expire(AnnotationRequests::Clock::now() + std::chrono::seconds(16));
+        EXPECT_EQ(completions, 1);
+        EXPECT_TRUE(held->completed());
+        EXPECT_EQ(response["ok"], false);
+        EXPECT_EQ(response["recoverable"], true);
+        held->finish({{"ok", true}});
+        EXPECT_EQ(completions, 1);
+    }
+}
+
+TEST_F(PageAnnotationSessionTest, HeldValidationCancelsReleasesLeaseAndIgnoresLateSuccess) {
+    for (const auto& cause : {"timeout", "replacement", "navigation", "close"}) {
+        start();
+        select();
+        save("Held validation");
+        auto request = command("validate");
+        request["record_ids"] = Json::array({session.snapshot()["records"].back()["id"]});
+        request["lease_id"] = "batch";
+        int completions = 0;
+        Json response;
+        std::function<void(bool, Json)> held;
+        ASSERT_TRUE(annotation_host_submission(session, "page-1", request,
+            [&](std::string value) { ++completions; response = Json::parse(value); },
+            [&](const auto&, auto done) { held = done; }, [](const auto&) {},
+            [](const auto&, const auto&) {}, [&](const Json& value, const std::string& release) {
+                if (!release.empty()) session.navigation.release(release);
+                return session.observe_lifecycle(value);
+            }));
+        ASSERT_TRUE(held);
+        EXPECT_TRUE(session.navigation.sending());
+        if (std::string(cause) == "timeout")
+            session.requests.expire(AnnotationRequests::Clock::now() + std::chrono::seconds(16));
+        else if (std::string(cause) == "replacement") session.replace_document();
+        else if (std::string(cause) == "navigation") session.suspend();
+        else session.requests.stop();
+        EXPECT_EQ(completions, 1);
+        EXPECT_EQ(response["ok"], false);
+        EXPECT_FALSE(session.navigation.sending());
+        ASSERT_TRUE(session.navigation.acquire("new-batch"));
+        held(true, {{"valid", true}, {"document_id", request["document_id"]}});
+        EXPECT_EQ(completions, 1);
+        EXPECT_FALSE(session.navigation.release("batch"));
+        EXPECT_TRUE(session.navigation.release("new-batch"));
+        session.replace_document();
+    }
+}
+
+TEST_F(PageAnnotationSessionTest, ReceiptReconcilesRetainedInvalidRecordsButNewAdmissionCannot) {
+    start();
+    select();
+    save("Retained receipt");
+    auto request = command("validate");
+    request["record_ids"] = Json::array({session.snapshot()["records"][0]["id"]});
+    session.replace_document();
+    EXPECT_FALSE(session.submission(request, expression, error));
+    start();
+    EXPECT_FALSE(session.submission(request, expression, error));
+    request["action"] = "acknowledge";
+    EXPECT_TRUE(session.submission(request, expression, error)) << error;
+    EXPECT_EQ(session.snapshot()["records"][0]["status"], "sent");
+    EXPECT_EQ(session.snapshot()["records"][0]["valid"], false);
+}
+
+TEST(AnnotationRequests, DeadlineBoundShutdownAndReentrantCompletion) {
+    const auto now = AnnotationRequests::Clock::time_point{};
+    int completions = 0;
+    std::shared_ptr<PendingProxyCall> late;
+    {
+        AnnotationRequests requests;
+        for (int index = 0; index < 32; ++index) {
+            ASSERT_TRUE(requests.add([&](Json result) {
+                ++completions;
+                EXPECT_EQ(result["ok"], false);
+            }, now));
+        }
+        EXPECT_FALSE(requests.add([&](Json) { ++completions; }, now));
+        EXPECT_EQ(completions, 1);
+        requests.expire(now + std::chrono::seconds(14));
+        EXPECT_EQ(completions, 1);
+        requests.expire(now + std::chrono::seconds(15));
+        EXPECT_EQ(completions, 33);
+        ASSERT_TRUE(requests.add([&](Json) {
+            ++completions;
+            late = requests.add([&](Json) { ++completions; }, now);
+        }, now));
+        requests.cancel("replacement");
+        ASSERT_TRUE(late);
+        EXPECT_FALSE(late->completed());
+    }
+    EXPECT_TRUE(late->completed());
+    EXPECT_EQ(completions, 35);
+    late->finish({{"ok", true}});
+    EXPECT_EQ(completions, 35);
 }
 
 TEST_F(PageAnnotationSessionTest, SaveCreatesImmutableDescriptionOnlyPendingRecordWithoutConversation) {

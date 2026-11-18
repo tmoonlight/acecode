@@ -117,9 +117,17 @@ without baseline changes, and git diff --check. Full pnpm test remains blocked b
 8f2 native-extraction source-path assertions owned by #201 (favicon serialization and
 isolated-world ownership); runtime behavioral cases run before the latter assertion.
 Native Windows interactive acceptance and macOS compilation/runtime remain unverified.
-R1 held capture/validation callback cancellation and host-owned deadlines are tracked
-as a separate follow-up; late callback identity rejection alone does not settle a lost
-native completion. Section 8 acceptance is unchanged.
+R1 follow-up adds a bounded per-session pending registry shared with native transports
+until completion. Document replacement, navigation suspension, page retirement and
+shutdown settle held capture/validation/evaluation callbacks exactly once; the existing
+UI-thread poller expires requests after 15 seconds even when the document is not pollable.
+Callbacks run outside registry mutation and native completion locks; no detached timers
+or page capabilities are added. Late success cannot reacquire/release a newer lease,
+and cancelled Windows CDP evaluation cannot advance its remaining stages. Deterministic
+fake-clock tests cover bounds, expiry, shutdown/reentrancy and retained old-document
+receipt acknowledgement versus rejected new admission. Section 8 acceptance is unchanged.
+Follow-up verification: 42 isolated native tests pass, Windows host/transport/bridge
+compile passes, and all four strict gates remain clean with unchanged size baselines.
 
 ## 8. Integration and acceptance (#201)
 

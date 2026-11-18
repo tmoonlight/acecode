@@ -130,6 +130,27 @@ TEST(PageAnnotationNavigation, PassivePollBoundsFlightsAndRejectsRetiredDocument
     EXPECT_EQ(page->annotations.revision(), revision);
 }
 
+TEST(PageAnnotationNavigation, UiTickExpiresRequestsEvenWhenDocumentCannotBePolled) {
+    const auto host = std::make_shared<NavigationHost>();
+    const auto page = std::make_shared<NavigationPage>();
+    page->state.page_id = page->id;
+    host->pages.push_back(page);
+    int completions = 0;
+    const auto held = page->annotations.requests.add([&](nlohmann::json result) {
+        ++completions;
+        EXPECT_EQ(result["ok"], false);
+        EXPECT_EQ(result["recoverable"], true);
+    }, AnnotationRequests::Clock::now() - std::chrono::seconds(16));
+    ASSERT_TRUE(page->annotations.navigation.reserve());
+    poll_annotations(std::weak_ptr<NavigationHost>(host), [](const auto&, const auto&, auto, const auto&, auto) {
+        ADD_FAILURE() << "Inactive document must not be evaluated";
+    });
+    EXPECT_EQ(completions, 1);
+    EXPECT_TRUE(held->completed());
+    held->finish({{"ok", true}});
+    EXPECT_EQ(completions, 1);
+}
+
 TEST(PageAnnotationNavigation, RollbackNeverClearsASupersedingTransition) {
     const auto page = std::make_shared<NavigationPage>();
     std::string expression;
