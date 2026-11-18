@@ -14,7 +14,7 @@ This is the execution checklist, not a claim that the feature is complete. Keep 
 | Batch freeze, queue, receipt, receiver deduplication and failures | Pending implementation |
 | Navigation, removed target, document ownership and untrusted commands | Pending implementation |
 | Source-selection annotation regressions | Pending |
-| Full frontend test suite and production build | Pending |
+| Full frontend test suite and production build | Baseline passed at edd093ae on Windows, 2026-11-18; integrated implementation rerun pending |
 | Windows native build and focused tests | Pending |
 | macOS native build and focused tests | Not executed; macOS environment required |
 | Standards and specification code review | Pending |
@@ -22,6 +22,8 @@ This is the execution checklist, not a claim that the feature is complete. Keep 
 ## Real desktop workflow
 
 Run the following independently on Windows and macOS against the integrated build. Record build commit, OS, commands, observations and evidence paths. Use an already-loaded local-service page and a remote page, with nested text elements and a long page containing recognizable content below the viewport. A runtime test or successful native API return is not sufficient proof of screenshot pixels.
+
+The local fixture is `tests/desktop/helpers/html_annotation_fixture.html`. Serve that directory over HTTP and open the page in ACECode Agent Browser, not standalone file preview. Its orange middle and green `FULL-PAGE-CAPTURE-END` section distinguish full-page pixels from a viewport capture. `window.annotationFixture.childIdentityPreserved()` checks the original nested element identity; the counter button checks retained listener behavior. The two identical lifecycle paragraphs test that removing the original never relocates an annotation to its sibling. Record a fixture file hash before and after previewing to check that no source file was written.
 
 | Step | Windows | macOS |
 | --- | --- | --- |
@@ -46,3 +48,7 @@ Run the following independently on Windows and macOS against the integrated buil
 ## Recording failures
 
 Keep failed and unavailable checks explicit. Do not mark a task complete because a platform implementation exists or because another platform passed. Invalid saved annotation records cannot be repaired by introducing an unapproved edit/delete UI. Capture resource limits must report failure rather than silently truncate. Runtime retention does not imply restart recovery.
+
+## Execution record
+
+- 2026-11-18, Windows, edd093ae: `pnpm install --frozen-lockfile`, `pnpm test` and `pnpm build` completed successfully in the integration worktree. The test log contains 3,672 `[pass]` lines plus the Node test-runner summary. Non-fatal warnings: Node local-storage file setting and existing large frontend chunks. These are baseline results before product implementation, not annotation acceptance.

@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>HTML annotation acceptance fixture</title>
+    <style>
+      :root { font-family: system-ui, sans-serif; color: #142438; background: #f4f7fb; }
+      body { margin: 0; }
+      main { max-width: 880px; margin: auto; padding: 32px; }
+      section { margin-block: 24px; padding: 24px; border: 2px solid #627c97; border-radius: 12px; background: white; }
+      button, a { display: inline-block; margin: 8px 8px 8px 0; padding: 10px 16px; font: inherit; }
+      button { cursor: pointer; }
+      #style-target { width: 240px; height: 120px; box-sizing: border-box; padding: 12px; margin: 16px; border: 3px solid #2466a3; border-radius: 8px; background: #d8eaff; color: #17334f; opacity: 0.9; font: 500 18px system-ui, sans-serif; letter-spacing: 1px; }
+      #middle-marker { min-height: 110vh; background: #ffe3b3; border-color: #ad5f00; }
+      #bottom-marker { min-height: 70vh; background: #d4f5df; border-color: #196438; }
+      output { font-variant-numeric: tabular-nums; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1 id="title">在静默之地，<strong id="nested-title">种下一颗星。</strong></h1>
+      <section id="nested-target">
+        <h2>Nested elements</h2>
+        <p id="copy-target">Before <strong id="identity-target">nested text</strong> after <span>another node</span>.</p>
+        <button id="listener-target" type="button">Count <output id="click-count">0</output></button>
+        <div id="style-target" style="outline: 1px dashed #8299b0">Style target</div>
+      </section>
+      <section>
+        <h2>Target lifecycle</h2>
+        <p id="removable-target">Original target</p>
+        <p id="similar-target">Original target</p>
+        <button id="remove-target" type="button">Remove original target</button>
+        <a href="html_annotation_fixture.html?replaced=1">Navigate</a>
+      </section>
+      <section id="middle-marker">
+        <h2>Middle: orange</h2>
+        <p>The green section belongs below this long orange section.</p>
+      </section>
+      <section id="bottom-marker">
+        <h2>Bottom: green</h2>
+        <p>FULL-PAGE-CAPTURE-END</p>
+      </section>
+    </main>
+    <script>
+      const originalChild = document.getElementById('identity-target');
+      const counter = document.getElementById('click-count');
+      document.getElementById('listener-target').addEventListener('click', () => {
+        counter.value = String(Number(counter.value) + 1);
+      });
+      document.getElementById('remove-target').addEventListener('click', () => {
+        document.getElementById('removable-target')?.remove();
+      });
+      window.annotationFixture = Object.freeze({
+        childIdentityPreserved: () => document.getElementById('identity-target') === originalChild,
+        originalInlineStyle: document.getElementById('style-target').getAttribute('style'),
+      });
+    </script>
+  </body>
+</html>
