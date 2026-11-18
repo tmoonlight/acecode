@@ -14,8 +14,8 @@ This is the execution checklist, not a claim that the feature is complete. Keep 
 | Batch freeze, queue, receipt, receiver deduplication and failures | Pending implementation |
 | Navigation, removed target, document ownership and untrusted commands | Pending implementation |
 | Source-selection annotation regressions | Pending |
-| Full frontend test suite and production build | Baseline passed at edd093ae on Windows, 2026-11-18; integrated implementation rerun pending |
-| Windows native build and focused tests | Pending |
+| Full frontend test suite and production build | Passed at 02920365 on Windows, 2026-11-18; rerun required after remaining tickets integrate |
+| Windows native build and focused tests | Native browser smoke target built at 02920365; runtime smoke aborted with 0xc0000409, under diagnosis; full desktop/unit build in progress |
 | macOS native build and focused tests | Not executed; macOS environment required |
 | Standards and specification code review | Pending |
 
@@ -52,3 +52,6 @@ Keep failed and unavailable checks explicit. Do not mark a task complete because
 ## Execution record
 
 - 2026-11-18, Windows, edd093ae: `pnpm install --frozen-lockfile`, `pnpm test` and `pnpm build` completed successfully in the integration worktree. The test log contains 3,672 `[pass]` lines plus the Node test-runner summary. Non-fatal warnings: Node local-storage file setting and existing large frontend chunks. These are baseline results before product implementation, not annotation acceptance.
+- 2026-11-18, Windows, 02920365: integrated the single-element annotation loop, explicit full-page capture and receiver-side batch receipts. `pnpm test` passed with 3,677 `[pass]` lines plus five Node test-runner tests; `pnpm build` and regex compatibility checks passed. `agent_browser_host_smoke` compiled and linked using the x64 MSVC desktop preset with the vcpkg `tests` feature. These checks do not establish the remaining annotation features or real desktop acceptance.
+- 2026-11-18, Windows, 02920365: strict static checks found new native-host line-budget overruns, a misplaced shared test helper, an ambiguous bridge capture and a lexical ownership false positive for the `<new>` header. Fixes are in progress; documentation-path validation passed. Do not treat the combined command's final exit status as proof that all earlier checks passed.
+- 2026-11-18, Windows, 02920365: executing `agent_browser_host_smoke.exe` aborted with exit status `0xc0000409` before emitting a smoke result. Windows Application events 1000/1001 report `abort` in the executable. Native capture pixels and interaction acceptance remain unverified; a temporary debugger harness outside the repository is collecting the failure stack.
