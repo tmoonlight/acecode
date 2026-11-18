@@ -90,31 +90,44 @@ export async function runAnnotationIntegration({ evaluate, request }) {
   };
   const uploads = [];
   const messages = [];
+  const messageBodies = [];
   const receipts = [];
-  let rejectNextMessage = false;
+  const reconciliationModes = [];
+  let rejectNextMessage = '';
   const server = createServer(async (req, res) => {
     try {
       const chunks = [];
       for await (const chunk of req) chunks.push(chunk);
       assert.equal(req.headers['x-acecode-token'], 'integration-token');
-      const payload = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+      const body = Buffer.concat(chunks).toString('utf8');
+      const payload = JSON.parse(body);
       assert.equal(req.method, 'POST');
-      assert.match(req.url, /^\/api\/sessions\/initiating-session\/(attachments|messages)$/);
+      const url = new URL(req.url, 'http://127.0.0.1');
+      assert.match(url.pathname, /^\/api\/sessions\/initiating-session\/(attachments|messages)$/);
+      assert.ok([...url.searchParams.keys()].every(key => key === 'annotation_reconcile_only'));
       res.setHeader('content-type', 'application/json');
-      if (req.url.endsWith('/attachments')) {
+      if (url.pathname.endsWith('/attachments')) {
+        assert.equal(url.search, '');
         uploads.push(payload);
         res.end(JSON.stringify({ attachment: { id: 'page-image' } }));
       } else {
         messages.push(payload);
+        messageBodies.push(body);
+        reconciliationModes.push(url.searchParams.get('annotation_reconcile_only'));
         if (rejectNextMessage) {
-          rejectNextMessage = false;
           res.statusCode = 503;
-          res.end(JSON.stringify({ error: 'annotation_batch_unavailable' }));
+          res.end(JSON.stringify({ error: rejectNextMessage }));
+          rejectNextMessage = '';
           return;
         }
-        const receipt = await native({ operation: 'receive', payload });
+        const receipt = await native({ operation: 'receive', payload,
+          reconciliation: url.searchParams.get('annotation_reconcile_only') || '' });
         receipts.push(receipt);
-        assert.equal(receipt.ok, true, receipt.error);
+        if (!receipt.ok) {
+          res.statusCode = receipt.status || 500;
+          res.end(JSON.stringify({ error: receipt.error }));
+          return;
+        }
         res.end(JSON.stringify(messages.length === 1
           ? { queued: true, annotation_batch_id: 'wrong-receipt' } : receipt));
       }
@@ -212,6 +225,8 @@ export async function runAnnotationIntegration({ evaluate, request }) {
     assert.equal(calls.filter(action => action === 'validate').length, 1);
     assert.equal(calls.filter(action => action === 'acknowledge').length, 1);
     assert.deepEqual(messages[1], messages[0]);
+    assert.equal(messageBodies[1], messageBodies[0]);
+    assert.deepEqual(reconciliationModes, [null, '1']);
     assert.equal(receipts[0].duplicate, false);
     assert.equal(receipts[1].duplicate, true);
     const formatted = JSON.parse(messages[0].text.slice('Page annotations\n'.length));
@@ -236,14 +251,26 @@ export async function runAnnotationIntegration({ evaluate, request }) {
     const retrySender = createAnnotationBatchSender({ pageId: 'page-integration', invoke, makeId: () => 'rejected-batch' });
     const retryContext = { snapshot: accepted.annotations, sessionId: 'initiating-session',
       api: createApi({ origin: `http://127.0.0.1:${server.address().port}`, token: 'integration-token' }), page: context.page };
-    rejectNextMessage = true;
+    rejectNextMessage = 'annotation_batch_unavailable';
     assert.equal((await retrySender.send(retryContext)).ok, false);
     assert.equal(messages.length, 4);
+    const uncertainSender = createAnnotationBatchSender({ pageId: 'page-integration', invoke, makeId: () => 'uncertain-batch' });
+    rejectNextMessage = 'injected_transport_failure_before_admission';
+    assert.equal((await uncertainSender.send(retryContext)).ok, false);
+    assert.equal(messages.length, 5);
     await evaluate('globalThis.impostor = parentTarget.cloneNode(true); parentTarget.replaceWith(impostor)');
     assert.equal((await invoke('page-integration', validation)).ok, false);
     assert.equal((await retrySender.send(retryContext)).ok, false,
       'An explicitly rejected batch must not first-admit after its exact target is replaced');
-    assert.equal(messages.length, 4, 'Invalid retry must stop at native validation before another HTTP admission');
+    assert.equal(messages.length, 5, 'Explicitly rejected invalid retry must stop before another HTTP admission');
+    assert.equal((await uncertainSender.send(retryContext)).ok, false);
+    assert.equal(messages.length, 6, 'Uncertain invalid retry may only query the existing receipt');
+    assert.equal(reconciliationModes[5], '1');
+    assert.deepEqual(messages[5], messages[4], 'Receipt lookup must preserve the exact frozen payload');
+    assert.equal(messageBodies[5], messageBodies[4], 'Receipt lookup must preserve the serialized HTTP body');
+    assert.equal(receipts.at(-1).status, 404);
+    assert.equal(receipts.at(-1).error, 'annotation_batch_not_accepted');
+    assert.equal(receipts.at(-1).annotation_batch_id, '');
     assert.equal((await native({ operation: 'snapshot' })).annotations.pending_count, 1);
     const drained = await native({ operation: 'drain' });
     assert.equal(drained.priority_count, 0);
@@ -267,6 +294,7 @@ export async function runAnnotationIntegration({ evaluate, request }) {
     controller.observe(replaced.annotations);
     console.log('[pass] native document/page/membership binding rejects untrusted fields, cloned replacements and stale callbacks without HTTP admission');
     await open();
+    assert.equal(await evaluate('parentTarget.textContent'), 'Hello world!', 'Replaced document starts with restored original text');
     const nestedBounds = await evaluate('(() => { const r=nestedTarget.getBoundingClientRect(); return {x:r.x+r.width/2,y:r.y+r.height/2,width:r.width}; })()');
     assert.ok(nestedBounds.width > 0, 'Nested target must have real hit-testable text');
     await command('add_target');
@@ -277,12 +305,31 @@ export async function runAnnotationIntegration({ evaluate, request }) {
     await command('preview_text', { text: 'Earth' });
     await command('select_target', { target_id: firstTarget });
     await command('preview_text', { text: 'Hi world!' });
+    assert.equal(await evaluate('parentTarget.textContent'), 'Hi Earth!',
+      'Parent owns its changed prefix, not the unchanged descendant owned by the child layer');
+    await command('original', { enabled: true });
+    assert.equal(await evaluate('parentTarget.outerHTML'), await evaluate('originalParentMarkup'));
+    await command('original', { enabled: false });
+    assert.equal(await evaluate('parentTarget.textContent'), 'Hi Earth!');
     snapshot = await command('save', { description: 'Nested exact target changes' });
     const textChanges = snapshot.records.at(-1).differences.filter(change => change.property === 'text');
+    assert.equal(await evaluate('parentTarget.textContent'), 'Hi Earth!');
+    assert.equal(await evaluate('nestedTarget.textContent'), 'Earth');
+    assert.equal(textChanges.length, 2, 'Both changed targets must have an effective saved difference');
+    assert.deepEqual(textChanges.map(change => [change.target_id, change.old_value, change.new_value])
+      .sort((left, right) => left[0].localeCompare(right[0])),
+    [[firstTarget, 'Hello world!', 'Hi Earth!'], [nestedId, 'world', 'Earth']]
+      .sort((left, right) => left[0].localeCompare(right[0])));
+    assert.ok(textChanges.every(change => change.old_value !== change.new_value));
     for (const change of textChanges) {
       const actual = await evaluate(change.target_id === nestedId ? 'nestedTarget.textContent' : 'parentTarget.textContent');
       assert.equal(change.new_value, actual, `Saved text diff must describe final DOM for ${change.target_id}`);
     }
+    await open();
+    await command('preview_text', { text: 'Discard overlapping draft' });
+    await command('cancel');
+    assert.equal(await evaluate('parentTarget.textContent'), 'Hi Earth!');
+    assert.equal(await evaluate('nestedTarget.textContent'), 'Earth');
     console.log('[pass] overlapping parent/child text differences describe the final DOM, not overwritten draft intentions');
     await evaluate('globalThis.__acecodePageAnnotationsV1.dispose()');
     assert.equal(await evaluate('parentTarget.outerHTML === originalParentMarkup && originalNodes.every((node,index)=>parentTarget.childNodes[index]===node)'), true);

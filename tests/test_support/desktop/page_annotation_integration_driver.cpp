@@ -41,6 +41,12 @@ int main() {
                 if (!acecode::web::parse_annotation_submission_identity(payload, true, identity, error)) {
                     response["ok"] = false;
                 } else {
+                    const auto mode = request.value("reconciliation", std::string{});
+                    if (!acecode::web::parse_annotation_reconciliation(
+                            mode.empty() ? nullptr : mode.c_str(), identity, error)) {
+                        std::cout << json{{"ok", false}, {"status", 400}, {"error", error}}.dump() << std::endl;
+                        continue;
+                    }
                     acecode::agent::WorkerTask task;
                     task.input.text = payload.at("text").get<std::string>();
                     task.input.metadata = payload;
@@ -51,6 +57,13 @@ int main() {
                         response = {{"ok", receipt.accepted()}, {"queued", receipt.accepted()},
                             {"annotation_batch_id", receipt.batch_id},
                             {"duplicate", receipt.status == acecode::AnnotationSubmissionStatus::Duplicate}};
+                        if (!receipt.accepted()) {
+                            const bool not_accepted = receipt.status == acecode::AnnotationSubmissionStatus::NotAccepted;
+                            const bool conflict = receipt.status == acecode::AnnotationSubmissionStatus::Conflict;
+                            response["status"] = not_accepted ? 404 : conflict ? 409 : 503;
+                            error = not_accepted ? "annotation_batch_not_accepted" :
+                                conflict ? "annotation_batch_conflict" : "annotation_batch_unavailable";
+                        }
                     }
                 }
             } else if (operation == "drain") {

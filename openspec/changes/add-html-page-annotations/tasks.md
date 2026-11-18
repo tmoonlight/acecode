@@ -140,16 +140,20 @@ compile passes, and all four strict gates remain clean with unchanged size basel
 - [ ] 8.3 Perform real Windows complete desktop workflow including all fields and long-page screenshot pixels; record observed results without substituting automated tests.
 - [ ] 8.4 Build and perform real macOS complete desktop workflow including all fields and long-page screenshot pixels; record observed results and keep draft if unavailable.
 
-#201 automated checkpoint at base `8f2e060e`: extraction ownership assertions now
-verify the serializer/native-command helper and reachable production call sites,
-without removing favicon/owner/state/security contracts. Own-worktree `pnpm test`
-and `pnpm build` pass. A new opt-in browser/native integration runner exercises
-real interaction/save records through sender/API/ordinary queue/receipt and checks
-exact document ownership and late callbacks. Its parent/child DOM assertion
-reproduces review finding F2 (`Earth` diff versus `world` actual child text), so
-8.1 remains unchecked pending the separate product fix and final integrated rerun.
-An additional real HTTP refusal followed by exact-target clone replacement also
-reproduces F1: the old retry first-admits invalid work despite native validation
-rejecting the replacement. The latest run stops at F1; both regressions stay red.
-Navigation #200, complete review and both real desktop workflows remain unverified
-here. See the acceptance document for runnable commands and injected-boundary limits.
+#201 automated checkpoint at base `7aeb4e9f`: the dedicated real-Chromium/native
+driver suite passes after adapting its HTTP boundary to the production query-only
+reconciliation contract. It preserves F1/F2 assertions and verifies explicit refusal
+and unknown-receipt retries cannot newly admit invalid exact targets, while accepted
+receipts recover with the identical payload. Parent/child differences match the
+final real DOM, and disposal restores exact original markup/node identity. Existing
+interaction/save, frozen membership/API, source/composer and ownership/stale-callback
+seams also pass. Earlier red evidence remains in the acceptance record. Extraction
+assertions retain serializer/native-command helper contracts and production wiring.
+Own-worktree full `pnpm test`, `pnpm build` and seven focused frontend test files
+pass at this checkpoint. API/design documentation includes query-only reconciliation
+and the exact not-accepted/revalidation condition; no product files changed here.
+All four strict gates (including final ownership) report zero findings;
+OpenSpec strict validation and `git diff --check` pass.
+8.1 remains unchecked pending #200/final integrated native verification; complete
+review and both real desktop workflows are also unverified here. See the acceptance
+document for runnable commands and injected-boundary limits.

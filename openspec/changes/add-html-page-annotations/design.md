@@ -71,9 +71,20 @@ first HTTP attempt. User-initiated annotation capture is available without agent
 sharing, without bypassing any automation proxy permission checks.
 
 Preparation failures retain the frozen membership; upload retries reuse a successful
-capture. Uncertain HTTP retries reuse the original payload and connection without
-recapture or target revalidation, so a previously accepted receipt can be recovered
-even after navigation. No retry is redirected to a newly selected conversation.
+capture. Uncertain HTTP retries first use
+`POST /api/sessions/:id/messages?annotation_reconcile_only=1`, exposed by
+`sendInput(sessionId, payload, {reconcileOnly:true})`. This lookup preserves the same
+batch ID, exact frozen payload and connection, without recapture/reupload. Query
+metadata is excluded from the payload fingerprint. Under the queue admission lock,
+lookup returns only an existing matching receipt; an unknown ID returns
+`404 annotation_batch_not_accepted` without enqueueing work or consuming the ID.
+A matching receipt can therefore be recovered even after document/target invalidation.
+Only that exact not-accepted result permits native target/document revalidation
+followed by possible first admission; ambiguous lookup errors, malformed receipts
+and mismatched IDs never authorize admission. Defined explicit original admission
+refusals (`annotation_batch_unavailable`, `annotation_batch_capacity`,
+`annotation_batch_conflict`) clear uncertainty and require native revalidation before
+another normal submission. No retry is redirected to a newly selected conversation.
 Only a matching `queued:true` batch receipt triggers native `acknowledge`; failure of
 that final step retries acknowledgement alone. Saved records remain immutable except
 their sent status, preserving pins/previews/numbering and retaining invalid records.

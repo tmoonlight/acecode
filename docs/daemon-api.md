@@ -1897,6 +1897,40 @@ runtime-only and is lost when the receiving session is destroyed or the daemon
 restarts; there is no restart-recovery guarantee. Do not retry an uncertain
 batch against a recreated receiver as though its earlier receipt survived.
 
+For an uncertain HTTP outcome, query only the existing receipt using
+`POST /api/sessions/:id/messages?annotation_reconcile_only=1`. The query accepts
+only literal `1`, and requires a valid annotation batch identity and payload as
+defined above; other values, an ordinary non-batch body or malformed batch return
+`400` (invalid query usage reports `invalid annotation_reconcile_only`). Send the
+same frozen batch ID and exact original payload, including attachment references
+and optional client identity. The query is transport metadata, not part of the
+payload fingerprint. It is parsed before request side effects; existing
+authentication, migration, attachment, mesh and receiver-lifetime checks still apply.
+
+This mode never admits a new task or consumes an unknown ID, even at receipt
+capacity. Within the existing queue admission lock:
+
+- A known ID with the same fingerprint returns `202` with
+  `{"queued":true,"annotation_batch_id":"annotation-batch-uuid","duplicate":true}`.
+- An unknown ID returns `404 {"error":"annotation_batch_not_accepted"}` without
+  a receipt ID, enqueueing work or remembering that identity.
+- A known ID with a changed fingerprint returns
+  `409 {"error":"annotation_batch_conflict"}`.
+- An unavailable receiver returns `503 {"error":"annotation_batch_unavailable"}`;
+  normal parse/security errors retain their existing status.
+
+Ordinary POST without this query remains an admission attempt, not a safe
+receipt-only lookup. The sender first reconciles every uncertain attempt. A
+matching accepted receipt may be acknowledged even if the old target is now
+invalid. Only an exact `404` with `annotation_batch_not_accepted` permits native
+document/target revalidation followed, if valid, by a possible first ordinary
+admission. Ambiguous lookup errors, malformed receipts and mismatched receipt IDs
+must not authorize admission. Explicit original refusals
+(`annotation_batch_unavailable`, `annotation_batch_capacity`,
+`annotation_batch_conflict`) clear sender uncertainty and require native
+revalidation before another ordinary attempt. All retries keep the frozen session,
+connection, batch ID and payload; none recapture or reupload.
+
 The desktop annotation sender freezes the initiating conversation, daemon connection,
 sendable saved record IDs and serialized message before submission. It captures one
 full-page PNG through the trusted native annotation command and uploads it with

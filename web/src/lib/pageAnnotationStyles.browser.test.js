@@ -35,9 +35,17 @@ const evaluate = async expression => {
 try {
   const portFile = path.join(profile, 'DevToolsActivePort');
   const deadline = Date.now() + 20000;
-  while (!fs.existsSync(portFile) && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 100));
-  assert.ok(fs.existsSync(portFile), 'Headless browser did not expose its debugging endpoint');
-  const port = fs.readFileSync(portFile, 'utf8').split('\n')[0];
+  let port;
+  while (!port && Date.now() < deadline) {
+    try {
+      const candidate = fs.readFileSync(portFile, 'utf8').split('\n')[0].trim();
+      if (/^\d+$/.test(candidate)) port = candidate;
+    } catch (error) {
+      if (!['ENOENT', 'EBUSY'].includes(error.code)) throw error;
+    }
+    if (!port) await new Promise(resolve => setTimeout(resolve, 100));
+  }
+  assert.ok(port, 'Headless browser did not expose its debugging endpoint');
   const pages = await (await fetch(`http://127.0.0.1:${port}/json/list`)).json();
   socket = new WebSocket(pages.find(page => page.type === 'page').webSocketDebuggerUrl);
   socket.addEventListener('message', event => {
