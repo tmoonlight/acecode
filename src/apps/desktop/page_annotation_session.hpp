@@ -3,11 +3,14 @@
 #include "page_annotation_runtime.hpp"
 #include "page_annotation_text_runtime.hpp"
 #include "page_annotation_targets.hpp"
+#include "page_annotation_style_runtime.hpp"
 
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <string>
+#include <utility>
+#include <vector>
 #include <nlohmann/json.hpp>
 
 namespace acecode::desktop {
@@ -20,7 +23,7 @@ public:
         return {{"document_id", document_id_}, {"active", active_},
                 {"popup", popup_}, {"target", target_}, {"targets", targets_}, {"region", region_},
                 {"selection_mode", selection_mode_}, {"viewport", viewport_}, {"records", records_},
-                {"pending_count", records_.size()}, {"original", original_}, {"revision", revision_}};
+                {"pending_count", records_.size()}, {"original", original_}, {"differences", differences_}, {"revision", revision_}};
     }
 
     void replace_document() {
@@ -34,6 +37,7 @@ public:
         targets_ = Json::array();
         region_ = nullptr;
         selection_mode_ = nullptr;
+        differences_ = Json::array();
         document_id_.clear();
         for (auto& record : records_) record["valid"] = false;
         ++revision_;
@@ -50,12 +54,13 @@ public:
         if (action != "start" && action != "read" && action != "exit" &&
             action != "cancel" && action != "save" && action != "add_target" &&
             action != "add_region" && action != "select_target" && action != "select_region" &&
-            action != "preview_text" && action != "original") {
+            action != "preview_text" && action != "preview_style" && action != "original") {
             error = "Unsupported annotation action";
             return false;
         }
         for (const auto& item : command.items()) {
             if (item.key() != "action" && item.key() != "document_id" &&
+                !(action == "preview_style" && (item.key() == "styles" || item.key() == "ratio_lock" || item.key() == "target_id")) &&
                 !(action == "preview_text" && (item.key() == "text" || item.key() == "target_id")) &&
                 !(action == "original" && item.key() == "enabled") &&
                 !(action == "save" && (item.key() == "description" || item.key() == "target_id" ||
@@ -100,7 +105,7 @@ public:
             error = "Missing annotation region";
             return false;
         }
-        if (action == "save" && (!active_ || !popup_ || !selection_mode_.is_null() ||
+        if (action == "save" && (!active_ || !popup_ || original_ || !selection_mode_.is_null() ||
             (targets_.empty() && region_.is_null()) ||
             !command.contains("target_id") || command["target_id"] != (target_.is_null() ? Json(nullptr) : target_["id"]) ||
             !command.contains("target_ids") || command["target_ids"] != annotation_target_ids(targets_) ||
@@ -121,6 +126,13 @@ public:
             error = "Invalid original view request";
             return false;
         }
+        if (action == "preview_style" && (!active_ || !popup_ || original_ || !selection_mode_.is_null() || !target_.is_object() ||
+            !command.contains("target_id") || command["target_id"] != target_["id"] ||
+            !command.contains("styles") || !valid_styles(command["styles"]) ||
+            (command.contains("ratio_lock") && !command["ratio_lock"].is_boolean()))) {
+            error = "Invalid annotation style draft";
+            return false;
+        }
         pending_ = command;
         page_id_ = page_id;
         Json payload{{"action", action}, {"document_id", document_id_}};
@@ -135,8 +147,14 @@ public:
             payload["text"] = command["text"];
         }
         if (action == "original") payload["enabled"] = command["enabled"];
-        expression = std::string(kPageAnnotationRuntime) + "(" + payload.dump() + "," + kPageAnnotationTextRuntime + ")";
         if (action == "select_target") payload["target_id"] = command["target_id"];
+        if (action == "preview_style") {
+            payload["target_id"] = command["target_id"];
+            payload["styles"] = command["styles"];
+            if (command.contains("ratio_lock")) payload["ratio_lock"] = command["ratio_lock"];
+        }
+        expression = std::string(kPageAnnotationRuntime) + "(" + payload.dump() + "," + kPageAnnotationTextRuntime +
+            "," + kPageAnnotationStyleRuntime + ")";
         busy_ = true;
         ++sequence_;
         return true;
@@ -150,6 +168,14 @@ public:
             return false;
         }
         busy_ = false;
+        if (result.is_object() && result.contains("error") && result["error"].is_string()) {
+            const auto runtime_error = result["error"].get<std::string>();
+            if (runtime_error == "invalid_style_value") error = "Invalid style value";
+            else if (runtime_error == "invalid_current_ratio") error = "Cannot lock zero or unresolved dimensions";
+            else if (runtime_error == "original_view_active") error = "Leave original view before editing";
+            else error = "Invalid or stale annotation result";
+            return false;
+        }
         if (!valid_result(result)) {
             error = "Invalid or stale annotation result";
             return false;
@@ -163,13 +189,25 @@ public:
         }
         const bool changed = action == "save" || action == "original" || active_ != result["active"] ||
             popup_ != result["popup"] || target_ != result["target"] || viewport_ != result["viewport"] ||
-            targets_ != result["targets"] || region_ != result["region"] || selection_mode_ != result["selection_mode"];
+            targets_ != result["targets"] || region_ != result["region"] || selection_mode_ != result["selection_mode"] ||
+            differences_ != result.value("differences", Json::array());
+        if (((action == "preview_style" || action == "preview_text") &&
+             (result["target"].is_null() || result["target"]["id"] != target_["id"])) ||
+            (action == "original" && result.value("original", false) != pending_["enabled"])) {
+            error = "Annotation preview did not complete";
+            return false;
+        }
         if (action == "save") {
+            auto saved_targets = targets_;
+            for (auto& target : saved_targets) {
+                target.erase("style_preview");
+                target.erase("text_preview");
+            }
             records_.push_back({
                 {"id", document_id_ + ":annotation:" + std::to_string(next_number_)},
                 {"number", next_number_++}, {"document_id", document_id_},
                 {"page_id", page_id_},
-                {"description", pending_["description"]}, {"targets", targets_},
+                {"description", pending_["description"]}, {"targets", saved_targets},
                 {"differences", result.value("differences", Json::array())}, {"region", region_},
                 {"status", "pending"}, {"valid", true},
             });
@@ -182,6 +220,7 @@ public:
         selection_mode_ = result["selection_mode"];
         viewport_ = result["viewport"];
         original_ = result.value("original", false);
+        differences_ = targets_.empty() ? Json::array() : result.value("differences", Json::array());
         if (changed) ++revision_;
         return true;
     }
@@ -191,8 +230,54 @@ public:
     }
 
 private:
+    static bool style_field(const std::string& field, bool difference = false) {
+        if (field.empty() || field.find('|') != std::string::npos) return false;
+        static const std::string fields = "|color|background-color|opacity|font-family|font-size|font-weight|"
+            "width|height|letter-spacing|word-spacing|gap|row-gap|column-gap|padding|margin|"
+            "padding-top|padding-right|padding-bottom|padding-left|margin-top|margin-right|margin-bottom|margin-left|"
+            "border-radius|border-color|border-width|border-top-left-radius|border-top-right-radius|"
+            "border-bottom-right-radius|border-bottom-left-radius|border-top-color|border-right-color|"
+            "border-bottom-color|border-left-color|border-top-width|border-right-width|border-bottom-width|border-left-width|";
+        if (fields.find("|" + field + "|") != std::string::npos) return true;
+        return difference && (field == "border-top-style" || field == "border-right-style" ||
+                              field == "border-bottom-style" || field == "border-left-style");
+    }
+
+    static bool valid_styles(const Json& styles) {
+        if (!styles.is_object() || styles.size() > 48) return false;
+        for (const auto& item : styles.items()) {
+            if (!style_field(item.key()) || !item.value().is_string()) return false;
+            const auto& value = item.value().get_ref<const std::string&>();
+            if (value.size() > 256 || value.find_first_of(";{}@!<>\\\r\n") != std::string::npos ||
+                value.find('\0') != std::string::npos) return false;
+        }
+        return true;
+    }
+
+    static bool valid_style_preview(const Json& preview) {
+        if (!preview.is_object() || !preview.contains("ratio_locked") || !preview["ratio_locked"].is_boolean() ||
+            !preview.contains("ratio") || !preview.contains("errors") || !preview["errors"].is_array() ||
+            preview["errors"].size() > 48) return false;
+        if (!preview["ratio"].is_null()) {
+            if (!preview["ratio"].is_number()) return false;
+            const double ratio = preview["ratio"].get<double>();
+            if (!std::isfinite(ratio) || ratio <= 0) return false;
+        }
+        for (const auto& field : {"values", "styles"}) {
+            if (!preview.contains(field) || !preview[field].is_object() || preview[field].size() > 48) return false;
+            for (const auto& item : preview[field].items()) {
+                if (!style_field(item.key(), true) || !item.value().is_string() ||
+                    item.value().get_ref<const std::string&>().size() > 2048) return false;
+            }
+        }
+        for (const auto& error : preview["errors"]) {
+            if (!error.is_string() || error.get_ref<const std::string&>().size() > 128) return false;
+        }
+        return true;
+    }
+
     bool valid_result(const Json& result) const {
-        if (!result.is_object() || result.dump().size() > 262144 ||
+        if (!result.is_object() || result.dump().size() > 4194304 ||
             !result.contains("document_id") || result["document_id"] != document_id_ ||
             !result.contains("active") || !result["active"].is_boolean() ||
             !result.contains("popup") || !result["popup"].is_boolean() ||
@@ -209,12 +294,19 @@ private:
         }
         if (result.contains("original") && !result["original"].is_boolean()) return false;
         if (result.contains("differences")) {
-            if (!result["differences"].is_array() || result["differences"].size() > 64) return false;
+            if (!result["differences"].is_array() || result["differences"].size() > 3136) return false;
+            std::vector<std::pair<std::string, std::string>> seen;
             for (const auto& difference : result["differences"]) {
-                if (!difference.is_object() || std::none_of(targets_.begin(), targets_.end(), [&](const Json& item) {
+                const auto& allowed_targets = pending_["action"] == "save" ? targets_ : result["targets"];
+                if (!difference.is_object() || difference.size() != 4 ||
+                    !difference.contains("property") || !difference["property"].is_string() ||
+                    std::none_of(allowed_targets.begin(), allowed_targets.end(), [&](const Json& item) {
                         return difference.value("target_id", Json()) == item["id"];
                     }) ||
-                    difference.value("property", Json()) != "text") return false;
+                    (difference["property"] != "text" && !style_field(difference["property"].get<std::string>(), true))) return false;
+                const auto identity = std::make_pair(difference["target_id"].get<std::string>(), difference["property"].get<std::string>());
+                if (std::find(seen.begin(), seen.end(), identity) != seen.end()) return false;
+                seen.push_back(identity);
                 for (const auto& field : {"old_value", "new_value"}) {
                     if (!difference.contains(field) || !difference[field].is_string() ||
                         difference[field].get_ref<const std::string&>().size() > 16384) return false;
@@ -223,13 +315,14 @@ private:
             }
         }
         for (const auto& target : result["targets"]) {
-        if (target.contains("text_preview")) {
-            const auto& text = target["text_preview"];
-            if (!text.is_object() || !text.contains("value") || !text["value"].is_string() ||
-                text["value"].get_ref<const std::string&>().size() > 16384 ||
-                !text.contains("editable") || !text["editable"].is_boolean() ||
-                !text.contains("error") || !text["error"].is_string()) return false;
-        }
+            if (target.contains("style_preview") && !valid_style_preview(target["style_preview"])) return false;
+            if (target.contains("text_preview")) {
+                const auto& text = target["text_preview"];
+                if (!text.is_object() || !text.contains("value") || !text["value"].is_string() ||
+                    text["value"].get_ref<const std::string&>().size() > 16384 ||
+                    !text.contains("editable") || !text["editable"].is_boolean() ||
+                    !text.contains("error") || !text["error"].is_string()) return false;
+            }
         }
         for (const auto& field : {"scroll_x", "scroll_y"}) {
             const auto& viewport = result["viewport"];
@@ -261,6 +354,7 @@ private:
     Json selection_mode_ = nullptr;
     Json viewport_ = nullptr;
     Json records_ = Json::array();
+    Json differences_ = Json::array();
     Json pending_;
 };
 

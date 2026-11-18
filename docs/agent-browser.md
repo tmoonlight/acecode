@@ -438,6 +438,50 @@ Windows 翻译单元编译通过，`openspec validate add-html-page-annotations 
 进程故障交互；macOS 编译及同类真实交互；完整原生 CMake/ctest。两个平台的完整工作流
 验收仍待 #201，不能用 Node 的模拟 DOM 或单文件编译代替。
 
+### #195 样式扩展与验证范围
+
+样式入口仍为可信浮窗，不复用源码选择。`page_annotation_style_runtime.hpp` 的
+`kPageAnnotationStyleRuntime` 通过运行时第三参数注入，第二参数留给文本 helper。
+接口为 `select/preview/describe/differences/save/cancel/setOriginal/dispose`；
+`preview(target,id,styles,ratioLock?)` 接受 CSS 属性和值，`save()` 返回真实差异数组。
+每个目标分别保留已保存声明、当前草稿、计算值基线和默认关闭的当前比例锁。
+多目标接入时应保留各目标草稿，不沿用单目标选择入口的全局 cancel。
+
+可信命令新增 `preview_style {target_id,styles,ratio_lock?}`、`original {enabled}`。
+快照新增 `original/differences`，目标的 `style_preview` 包含
+`values/styles/ratio_locked/ratio/errors`。控制器在入队时绑定目标和文档，浮窗保存前
+刷新尚未失焦的编辑；失败保留输入以便重试。样式差异使用展开后的 CSS 属性与实际
+计算值，原始输入的等价写法不形成差异。边框原为 none 时，宽度编辑派生 solid，
+该真实变化也进入差异。没有 HTML/CSS 磁盘写入或页面可访问的会话 bridge。
+
+样式层采用各 Document/ShadowRoot 的独立 constructed stylesheet，不改原行内声明；
+取消仅撤当前草稿，模式退出保留已保存层。原始页面比较临时停用两层，保留图钉；
+恢复时草稿与已保存预览重现。原页面长过渡在取消/比较时即时结算后恢复原声明。
+
+**尚存限制，不视为完整关闭 #195：** 原始 inline `!important` 无法被独立 author
+stylesheet 覆盖且同时保持原声明不变。界面显示冲突，差异只保留实际生效的变化；
+author cascade layer 内的 important 也可能优先于未分层预览规则。任务 2.1 因此
+保持未完成，不能把未生效请求记录为成功。全部批准字段在普通 CSS 下已由真实
+Chromium CSS 引擎验证；这一结果不等于任意站点的完整层叠覆盖。
+
+新增验证：`pnpm --dir web test:annotations:browser` 启动独立临时 headless Chromium
+profile，覆盖全部属性、简写展开、真实差异、比例锁、同目标保存/取消、原始比较、
+过渡、克隆清理、ShadowRoot、trusted 鼠标输入与实际隔离运行时。可通过
+`ACECODE_TEST_BROWSER` 指定 Chromium 可执行文件。浮窗 JSX 行为由
+`node web/src/lib/pageAnnotationPopup.test.js` 覆盖，原生模型测试为
+`PageAnnotationSessionTest.*`。新增测试不使用共享原生 build 输出目录。
+
+2026-11-19 在 #195 独立工作树：原生模型 10/10、运行时/控制器、浮窗 JSX 4 项、
+真实 Chromium 样式/隔离运行时测试通过；完整 `pnpm --dir web test` 最终通过。
+较早完整测试曾出现测试结束后的异步断言失败，未修改无关基线测试；带诊断监听的
+完整重跑及最终 pnpm 重跑均通过。`pnpm --dir web build`（含 regex compatibility）、
+`openspec validate add-html-page-annotations --strict` 与 `git diff --check` 通过。
+构建仍有既有大 chunk 提示。原生测试直接编译到系统临时目录，只读借用已安装依赖，
+未触及集成工作树、原始工作树或共享原生 build 的输出。
+
+未执行真实 Windows/macOS Desktop 浮窗、焦点、遮挡和全部属性交互验收，未执行
+macOS 编译、完整原生链接或 CTest；这些检查不能由 headless CSS 测试代替。
+
 ## 常见故障
 
 - “Open ACECode Desktop”：工具运行在 daemon，但没有兼容的 Windows Desktop 或

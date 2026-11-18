@@ -55,7 +55,8 @@ function fixture(markup = '<button id="target">Hello <strong>world</strong>!<spa
     return JSON.parse(JSON.stringify(vm.runInContext(
       `${runtime}(${JSON.stringify({action, document_id:'doc',
         ...(current ? {target_ids:current.targets.map(item => item.id), region:current.region} : {}),
-        ...fields})}, ${textRuntime})`, context,
+        ...fields})}, ${textRuntime}, () => ({describe:() => ({}), differences:() => [],
+          select() {}, save:() => [], cancel() {}, setOriginal() {}, dispose() {}}))`, context,
     )));
   };
   const click = node => listeners.get(node === target ? document : node).get('click')({

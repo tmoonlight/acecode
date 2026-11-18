@@ -462,6 +462,17 @@ export function AgentBrowserPanel({
           >
             批注
           </button>
+          {(annotations.snapshot.active || annotations.snapshot.records?.length > 0) && (
+            <button
+              type="button"
+              className={clsx('ace-agent-browser-toolbar-button', annotations.snapshot.original && 'is-checked')}
+              disabled={!nativePageVisible || annotations.working || !annotations.snapshot.document_id}
+              aria-pressed={!!annotations.snapshot.original}
+              onClick={() => annotations.command('original', { enabled: !annotations.snapshot.original })}
+            >
+              原始页面
+            </button>
+          )}
           <button
             type="button"
             className={clsx(

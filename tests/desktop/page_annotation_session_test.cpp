@@ -22,6 +22,7 @@ protected:
     Json result(bool active = true, bool popup = false, Json target = nullptr) const {
         return {{"document_id", session.snapshot()["document_id"]},
                 {"active", active}, {"popup", popup}, {"target", target},
+                {"original", false}, {"differences", Json::array()},
                 {"targets", target.is_null() ? Json::array() : Json::array({target})},
                 {"region", nullptr}, {"selection_mode", nullptr},
                 {"viewport", {{"width", 800}, {"height", 600}, {"scroll_x", 0}, {"scroll_y", 0}}}};
@@ -332,6 +333,115 @@ TEST_F(PageAnnotationSessionTest, RejectsMalformedTargetArraysRegionsAndForeignI
     request["region"] = {{"x", 0}, {"y", 0}, {"width", 1}, {"height", 1}};
     EXPECT_FALSE(prepare(request));
     EXPECT_TRUE(session.snapshot()["records"].empty());
+}
+
+TEST_F(PageAnnotationSessionTest, StyleCommandsAreRestrictedToTheActiveExactTargetAndDocument) {
+    start();
+    auto request = command("preview_style");
+    request["target_id"] = "target-1";
+    request["styles"] = {{"color", "blue"}};
+    EXPECT_FALSE(prepare(request));
+    select();
+    request["target_id"] = "another-target";
+    EXPECT_FALSE(prepare(request));
+    request["target_id"] = "target-1";
+    for (const auto& styles : {Json{{"position", "fixed"}}, Json{{"color", "red; width:999px"}},
+                              Json{{"color", 1}}, Json{{"width", std::string(257, 'x')}},
+                              Json{{"color|background-color", "red"}}, Json::array()}) {
+        request["styles"] = styles;
+        EXPECT_FALSE(prepare(request)) << styles;
+    }
+    request["styles"] = {{"width", "200px"}};
+    request["ratio_lock"] = "true";
+    EXPECT_FALSE(prepare(request));
+    request["ratio_lock"] = true;
+    ASSERT_TRUE(prepare(request)) << error;
+    EXPECT_NE(expression.find("\"ratio_lock\":true"), std::string::npos);
+    EXPECT_NE(expression.find("CSSStyleSheet"), std::string::npos);
+    auto stale = result(true, true, target());
+    stale["target"]["id"] = "another-target";
+    EXPECT_FALSE(session.complete(session.sequence(), stale, error));
+    ASSERT_TRUE(prepare(request));
+    ASSERT_TRUE(session.complete(session.sequence(), result(true, true, target()), error));
+}
+
+TEST_F(PageAnnotationSessionTest, SavesAcknowledgedActualStyleDifferencesAsImmutableRecords) {
+    start();
+    select();
+    const Json differences = Json::array({{{"target_id", "target-1"}, {"property", "color"},
+        {"old_value", "rgb(255, 0, 0)"}, {"new_value", "rgb(0, 0, 255)"}}});
+    auto request = command("preview_style");
+    request["target_id"] = "target-1";
+    request["styles"] = {{"color", "blue"}};
+    ASSERT_TRUE(prepare(request));
+    auto preview = result(true, true, target());
+    preview["differences"] = differences;
+    ASSERT_TRUE(session.complete(session.sequence(), preview, error));
+    EXPECT_EQ(session.snapshot()["differences"], differences);
+    request = command("save");
+    request["description"] = "";
+    request["target_id"] = "target-1";
+    ASSERT_TRUE(prepare(request));
+    auto saved = result();
+    saved["differences"] = differences;
+    ASSERT_TRUE(session.complete(session.sequence(), saved, error));
+    EXPECT_EQ(session.snapshot()["records"][0]["differences"], differences);
+    EXPECT_EQ(session.snapshot()["differences"], Json::array());
+    const auto record = session.snapshot()["records"][0];
+    select();
+    ASSERT_TRUE(prepare(command("cancel")));
+    ASSERT_TRUE(session.complete(session.sequence(), result(), error));
+    EXPECT_EQ(session.snapshot()["records"][0], record);
+}
+
+TEST_F(PageAnnotationSessionTest, RejectsNoOpUnknownAndForeignDifferencesWithoutAllocatingPins) {
+    start();
+    select();
+    auto request = command("save");
+    request["description"] = "";
+    request["target_id"] = "target-1";
+    const Json difference{{"target_id", "target-1"}, {"property", "width"},
+                          {"old_value", "100px"}, {"new_value", "200px"}};
+    for (const auto& alteration : {Json{{"target_id", "foreign"}}, Json{{"property", "script"}},
+                                   Json{{"new_value", "100px"}}, Json{{"old_value", 100}}}) {
+        auto malformed = result();
+        auto changed = difference;
+        changed.update(alteration);
+        malformed["differences"] = Json::array({changed});
+        ASSERT_TRUE(prepare(request));
+        EXPECT_FALSE(session.complete(session.sequence(), malformed, error));
+        EXPECT_EQ(session.snapshot()["pending_count"], 0);
+    }
+    save("First real record");
+    EXPECT_EQ(session.snapshot()["records"][0]["number"], 1);
+}
+
+TEST_F(PageAnnotationSessionTest, OriginalToggleIsIndependentOfModeAndRetainsRecordsAndPins) {
+    start();
+    select();
+    save("Saved");
+    const auto records = session.snapshot()["records"];
+    ASSERT_TRUE(prepare(command("exit")));
+    ASSERT_TRUE(session.complete(session.sequence(), result(false), error));
+    auto request = command("original");
+    EXPECT_FALSE(prepare(request));
+    request["enabled"] = true;
+    ASSERT_TRUE(prepare(request));
+    auto comparison = result(false);
+    comparison["original"] = true;
+    ASSERT_TRUE(session.complete(session.sequence(), comparison, error));
+    EXPECT_EQ(session.snapshot()["original"], true);
+    EXPECT_EQ(session.snapshot()["records"], records);
+    request["enabled"] = false;
+    ASSERT_TRUE(prepare(request));
+    EXPECT_FALSE(session.complete(session.sequence(), comparison, error));
+    ASSERT_TRUE(prepare(request));
+    ASSERT_TRUE(session.complete(session.sequence(), result(false), error));
+    EXPECT_EQ(session.snapshot()["original"], false);
+    EXPECT_EQ(session.snapshot()["records"], records);
+    session.replace_document();
+    EXPECT_EQ(session.snapshot()["original"], false);
+    EXPECT_EQ(session.snapshot()["differences"], Json::array());
 }
 
 } // namespace

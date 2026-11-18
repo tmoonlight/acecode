@@ -9,8 +9,8 @@
 ## 2. Reversible style previews (#195)
 
 - [ ] 2.1 Implement all approved style fields through independent stylesheet layers and actual-difference filtering; verify every property and untouched original inline styles.
-- [ ] 2.2 Add default-off current-ratio lock and draft-only cancellation over saved layers; verify repeated edits of the same target.
-- [ ] 2.3 Add original-view comparison retaining pins and restoring previews; verify round trips and mode exit.
+- [x] 2.2 Add default-off current-ratio lock and draft-only cancellation over saved layers; verify repeated edits of the same target.
+- [x] 2.3 Add original-view comparison retaining pins and restoring previews; verify round trips and mode exit.
 
 ## 3. Visible text previews (#196)
 

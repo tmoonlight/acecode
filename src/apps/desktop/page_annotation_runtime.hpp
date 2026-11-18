@@ -3,7 +3,7 @@
 namespace acecode::desktop {
 
 inline constexpr const char kPageAnnotationRuntime[] = R"ACEANNOTATION(
-((command, createTextPreview) => {
+((command, createTextPreview, createStyles) => {
   const key = '__acecodePageAnnotationsV1';
   let runtime = globalThis[key];
   if (runtime && command.action === 'start' && runtime.document_id !== command.document_id) {
@@ -25,6 +25,7 @@ inline constexpr const char kPageAnnotationRuntime[] = R"ACEANNOTATION(
     const ids = new WeakMap();
     const pins = [];
     const textPreview = createTextPreview();
+    const styles = createStyles(rootDocument);
     let original = false;
     const host = document.createElement('div');
     host.style.cssText = 'all:initial;position:fixed;inset:0;pointer-events:none;z-index:2147483647';
@@ -64,7 +65,8 @@ inline constexpr const char kPageAnnotationRuntime[] = R"ACEANNOTATION(
     const summary = target => ({id:ids.get(target), tag:target.localName.slice(0, 64),
       text:(target.innerText || target.textContent || '').slice(0, 512),
       locator:target.localName + (target.id ? '#' + target.id.slice(0, 128) : ''), bounds:rect(target),
-      text_preview:textPreview.describe(target, ids.get(target))});
+      text_preview:textPreview.describe(target, ids.get(target)),
+      style_preview:styles.describe(target, ids.get(target))});
     const layout = () => {
       const visible = active && connected(selected) && selectionMode !== 'region';
       outline.style.display = visible ? 'block' : 'none';
@@ -93,6 +95,7 @@ inline constexpr const char kPageAnnotationRuntime[] = R"ACEANNOTATION(
       const target = connected(selected) ? summary(selected) : null;
       return {document_id:documentId, active, popup:!!(target || region) && open, target,
         targets:targets.map(summary), region, selection_mode:selectionMode, original,
+        differences:[...textPreview.differences(), ...styles.differences()],
         viewport:{width:innerWidth, height:innerHeight, scroll_x:scrollX, scroll_y:scrollY}};
     };
     const select = event => {
@@ -109,6 +112,7 @@ inline constexpr const char kPageAnnotationRuntime[] = R"ACEANNOTATION(
       selected = target;
       if (!ids.has(target)) ids.set(target, `target-${++sequence}`);
       selectedId = ids.get(target);
+      styles.select(target, selectedId);
       selectionMode = null;
       layout();
     };
@@ -165,6 +169,7 @@ inline constexpr const char kPageAnnotationRuntime[] = R"ACEANNOTATION(
       }
       active = false;
       textPreview.cancel();
+      styles.cancel();
       clearDraft();
       layout();
     };
@@ -190,6 +195,7 @@ inline constexpr const char kPageAnnotationRuntime[] = R"ACEANNOTATION(
     sizes?.observe(document.documentElement);
     runtime = Object.freeze({document_id:documentId, dispose() {
       textPreview.dispose();
+      styles.dispose();
       mutations?.disconnect();
       sizes?.disconnect();
       document.removeEventListener('pointerdown', pointerDown, true);
@@ -207,9 +213,15 @@ inline constexpr const char kPageAnnotationRuntime[] = R"ACEANNOTATION(
       switch (next.action) {
         case 'start': active = true; break;
         case 'read': break;
-        case 'exit': textPreview.cancel(); active = false; clearDraft(); break;
-        case 'cancel': textPreview.cancel(); clearDraft(); break;
-        case 'original': original = next.enabled; textPreview.setOriginal(original); break;
+        case 'exit': textPreview.cancel(); styles.cancel(); active = false; clearDraft(); break;
+        case 'cancel': textPreview.cancel(); styles.cancel(); clearDraft(); break;
+        case 'original': original = next.enabled; textPreview.setOriginal(original); styles.setOriginal(original); break;
+        case 'preview_style': {
+          if (!active || !open || selectionMode || !connected(selected) || selectedId !== next.target_id) return {error:'stale_target'};
+          try { styles.preview(selected, selectedId, next.styles, next.ratio_lock); }
+          catch (error) { return {error:String(error.message)}; }
+          break;
+        }
         case 'preview_text': {
           if (!active || !open || selectionMode || !connected(selected) || selectedId !== next.target_id) return {error:'stale_target'};
           const result = textPreview.preview(selected, selectedId, next.text);
@@ -226,6 +238,7 @@ inline constexpr const char kPageAnnotationRuntime[] = R"ACEANNOTATION(
           if (!active || !open || selectionMode || !connected(target)) return {error:'stale_target'};
           selected = target;
           selectedId = ids.get(target);
+          styles.select(target, selectedId);
           break;
         }
         case 'select_region':
@@ -239,8 +252,10 @@ inline constexpr const char kPageAnnotationRuntime[] = R"ACEANNOTATION(
               JSON.stringify(targets.map(target => ids.get(target))) !== JSON.stringify(next.target_ids) ||
               (region ? !next.region || ['x','y','width','height'].some(field => region[field] !== next.region[field])
                 : next.region !== null)) return {error:'stale_target'};
+          if (original) return {error:'original_view_active'};
           const result = textPreview.save();
           if (result.error) return result;
+          const differences = [...result.differences, ...styles.save()];
           const marker = document.createElement('span');
           marker.textContent = String(next.number);
           marker.style.cssText = 'position:fixed;pointer-events:none;border-radius:12px;padding:2px 6px;background:Highlight;color:HighlightText';
@@ -254,7 +269,7 @@ inline constexpr const char kPageAnnotationRuntime[] = R"ACEANNOTATION(
           }
           pins.push({targets:[...targets], region, marker, outline:savedOutline});
           clearDraft();
-          return {...snapshot(), differences:result.differences};
+          return {...snapshot(), differences};
         }
         default: return {error:'unsupported_action'};
       }

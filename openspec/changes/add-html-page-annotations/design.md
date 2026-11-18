@@ -113,3 +113,44 @@ large static-import workload; the same failure reproduces with the unchanged
 base-commit runner (without the new text suites). That suite passes standalone.
 This unrelated full-suite scheduling failure remains unresolved, not a passed
 acceptance check.
+## #195 style implementation and extension contract
+
+`page_annotation_style_runtime.hpp` exports `kPageAnnotationStyleRuntime`, a
+`rootDocument => helper` factory supplied as argument 3 to `kPageAnnotationRuntime`.
+Argument 2 remains reserved for the text helper. The style helper exposes
+`select(target,id)`, `preview(target,id,styles,ratioLock?)`, `describe(target,id)`,
+`differences()`, `save()`, `cancel()`, `setOriginal(enabled)` and `dispose()`.
+`save()` returns an array of actual `{target_id,property,old_value,new_value}`
+differences. Each exact target has independent saved declarations and a draft
+with its own computed baseline, touched properties and default-off current ratio.
+The single-target selection adapter cancels its previous draft; the multi-target
+adapter must retain those drafts instead. Text integration should validate its
+save before committing styles and concatenate both helpers' difference arrays.
+
+The trusted command additions are `preview_style {target_id,styles,ratio_lock?}`
+and `original {enabled}`. Native `PageAnnotationSession` validates fields and
+acknowledged differences before storing an immutable record. Runtime snapshots
+include `original`, `differences`, and per-target `style_preview` with `values`,
+`styles`, `ratio_locked`, `ratio` and `errors`. Saved target summaries omit the
+editor-only `style_preview`. The existing serialized controller binds document
+and target at enqueue, including previews. The popup flushes dirty inputs before
+save and retains edits made while another preview is in flight.
+
+Constructed stylesheets belong to each Document/ShadowRoot; original inline
+declarations and author stylesheet membership remain untouched. Exact targets
+receive random marker attributes; copied attributes are removed from clones.
+Mode exit/cancel removes drafts only. Original view temporarily disables saved
+and draft style declarations without removing pins. Transition suppression is
+settled before restoring author declarations so cancellation/comparison does not
+leave a long-running transition. A requested border width on a border with style
+`none` derives `solid`; actual per-side style/width changes are recorded too.
+
+**Remaining cascade blocker:** an independent author stylesheet cannot override
+an existing inline `!important` declaration while also preserving that declaration.
+The helper reports `inline_important:<property>` and does not fabricate a change.
+Important rules inside author cascade layers can also outrank unlayered important
+preview declarations. This is not full arbitrary-page cascade coverage; task 2.1
+remains open rather than accepting an undocumented exception or changing original
+inline styles. Normal inline/stylesheet declarations and every approved field are
+covered by actual Chromium CSS tests. Real Windows/macOS Desktop acceptance is
+still outstanding and is not implied by those tests.

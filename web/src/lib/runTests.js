@@ -422,3 +422,4 @@ import './composerSelection.test.js';
 
 // The hook fixture controls browser globals; isolate it from other test modules.
 runHookTest(process.execPath, [hookTestPath(new URL('./sessionTranscriptLoading.test.js', import.meta.url))], { stdio: 'inherit' });
+runHookTest(process.execPath, [hookTestPath(new URL('./pageAnnotationPopup.test.js', import.meta.url))], { stdio: 'inherit' });

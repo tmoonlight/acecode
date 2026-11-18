@@ -9,6 +9,8 @@ const source = fs.readFileSync(new URL('../../../src/apps/desktop/page_annotatio
 const runtime = source.split('R"ACEANNOTATION(')[1].split(')ACEANNOTATION"')[0];
 const textSource = fs.readFileSync(new URL('../../../src/apps/desktop/page_annotation_text_runtime.hpp', import.meta.url), 'utf8');
 const textRuntime = textSource.split('R"ACETEXT(')[1].split(')ACETEXT"')[0];
+const styleSource = fs.readFileSync(new URL('../../../src/apps/desktop/page_annotation_style_runtime.hpp', import.meta.url), 'utf8');
+const styleRuntime = styleSource.split('R"ACESTYLES(')[1].split(')ACESTYLES"')[0];
 
 function fixture() {
   const documentListeners = new Map();
@@ -22,18 +24,23 @@ function fixture() {
   let document;
   const element = (tag) => ({
     nodeType: 1, localName: tag, ownerDocument: document, isConnected: true,
-    style: { cssText: '' }, children: [], listeners: new Map(), id: '', textContent: '',
+    style: { cssText: '', getPropertyValue: () => '', getPropertyPriority: () => '' },
+    attributes: new Map(), children: [], listeners: new Map(), id: '', textContent: '',
     get childNodes() { return this.children; },
     offsetWidth: 80, offsetHeight: 24,
     bounds: { x: 10, y: 20, width: 100, height: 40 },
     append(...children) { children.forEach(child => { child.parent = this; }); this.children.push(...children); },
     remove() { this.parent.children = this.parent.children.filter(child => child !== this); },
     attachShadow() { this.shadow = element('shadow'); return this.shadow; },
-    setAttribute() {},
+    setAttribute(name, value) { this.attributes.set(name, value); },
+    getAttribute(name) { return this.attributes.get(name) ?? null; },
+    removeAttribute(name) { this.attributes.delete(name); },
+    getRootNode() { return document; },
     addEventListener(type, listener) { this.listeners.set(type, listener); },
     getBoundingClientRect() { return this.bounds; },
   });
   document = {
+    adoptedStyleSheets: [], querySelectorAll: () => [],
     createElement: element,
     addEventListener(type, listener) { documentListeners.set(type, listener); },
     removeEventListener(type) { documentListeners.delete(type); },
@@ -47,7 +54,11 @@ function fixture() {
   target.append(child);
   const context = vm.createContext({
     document, innerWidth: 800, innerHeight: 600, scrollX: 0, scrollY: 0,
-    getComputedStyle: () => ({ display: 'block', visibility: 'visible' }),
+    crypto: { getRandomValues: values => values.fill(1) },
+    CSS: { supports: () => true },
+    CSSStyleSheet: class { replaceSync() {} },
+    getComputedStyle: () => ({ display: 'block', visibility: 'visible',
+      getPropertyValue: field => ({ width: '100px', height: '40px' })[field] || '' }),
     MutationObserver: Observer, ResizeObserver: Observer,
     addEventListener(type, listener) { windowListeners.set(type, listener); },
     removeEventListener(type) { windowListeners.delete(type); },
@@ -57,7 +68,7 @@ function fixture() {
     return JSON.parse(JSON.stringify(vm.runInContext(
       `${runtime}(${JSON.stringify({ action, document_id: 'doc-1',
         ...(current ? { target_ids: current.targets.map(item => item.id), region: current.region } : {}),
-        ...fields })}, ${textRuntime})`, context,
+        ...fields })}, ${textRuntime}, ${styleRuntime})`, context,
     )));
   };
   const event = (node, trusted = true, fields = {}) => ({
@@ -106,7 +117,7 @@ function fixture() {
   assert.equal(shadow.children[1].style.display, 'none');
   assert.equal(shadow.children[3].style.display, 'block');
   page.target.bounds = { x: 150, y: 250, width: 100, height: 40 };
-  page.observers[0].callback();
+  page.observers.forEach(observer => observer.callback());
   assert.equal(shadow.children[3].style.left, '150px');
   assert.equal(shadow.children[3].style.top, '250px');
   assert.equal(page.target.style.cssText, 'color: red');
@@ -301,7 +312,8 @@ function fixture() {
   const popup = vm.runInNewContext(`${compiled.code}\nPageAnnotationPopup`, {
     React,
     PageAnnotationTextField: () => null,
-    useRef: () => ({ current: null }), useEffect: () => {}, useLayoutEffect: () => {},
+    clearTimeout, setTimeout,
+    useRef: value => ({ current: value ?? null }), useEffect: () => {}, useLayoutEffect: () => {},
     useState: initial => {
       const index = cursor++;
       if (!(index in hooks)) hooks[index] = initial;
@@ -323,6 +335,7 @@ function fixture() {
   textarea(render()).props.onChange({ target: { value: 'Shared request for every target' } });
   let tree = render();
   nodes(tree).find(node => node.type === 'button' && node.props.children === '添加元素').props.onClick();
+  await Promise.resolve();
   assert.equal(calls.at(-1)[0], 'add_target');
   snapshot.selection_mode = 'element';
   tree = render();
