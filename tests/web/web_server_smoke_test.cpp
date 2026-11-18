@@ -52,6 +52,8 @@
 #include "session/attachment_store.hpp"
 #include "session/pasted_text_attachment.hpp"
 #include "session/session_manager.hpp"
+#include "session/session_serializer.hpp"
+#include "session/request_context_record.hpp"
 #include "session/session_pin_store.hpp"
 #include "session_host/session_registry.hpp"
 #include "session_host/session_auto_title.hpp"
@@ -7242,6 +7244,18 @@ TEST(WebServerHttp, AnnotationBatchReturnsMatchingReceiptAndRejectsConflictingRe
         cpr::Header{{"Content-Type", "application/json"}}, cpr::Body{R"({})"});
     ASSERT_EQ(create.status_code, 201) << create.text;
     const auto session_id = json::parse(create.text)["session_id"].get<std::string>();
+    auto entry = fx.registry->acquire(session_id);
+    ASSERT_NE(entry, nullptr);
+    acecode::ChatMessage context;
+    context.role = "user";
+    context.uuid = "annotation-http-context";
+    context.is_meta = true;
+    context.subtype = acecode::kRequestContextSnapshot;
+    context.content = "<request-context>\n<execution>\nShell sandbox: read-only\n</execution>\n</request-context>";
+    context.metadata = {{"request_context_version", 1},
+                        {"context_state", {{"execution", "Shell sandbox: read-only"}}}};
+    entry->loop->push_message(context);
+    entry->sm->on_message(context);
     const auto url = fx.url("/api/sessions/" + session_id + "/messages");
     const json payload{{"text", "annotation changes"},
                        {"annotation_batch_id", "batch-http-1"},
@@ -7295,23 +7309,31 @@ TEST(WebServerHttp, AnnotationBatchReturnsMatchingReceiptAndRejectsConflictingRe
     EXPECT_EQ(json::parse(lookup_conflict.text)["error"], "annotation_batch_conflict");
 
     int user_messages = 0;
+    bool context_seen = false;
     const auto deadline = std::chrono::steady_clock::now() + 10s;
     while (std::chrono::steady_clock::now() < deadline) {
         const auto response = cpr::Get(cpr::Url{url});
         ASSERT_EQ(response.status_code, 200) << response.text;
         user_messages = 0;
-          const auto body = json::parse(response.text);
-          for (const auto& message : body["messages"]) {
-            if (message.value("role", "") != "user") continue;
+        const auto body = json::parse(response.text);
+        for (const auto& message : body["messages"]) {
+            const auto record = acecode::deserialize_message_json(message);
+            if (record.uuid == context.uuid) {
+                EXPECT_TRUE(acecode::is_request_context_record(record));
+                context_seen = true;
+            }
+            if (!acecode::is_real_user_message(record)) continue;
             ++user_messages;
             EXPECT_EQ(message.value("content", ""), "annotation changes");
-            EXPECT_EQ(message["metadata"]["annotation_batch_id"], "batch-http-1");
-            EXPECT_EQ(message["metadata"]["client_message_id"], "batch-client-1");
+            ASSERT_TRUE(record.metadata.is_object());
+            EXPECT_EQ(record.metadata.value("annotation_batch_id", ""), "batch-http-1");
+            EXPECT_EQ(record.metadata.value("client_message_id", ""), "batch-client-1");
         }
         if (user_messages != 0) break;
         std::this_thread::sleep_for(20ms);
     }
     EXPECT_EQ(user_messages, 1);
+    EXPECT_TRUE(context_seen);
 }
 
 TEST(WebServerHttp, AnnotationBatchCannotSteerOrChangeSessionSettings) {
