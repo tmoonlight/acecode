@@ -3,6 +3,7 @@
 #ifdef __APPLE__
 
 #include "agent_browser_cookie_jars.hpp"
+#include "agent_browser_capture.hpp"
 #include "agent_browser_macos_helpers.hpp"
 #include "agent_browser_navigation_state.hpp"
 #include "ipc/agent_browser_runtime.hpp"
@@ -2302,7 +2303,124 @@ void AgentBrowserHost::Impl::capture_screenshot(
     const std::shared_ptr<Page>& page,
     const json& params,
     const std::shared_ptr<PendingProxyCall>& pending) {
-    (void)params;
+    bool full_page = false;
+    const auto request_error = browser_capture::request_mode(params, full_page);
+    if (!request_error.empty()) {
+        finish_proxy_call(pending, {{"ok", false}, {"page_id", page->id},
+            {"error", request_error}, {"recoverable", true}});
+        return;
+    }
+    if (full_page) {
+        const auto weak = weak_from_this();
+        const auto navigation_id = page->navigation.current_navigation_id();
+        const auto view = std::shared_ptr<WKWebView>([page->webview retain],
+            [](WKWebView* value) { [value release]; });
+        const auto current = [weak, page, view, navigation_id, pending] {
+            const auto self = weak.lock();
+            {
+                std::lock_guard<std::mutex> lock(pending->mutex);
+                if (pending->completed) return false;
+            }
+            return self && self->find_page(page->id) == page && !page->closing &&
+                page->webview == view.get() && !page->state.loading &&
+                page->navigation.current_navigation_id() == navigation_id &&
+                page->state.content_state == kAgentBrowserContentStateLive &&
+                self->page_shared_with_agent(page);
+        };
+        const browser_capture::Measure measure = [weak, page, current](
+            browser_capture::Measured done) {
+            const auto self = weak.lock();
+            if (!self || !current()) { done({}, "capture_document_changed"); return; }
+            const auto expression = std::string(R"JS((() => {
+                const key = '__acecodeFullPageCaptureDocument';
+                if (!globalThis[key] || globalThis[key].document !== document) {
+                    globalThis[key] = { document, id: )JS") +
+                        json(acecode::generate_uuid()).dump() + R"JS( };
+                }
+                const root = document.documentElement;
+                const body = document.body;
+                return { document: globalThis[key].id,
+                    width: Math.max(innerWidth, root?.scrollWidth || 0,
+                        root?.offsetWidth || 0, body?.scrollWidth || 0, body?.offsetWidth || 0),
+                    height: Math.max(innerHeight, root?.scrollHeight || 0,
+                        root?.offsetHeight || 0, body?.scrollHeight || 0, body?.offsetHeight || 0) };
+            })())JS";
+            self->evaluate_value(page, expression, [done](bool ok, json value, std::string error) {
+                if (!ok) { done({}, "capture_measure_failed: " + error); return; }
+                if (!value.is_object() || !value.contains("width") ||
+                    !value["width"].is_number() || !value.contains("height") ||
+                    !value["height"].is_number() || !value.contains("document") ||
+                    !value["document"].is_string()) {
+                    done({}, "capture_invalid_bounds"); return;
+                }
+                done({0, 0, value["width"].get<double>(), value["height"].get<double>(),
+                    value["document"].get<std::string>()}, {});
+            });
+        };
+        const browser_capture::Capture capture = [view, current](
+            const browser_capture::Bounds& bounds, browser_capture::Captured done) {
+            if (!current()) { done({}, "capture_document_changed"); return; }
+            WKPDFConfiguration* configuration = [[[WKPDFConfiguration alloc] init] autorelease];
+            const auto width = static_cast<std::size_t>(std::ceil(bounds.width));
+            const auto height = static_cast<std::size_t>(std::ceil(bounds.height));
+            configuration.rect = CGRectMake(bounds.x, bounds.y,
+                width, height);
+            [view.get() createPDFWithConfiguration:configuration
+                completionHandler:^(NSData* data, NSError* error) {
+                if (!current()) { done({}, "capture_document_changed"); return; }
+                if (error || !data) { done({}, "capture_native_failed"); return; }
+                if (data.length > browser_capture::kMaxPngBytes) {
+                    done({}, "capture_resource_limit"); return;
+                }
+                const auto provider = std::unique_ptr<CGDataProvider, decltype(&CGDataProviderRelease)>(
+                    CGDataProviderCreateWithCFData((CFDataRef)data), CGDataProviderRelease);
+                const auto pdf = std::unique_ptr<CGPDFDocument, decltype(&CGPDFDocumentRelease)>(
+                    provider ? CGPDFDocumentCreateWithProvider(provider.get()) : nullptr,
+                    CGPDFDocumentRelease);
+                if (!pdf || CGPDFDocumentGetNumberOfPages(pdf.get()) != 1) {
+                    done({}, "capture_incomplete_image"); return;
+                }
+                const auto pdf_page = CGPDFDocumentGetPage(pdf.get(), 1);
+                const CGRect box = CGPDFPageGetBoxRect(pdf_page, kCGPDFMediaBox);
+                if (std::abs(box.size.width - width) > 0.01 ||
+                    std::abs(box.size.height - height) > 0.01) {
+                    done({}, "capture_incomplete_image"); return;
+                }
+                const auto color = std::unique_ptr<CGColorSpace, decltype(&CGColorSpaceRelease)>(
+                    CGColorSpaceCreateDeviceRGB(), CGColorSpaceRelease);
+                if (!color) { done({}, "capture_resource_limit"); return; }
+                const auto bitmap = std::unique_ptr<CGContext, decltype(&CGContextRelease)>(
+                    CGBitmapContextCreate(nullptr, width, height, 8, width * 4,
+                        color.get(), kCGImageAlphaPremultipliedLast), CGContextRelease);
+                if (!bitmap) { done({}, "capture_resource_limit"); return; }
+                CGContextSetRGBFillColor(bitmap.get(), 1, 1, 1, 1);
+                CGContextFillRect(bitmap.get(), CGRectMake(0, 0, width, height));
+                CGContextConcatCTM(bitmap.get(), CGPDFPageGetDrawingTransform(
+                    pdf_page, kCGPDFMediaBox, CGRectMake(0, 0, width, height), 0, false));
+                CGContextDrawPDFPage(bitmap.get(), pdf_page);
+                const auto image = std::unique_ptr<CGImage, decltype(&CGImageRelease)>(
+                    CGBitmapContextCreateImage(bitmap.get()), CGImageRelease);
+                if (!image) { done({}, "capture_native_failed"); return; }
+                NSBitmapImageRep* representation = [[[NSBitmapImageRep alloc]
+                    initWithCGImage:image.get()] autorelease];
+                NSData* png = [representation representationUsingType:NSBitmapImageFileTypePNG
+                    properties:@{}];
+                if (!png || png.length > browser_capture::kMaxPngBytes) {
+                    done({}, "capture_resource_limit"); return;
+                }
+                try {
+                    done(std::string(static_cast<const char*>(png.bytes), png.length), {});
+                } catch (const std::bad_alloc&) {
+                    done({}, "capture_resource_limit");
+                }
+            }];
+        };
+        std::make_shared<browser_capture::FullPageCapture>(page->id,
+            params.value("documentId", ""), measure, capture, current,
+            [pending](json response) { finish_proxy_call(pending, std::move(response)); })
+            ->start();
+        return;
+    }
     // Objective-C blocks retain C++ values, but a reference parameter would
     // otherwise leave the asynchronous callback pointing at the caller's
     // short-lived shared_ptr object.
@@ -2694,6 +2812,16 @@ json AgentBrowserHost::Impl::execute_proxy_request(const json& request) {
         pending->ready.wait_for(lock, std::chrono::milliseconds(50));
     }
     if (pending->completed) return pending->response;
+    bool full_page = false;
+    if (request.value("method", "") == "Page.captureScreenshot" &&
+        browser_capture::request_mode(request.value("params", json::object()), full_page).empty() &&
+        full_page) {
+        pending->completed = true;
+        pending->response = {{"ok", false}, {"page_id", request.value("page_id", "")},
+            {"error", proxy_stopping.load() ? "capture_stopped" : "capture_timeout"},
+            {"recoverable", true}};
+        return pending->response;
+    }
     return {{"ok", false},
             {"page_id", request.value("page_id", "")},
             {"error", proxy_stopping.load()

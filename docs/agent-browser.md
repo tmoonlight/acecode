@@ -103,6 +103,41 @@ CSS 缩放或 Browser 面板宽高影响，返回同样的图片附件与文件�
 像素、总计最多 32 兆像素、PNG 最多 16 MiB。无效、未就绪或不可见的画板会报错，
 不会改用页面截图。
 
+### Explicit full-page capture
+
+`browser_screenshot(full_page: true)` uses the existing screenshot/attachment path.
+At the authenticated native proxy boundary, send `Page.captureScreenshot` with
+`{"fullPage":true}` (the existing `captureBeyondViewport:true` spelling is also
+supported). Omitted/false flags retain the existing viewport behavior. Conflicting
+flags, a crop/quality override, or a non-PNG full-page request are rejected rather
+than silently downgraded. This adds no webpage messaging or conversation capability.
+
+Windows uses CDP document CSS bounds and an explicit beyond-viewport clip, normalized
+to one PNG pixel per CSS pixel without changing device emulation or viewport size.
+macOS uses WebKit's full-document PDF capture boundary and rasterizes its single
+complete page in memory, without resizing the view or scrolling/stitching viewport
+snapshots. The original viewport snapshot path remains unchanged. WebKit PDF rendering
+is not a promise to capture protected media or every accelerated/video surface.
+
+Full-page success returns one base64 PNG, `fullPage:true`, `captureBeyondViewport:true`,
+`width`, `height`, and an opaque `documentId`. Callers may supply that returned
+`documentId` to reject a later capture of a replaced document; it is a capture-backend
+token, not an annotation-runtime document identifier. The selected native page/view,
+navigation, sharing permission, document identity and full bounds are checked across
+capture. Changed documents/layouts fail instead of returning an image of another page.
+The dimensions and PNG chunk integrity are checked before publishing success.
+
+Limits are 32768 pixels per side, 32 Mi pixels total and 32 MiB encoded PNG (before
+base64). Invalid bounds, resource exhaustion, missing/incomplete native output,
+navigation/close, timeout or shutdown fail; no clipped/viewport substitute is returned.
+Capture-operation errors carry `ok:false`, `recoverable:true`, `page_id`, and a
+`capture_*` error (for example `capture_resource_limit`, `capture_document_changed`,
+`capture_incomplete_image`, `capture_native_failed`, or `capture_timeout`). Existing
+proxy authentication/page-resolution errors keep their existing response contract.
+Keep the pending batch on failure and retry explicitly. Real Windows/macOS long-page
+pixel acceptance remains a separate required check; automated contract tests alone
+do not establish native rendering fidelity.
+
 macOS 的交互工具（click/fill/type/press/hover/drag/scroll）额外暴露
 `input_mode: "synthetic" | "native"`，由 Agent 按页面需要显式选择：
 
@@ -269,8 +304,8 @@ Agent 浏览器」都能切换三档，默认**共享**：
 
 - 只在 macOS 14+ 激活；更低系统版本、Linux 或没有完整 Desktop bridge 时前端不会把它
   视为可用 backend。
-- `browser_screenshot` 使用 `takeSnapshotWithConfiguration`，当前返回可见 viewport 的
-  PNG，不承诺 CDP `captureBeyondViewport` 的整页语义。
+- `browser_screenshot` 默认使用 `takeSnapshotWithConfiguration` 返回可见 viewport；
+  显式整页请求使用上述 PDF 捕获/PNG 栅格化边界，失败时不降级为 viewport。
 - 页面理解和 synthetic 输入依赖 DOM，可访问当前文档和同源 frame；跨源 iframe、浏览器
   原生弹层以及站点封闭的实现细节不保证可操作。遇到 trusted-event 检查可显式改用
   `native`，但 native 仍不能绕过网页权限、系统安全提示或不可见页面约束。

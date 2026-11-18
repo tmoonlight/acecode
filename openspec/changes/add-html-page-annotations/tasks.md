@@ -27,6 +27,25 @@
 - [ ] 5.1 Add explicit full-page capture on Windows preserving viewport defaults; verify bounds/resource failures and beyond-viewport capture.
 - [ ] 5.2 Add explicit full-page capture on macOS preserving viewport defaults; verify native implementation and capture contract tests.
 
+Ticket #198 implementation: explicit `fullPage`/`captureBeyondViewport` routing,
+document/page-bound capture orchestration, bounds/PNG budgets and recoverable failures
+are implemented. Windows uses CDP full-document bounds/clip; macOS uses WebKit PDF
+capture plus complete-single-page PNG rasterization. Viewport paths remain separate.
+
+Verified locally on Windows: 11 focused `AgentBrowserCapture` GoogleTests pass using
+an isolated MSVC build; `agent_browser_host.cpp` compiles independently against the
+existing SDK headers without configuring/installing vcpkg. The Windows smoke source
+also compiles, and WIC successfully decodes the tall PNG test fixture's bottom green
+pixel. These tests cover request
+defaults, malformed/conflicting requests, tall-image contract, resource/bounds limits,
+truncated/corrupt PNG, stale page/document/layout/scale callbacks and retry after failure.
+Native smoke helpers now include a deterministic tall-page probe that decodes PNG
+pixels below the viewport, checks viewport/scroll preservation, rejects stale document
+tokens/resource overflow and retries. The native probes have not been executed here.
+Windows full native link/runtime acceptance and macOS compile/runtime/pixel acceptance
+remain unverified; 5.1/5.2 stay unchecked rather than claiming platform acceptance.
+`openspec validate add-html-page-annotations --strict` and `git diff --check` pass.
+
 ## 6. Reliable batch send (#199)
 
 - [ ] 6.1 Freeze sendable membership and initiating session, capture/upload one full-page image before submitting; verify composer preservation, differences-only requests and concurrent additions.

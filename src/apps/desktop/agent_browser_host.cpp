@@ -1,6 +1,7 @@
 #include "agent_browser_host.hpp"
 
 #include "agent_browser_cookie_jars.hpp"
+#include "agent_browser_capture.hpp"
 #include "agent_browser_navigation_state.hpp"
 #include "ipc/agent_browser_runtime.hpp"
 #include "ipc/agent_browser_store_state.hpp"
@@ -18,6 +19,7 @@
 #include <chrono>
 #include <condition_variable>
 #include <cstdint>
+#include <cwchar>
 #include <filesystem>
 #include <functional>
 #include <memory>
@@ -2180,6 +2182,155 @@ struct AgentBrowserHost::Impl
         return true;
     }
 
+    void capture_command(
+        const std::shared_ptr<Page>& page, const std::string& method,
+        const nlohmann::json& params,
+        std::function<void(nlohmann::json, std::string)> completion) {
+        const bool screenshot = method == "Page.captureScreenshot";
+        const auto callback = Microsoft::WRL::Callback<
+            ICoreWebView2CallDevToolsProtocolMethodCompletedHandler>(
+            [completion, screenshot](HRESULT result, LPCWSTR raw) -> HRESULT {
+                if (FAILED(result)) {
+                    completion({}, "capture_native_failed: " + hresult_text(result));
+                    return S_OK;
+                }
+                constexpr auto max_response = ((browser_capture::kMaxPngBytes + 2) / 3) * 4 + 1024;
+                if (screenshot && raw && wcsnlen(raw, max_response + 1) > max_response) {
+                    completion({}, "capture_resource_limit");
+                    return S_OK;
+                }
+                try {
+                    auto value = nlohmann::json::parse(
+                        raw ? acecode::wide_to_utf8(raw) : "", nullptr, false);
+                    if (!value.is_object() || value.contains("error")) {
+                        completion({}, "capture_native_failed");
+                    } else {
+                        completion(std::move(value), {});
+                    }
+                } catch (const std::bad_alloc&) {
+                    completion({}, "capture_resource_limit");
+                }
+                return S_OK;
+            });
+        const auto wide_method = acecode::utf8_to_wide(method);
+        const auto wide_params = acecode::utf8_to_wide(params.dump());
+        const HRESULT started = page->webview->CallDevToolsProtocolMethod(
+            wide_method.c_str(), wide_params.c_str(), callback.Get());
+        if (FAILED(started)) completion({}, "capture_dispatch_failed");
+    }
+
+    void capture_screenshot(
+        const std::shared_ptr<Page>& page, const nlohmann::json& params,
+        const std::shared_ptr<PendingProxyCall>& pending) {
+        const auto weak = weak_from_this();
+        const auto webview = page->webview;
+        const auto navigation_id = page->navigation.current_navigation_id();
+        const auto controller_generation = page->controller_generation;
+        const auto current = [weak, page, webview, navigation_id, controller_generation, pending] {
+            const auto self = weak.lock();
+            {
+                std::lock_guard<std::mutex> lock(pending->mutex);
+                if (pending->completed) return false;
+            }
+            return self && self->find_page(page->id) == page && !page->closing &&
+                page->webview == webview && page->controller_generation == controller_generation &&
+                page->navigation.current_navigation_id() == navigation_id &&
+                !page->state.loading &&
+                page->state.content_state == kAgentBrowserContentStateLive &&
+                self->page_shared_with_agent(page);
+        };
+        const browser_capture::Measure measure = [weak, page, current](browser_capture::Measured done) {
+            const auto self = weak.lock();
+            if (!self || !current()) { done({}, "capture_document_changed"); return; }
+            self->capture_command(page, "Page.getFrameTree", nlohmann::json::object(),
+                [weak, page, current, done](nlohmann::json tree, std::string error) {
+                    const auto owner = weak.lock();
+                    if (!owner || !current()) { done({}, "capture_document_changed"); return; }
+                    if (!error.empty()) { done({}, error); return; }
+                    if (!tree.contains("frameTree") || !tree["frameTree"].is_object() ||
+                        !tree["frameTree"].contains("frame") ||
+                        !tree["frameTree"]["frame"].is_object()) {
+                        done({}, "capture_invalid_bounds"); return;
+                    }
+                    const auto frame = tree["frameTree"]["frame"];
+                    if (!frame.contains("loaderId") || !frame["loaderId"].is_string() ||
+                        !frame.contains("id") || !frame["id"].is_string()) {
+                        done({}, "capture_invalid_bounds"); return;
+                    }
+                    const std::string document = frame.value("loaderId", "");
+                    owner->capture_command(page, "Page.getLayoutMetrics", nlohmann::json::object(),
+                        [weak, page, current, frame, document, done](nlohmann::json metrics, std::string metrics_error) {
+                            if (!metrics_error.empty()) { done({}, metrics_error); return; }
+                            const auto self = weak.lock();
+                            if (!self || !current()) { done({}, "capture_document_changed"); return; }
+                            const auto size = metrics.value("cssContentSize", nlohmann::json::object());
+                            if (!size.contains("width") || !size["width"].is_number() ||
+                                !size.contains("height") || !size["height"].is_number() ||
+                                !size.contains("x") || !size["x"].is_number() ||
+                                !size.contains("y") || !size["y"].is_number()) {
+                                done({}, "capture_invalid_bounds");
+                                return;
+                            }
+                            const browser_capture::Bounds bounds{size["x"].get<double>(),
+                                size["y"].get<double>(), size["width"].get<double>(),
+                                size["height"].get<double>(), document};
+                            self->capture_command(page, "Page.createIsolatedWorld",
+                                {{"frameId", frame["id"]}, {"worldName", "acecode.full-page-capture"}},
+                                [weak, page, current, bounds, done](nlohmann::json world, std::string world_error) {
+                                    if (!world_error.empty()) { done({}, world_error); return; }
+                                    const auto owner = weak.lock();
+                                    if (!owner || !current()) { done({}, "capture_document_changed"); return; }
+                                    if (!world.contains("executionContextId") ||
+                                        !world["executionContextId"].is_number_integer()) {
+                                        done({}, "capture_measure_failed"); return;
+                                    }
+                                    owner->capture_command(page, "Runtime.evaluate",
+                                        {{"expression", "window.devicePixelRatio"},
+                                         {"contextId", world["executionContextId"]}, {"returnByValue", true}},
+                                        [bounds, done](nlohmann::json value, std::string value_error) mutable {
+                                            if (!value_error.empty()) { done({}, value_error); return; }
+                                            if (!value.contains("result") || !value["result"].is_object() ||
+                                                !value["result"].contains("value") ||
+                                                !value["result"]["value"].is_number()) {
+                                                done({}, "capture_measure_failed"); return;
+                                            }
+                                            auto measured = bounds;
+                                            measured.device_scale = value["result"]["value"].get<double>();
+                                            done(std::move(measured), {});
+                                        });
+                                });
+                        });
+                });
+        };
+        const browser_capture::Capture capture = [weak, page, current](
+            const browser_capture::Bounds& bounds, browser_capture::Captured done) {
+            const auto self = weak.lock();
+            if (!self || !current()) { done({}, "capture_document_changed"); return; }
+            self->capture_command(page, "Page.captureScreenshot",
+                {{"format", "png"}, {"fromSurface", true}, {"captureBeyondViewport", true},
+                 {"clip", {{"x", bounds.x}, {"y", bounds.y},
+                           {"width", std::ceil(bounds.width)},
+                           {"height", std::ceil(bounds.height)}, {"scale", 1 / bounds.device_scale}}}},
+                [done](nlohmann::json result, std::string error) {
+                    if (!error.empty()) { done({}, error); return; }
+                    const auto encoded = result.find("data");
+                    if (encoded == result.end() || !encoded->is_string()) {
+                        done({}, "capture_invalid_png"); return;
+                    }
+                    if (encoded->get_ref<const std::string&>().size() >
+                        ((browser_capture::kMaxPngBytes + 2) / 3) * 4) {
+                        done({}, "capture_resource_limit"); return;
+                    }
+                    const auto bytes = acecode::base64_decode(encoded->get_ref<const std::string&>());
+                    done(bytes.value_or(""), bytes ? "" : "capture_invalid_png");
+                });
+        };
+        std::make_shared<browser_capture::FullPageCapture>(
+            page->id, params.value("documentId", ""), measure, capture, current,
+            [pending](nlohmann::json response) { finish_proxy_call(pending, std::move(response)); })
+            ->start();
+    }
+
     void call_cdp_on_ui(
         const std::string& requested_page,
         const AgentBrowserPageOwner& owner,
@@ -2213,6 +2364,19 @@ struct AgentBrowserHost::Impl
             page->queued_cdp.push_back({method, params, pending});
             if (environment) begin_create_controller(page);
             return;
+        }
+        if (method == "Page.captureScreenshot") {
+            bool full_page = false;
+            const auto error = browser_capture::request_mode(params, full_page);
+            if (!error.empty()) {
+                finish_proxy_call(pending, {{"ok", false}, {"page_id", page_id},
+                    {"error", error}, {"recoverable", true}});
+                return;
+            }
+            if (full_page) {
+                capture_screenshot(page, params, pending);
+                return;
+            }
         }
         const std::wstring wide_method = acecode::utf8_to_wide(method);
         const std::wstring wide_params = acecode::utf8_to_wide(
@@ -2425,6 +2589,16 @@ struct AgentBrowserHost::Impl
             pending->ready.wait_for(lock, std::chrono::milliseconds(50));
         }
         if (pending->completed) return pending->response;
+        bool full_page = false;
+        if (request.value("method", "") == "Page.captureScreenshot" &&
+            browser_capture::request_mode(request.value("params", nlohmann::json::object()), full_page).empty() &&
+            full_page) {
+            pending->completed = true;
+            pending->response = {{"ok", false}, {"page_id", request.value("page_id", "")},
+                {"error", proxy_stopping.load() ? "capture_stopped" : "capture_timeout"},
+                {"recoverable", true}};
+            return pending->response;
+        }
         return {{"ok", false},
                 {"page_id", request.value("page_id", "")},
                 {"error", proxy_stopping.load()

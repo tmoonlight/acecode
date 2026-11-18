@@ -220,7 +220,7 @@ if(WIN32 AND ACECODE_BUILD_DESKTOP)
         webview::core
         cpr::cpr
         nlohmann_json::nlohmann_json
-        ole32 user32 ws2_32
+        ole32 user32 ws2_32 windowscodecs uuid
     )
     if(MSVC)
         set_target_properties(agent_browser_host_smoke PROPERTIES

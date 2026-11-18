@@ -15,6 +15,24 @@ See proposal.md for motivation and GitHub spec #193 for the complete approved co
 1. Separate page runtime locating/markers/previews from trusted popup and batch state. Render the popup over the browser using host-controlled overlay/surface coordination (or native hosting where needed), never in the chat column. Reuse existing trusted desktop bridging, validate page/document identity on every command/result, and keep page execution incapable of submitting conversations. Arbitrary page messages are not privileged commands.
 2. Store semantic records with stable IDs, monotonically increasing numbers, page/document identity, target summaries/locators, one optional page-coordinate region, shared description, per-target actual differences and pending/sending/sent state. Runtime DOM references do not cross transport. Preview stylesheet and reversible text-node records form independent layers; cancellation removes the current layer only. Original view disables previews while retaining markers. Preserve original inline styles and child-node identity.
 3. Reuse supported native capture boundaries with an explicit full-page request, preserving current viewport defaults. Native adapters must capture beyond the viewport or report an error; bounded resource failures must not silently truncate. Tie capture to the same document snapshot used by the frozen batch.
+
+   Capture implementation (#198): the existing authenticated `Page.captureScreenshot`
+   proxy accepts `fullPage:true` or `captureBeyondViewport:true`; omitted/false stays on
+   the viewport path. Windows measures CDP CSS content bounds and the top-frame loader,
+   reads device scale in an isolated world, and captures an explicit beyond-viewport
+   clip at CSS-pixel resolution. macOS measures in the existing isolated automation
+   world and uses `WKWebView.createPDF` with the entire document rect, validating a
+   single complete PDF page before in-memory PNG rasterization. Neither path resizes
+   the viewport, scrolls/stitches partial images, writes files or exposes a page bridge.
+   The async operation rechecks the native page/view, navigation, sharing permission,
+   document identity and bounds; changed documents/layouts, native errors, budget
+   overflow and incomplete PNG dimensions/chunks fail recoverably. An opaque returned
+   capture `documentId` can be passed back for a later capture, but is not implicitly
+   interchangeable with annotation-runtime document identities. Batch integration must
+   retain its initiating document binding rather than substitute tokens between the
+   two boundaries. Limits are 32768 pixels per side, 32 Mi pixels and 32 MiB PNG.
+   Platform long-page pixel acceptance remains required; WebKit PDF does not promise
+   protected-media/accelerated-video fidelity.
 4. Batch controller freezes IDs/session, captures and prepares a single attachment, then invokes existing conversation submission with explicit queue behavior. Do not use composer state as a buffer. Reuse one batch identity for uncertain retries and implement receiving-side duplicate acceptance rather than relying only on a generated client ID. Receipt drives sent status; capture, upload and request failures do not erase records.
 5. Navigation guards operate before host-directed transitions; document/target invalidation handles transitions that cannot be prevented. No locator fallback, no auto-send, no new saved-record deletion. Invalid batches remain blocked during the current application run.
 6. Highest test seam is annotation interaction through conversation submission. Use existing frontend behavioral tests, native GoogleTests and browser runtime smoke helpers for supplemental state/DOM/capture tests. Windows/macOS complete desktop acceptance remains separate and cannot be checked off with source-only assertions.
