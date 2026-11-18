@@ -44,7 +44,7 @@ function fixture(options = {}) {
   const test = fixture();
   const before = structuredClone(test.snapshot.records);
   assert.equal((await test.sender.send(test.context)).ok, true);
-  assert.deepEqual(test.calls.map(call => call.action), ['capture', 'upload', 'validate', 'send', 'acknowledge']);
+  assert.deepEqual(test.calls.map(call => call.action), ['capture', 'upload', 'validate', 'send', 'release', 'acknowledge']);
   const sent = test.calls.find(call => call.action === 'send');
   assert.equal(sent.session, 'session-1');
   assert.deepEqual(Object.keys(sent.payload).sort(), ['annotation_batch_id', 'attachments', 'text']);
@@ -251,7 +251,7 @@ for (const code of ['annotation_batch_unavailable', 'annotation_batch_capacity',
   } });
   assert.equal((await test.sender.send(test.context)).ok, false);
   assert.equal((await test.sender.send(test.context)).ok, true);
-  assert.deepEqual(test.calls.map(call => call.action), ['capture', 'upload', 'validate', 'send', 'send', 'validate', 'send', 'acknowledge']);
+  assert.deepEqual(test.calls.map(call => call.action), ['capture', 'upload', 'validate', 'send', 'release', 'send', 'validate', 'send', 'release', 'acknowledge']);
   const sends = test.calls.filter(call => call.action === 'send');
   assert.deepEqual(sends[0].payload, sends[1].payload);
   assert.deepEqual(sends[0].payload, sends[2].payload);
@@ -273,6 +273,46 @@ for (const lookupResult of ['malformed', 'wrong-id', 'generic-404', 'missing-wro
   assert.equal(test.calls.filter(call => call.action === 'validate').length, 1, 'ambiguous lookup must not authorize admission');
   assert.equal(test.calls.filter(call => call.action === 'send' && !call.mode).length, 1);
   assert.equal(test.calls.some(call => call.action === 'acknowledge'), false);
+}
+
+{
+  const gate = deferred();
+  const entered = deferred();
+  const test = fixture({ async send(payload) {
+    entered.resolve();
+    await gate.promise;
+    return { queued: true, annotation_batch_id: payload.annotation_batch_id };
+  } });
+  const flight = test.sender.send(test.context);
+  await entered.promise;
+  assert.equal(test.calls.some(call => call.action === 'release'), false);
+  const validation = test.calls.find(call => call.action === 'validate');
+  assert.equal(validation.command.lease_id, 'batch-1');
+  gate.resolve();
+  assert.equal((await flight).ok, true);
+  assert.equal(test.calls.find(call => call.action === 'release').command.lease_id, 'batch-1');
+}
+
+{
+  const test = fixture({ native(command) {
+    if (command.action === 'validate') throw new Error('validation response lost');
+  } });
+  assert.equal((await test.sender.send(test.context)).ok, false);
+  assert.equal(test.calls.some(call => call.action === 'send'), false);
+  assert.equal(test.calls.at(-1).action, 'release');
+  assert.equal(test.calls.at(-1).command.lease_id, 'batch-1');
+}
+
+{
+  let releases = 0;
+  const test = fixture({ native(command) {
+    if (command.action === 'release' && ++releases === 1) throw new Error('release response lost');
+  } });
+  assert.equal((await test.sender.send(test.context)).ok, false);
+  assert.equal(test.calls.some(call => call.action === 'acknowledge'), false);
+  assert.equal((await test.sender.send(test.context)).ok, true);
+  assert.equal(test.calls.filter(call => call.action === 'send').length, 1);
+  assert.equal(releases, 2);
 }
 
 console.log('pageAnnotationBatches tests passed');

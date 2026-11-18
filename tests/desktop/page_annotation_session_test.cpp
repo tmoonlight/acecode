@@ -62,6 +62,35 @@ protected:
     std::string error;
 };
 
+TEST_F(PageAnnotationSessionTest, PassivePollIsBoundedAndNeverAdvancesCommandSequence) {
+    EXPECT_EQ(session.begin_poll(), 0);
+    start();
+    const auto sequence = session.sequence();
+    const auto first = session.begin_poll();
+    EXPECT_NE(first, 0);
+    EXPECT_EQ(session.sequence(), sequence);
+    EXPECT_FALSE(session.pollable());
+    EXPECT_EQ(session.begin_poll(), 0);
+    EXPECT_FALSE(session.finish_poll(first + 1));
+    EXPECT_TRUE(session.finish_poll(first));
+    EXPECT_FALSE(session.finish_poll(first));
+    const auto suspended = session.begin_poll();
+    session.suspend();
+    EXPECT_FALSE(session.finish_poll(suspended));
+    const auto replaced = session.begin_poll();
+    session.replace_document();
+    start();
+    const auto current = session.begin_poll();
+    EXPECT_FALSE(session.finish_poll(replaced));
+    EXPECT_FALSE(session.pollable());
+    EXPECT_TRUE(session.finish_poll(current));
+    EXPECT_TRUE(session.navigation.acquire("batch"));
+    EXPECT_EQ(session.begin_poll(), 0);
+    EXPECT_TRUE(session.navigation.release("batch"));
+    EXPECT_TRUE(session.navigation.reserve());
+    EXPECT_EQ(session.begin_poll(), 0);
+}
+
 TEST_F(PageAnnotationSessionTest, SaveCreatesImmutableDescriptionOnlyPendingRecordWithoutConversation) {
     start();
     select();
@@ -499,6 +528,71 @@ TEST_F(PageAnnotationSessionTest, SubmissionRejectsInvalidDocumentMembershipAndC
     EXPECT_EQ(session.snapshot()["pending_count"], 0);
     EXPECT_EQ(session.snapshot()["records"].size(), 1);
     EXPECT_EQ(session.snapshot()["records"][0]["valid"], false);
+}
+
+TEST_F(PageAnnotationSessionTest, LifecycleReportsAreAtomicDocumentBoundAndSticky) {
+    start(); select(); save("Retain");
+    const auto before = session.snapshot();
+    for (const auto& numbers : {Json::array({0}), Json::array({1, 1}), Json::array({"1"}), Json::array({1, 2})}) {
+        EXPECT_FALSE(session.observe_lifecycle({{"document_id", session.document_id()}, {"invalid_numbers", numbers}}));
+        EXPECT_EQ(session.snapshot(), before);
+    }
+    EXPECT_FALSE(session.observe_lifecycle({{"document_id", "wrong"}, {"invalid_numbers", Json::array({1})}}));
+    EXPECT_TRUE(session.observe_lifecycle({{"document_id", session.document_id()}, {"invalid_numbers", Json::array({1})}}));
+    EXPECT_EQ(session.snapshot()["records"][0]["valid"], false);
+    EXPECT_EQ(session.snapshot()["records"][0]["invalid_reason"], "target_removed");
+    EXPECT_TRUE(session.observe_lifecycle({{"document_id", session.document_id()}, {"invalid_numbers", Json::array()}}));
+    EXPECT_EQ(session.snapshot()["records"][0]["valid"], false);
+    auto request = command("validate");
+    request["record_ids"] = Json::array({before["records"][0]["id"]});
+    EXPECT_FALSE(session.submission(request, expression, error));
+    EXPECT_EQ(session.snapshot()["pending_count"], 1);
+}
+
+TEST_F(PageAnnotationSessionTest, NavigationAndSendAreOrderedWhileLateReceiptsRemainReconcileable) {
+    start(); select(); save("Retain");
+    auto request = command("validate");
+    request["record_ids"] = Json::array({session.snapshot()["records"][0]["id"]});
+    request["lease_id"] = "batch";
+    ASSERT_TRUE(session.submission(request, expression, error));
+    EXPECT_FALSE(session.navigation.reserve());
+    EXPECT_FALSE(prepare(command("start")));
+    session.replace_document();
+    EXPECT_TRUE(session.navigation.sending());
+    auto release = request;
+    release["action"] = "release";
+    release["lease_id"] = "other";
+    EXPECT_FALSE(session.submission(release, expression, error));
+    release["lease_id"] = "batch";
+    EXPECT_TRUE(session.submission(release, expression, error));
+    request.erase("lease_id");
+    request["action"] = "acknowledge";
+    EXPECT_TRUE(session.submission(request, expression, error));
+    EXPECT_EQ(session.snapshot()["records"][0]["status"], "sent");
+    EXPECT_EQ(session.snapshot()["records"][0]["valid"], false);
+    EXPECT_EQ(session.snapshot()["pending_count"], 0);
+}
+
+TEST_F(PageAnnotationSessionTest, NavigationSuspendsOldCallbacksWithoutDiscardingRecordsOnFailure) {
+    start(); select(); save("Retain");
+    ASSERT_TRUE(prepare(command("read")));
+    const auto old = session.sequence();
+    const auto response = result();
+    ASSERT_TRUE(session.navigation.reserve());
+    ASSERT_TRUE(session.navigation.arm());
+    ASSERT_TRUE(session.navigation.start());
+    session.suspend();
+    EXPECT_FALSE(session.complete(old, response, error));
+    EXPECT_FALSE(prepare(command("read")));
+    session.navigation.finish();
+    EXPECT_EQ(session.snapshot()["records"][0]["valid"], true);
+    ASSERT_TRUE(prepare(command("read")));
+    EXPECT_TRUE(session.complete(session.sequence(), result(), error));
+    ASSERT_TRUE(prepare(command("read")));
+    EXPECT_TRUE(session.complete(session.sequence(), {{"error", "replaced_document"}}, error));
+    EXPECT_EQ(session.snapshot()["records"][0]["valid"], false);
+    EXPECT_EQ(session.snapshot()["pending_count"], 1);
+    EXPECT_TRUE(session.document_id().empty());
 }
 
 } // namespace

@@ -10,6 +10,29 @@ using AnnotationEvaluation = std::function<void(const std::string&,
 using AnnotationUpdate = std::function<void(const std::string&)>;
 using AnnotationCapture = std::function<void(const std::shared_ptr<PendingProxyCall>&,
     const std::string&)>;
+using AnnotationLifecycle = std::function<bool(const nlohmann::json&, const std::string&)>;
+
+template <typename Host, typename Page>
+AnnotationLifecycle annotation_lifecycle(std::weak_ptr<Host> weak, std::weak_ptr<Page> weak_page) {
+    return [weak, weak_page](const nlohmann::json& result, const std::string& release) {
+        const auto host = weak.lock();
+        const auto page = weak_page.lock();
+        if (!host || !page || page->closing || host->find_page(page->id) != page) return false;
+        const auto revision = page->annotations.revision();
+        if (!release.empty()) page->annotations.navigation.release(release);
+        bool valid = false;
+        if (result.is_object() && result.contains("error") && result["error"] == "replaced_document") {
+            page->annotations.replace_document();
+        } else if (!page->annotations.navigation.blocked()) {
+            valid = page->annotations.observe_lifecycle(result);
+        }
+        const auto snapshot = page->annotations.snapshot().dump();
+        if (revision != page->annotations.revision()) {
+            host->update_page(page, [snapshot](AgentBrowserState& state) { state.page_annotations_json = snapshot; });
+        }
+        return valid;
+    };
+}
 
 template <typename Host, typename Page>
 void annotation_host_result(const std::weak_ptr<Host>& weak,
@@ -38,22 +61,26 @@ void annotation_host_result(const std::weak_ptr<Host>& weak,
 inline bool annotation_host_submission(PageAnnotationSession& session,
     const std::string& page_id, const nlohmann::json& command,
     const std::function<void(std::string)>& completion, AnnotationEvaluation evaluate,
-    AnnotationUpdate update, AnnotationCapture capture) {
+    AnnotationUpdate update, AnnotationCapture capture, AnnotationLifecycle lifecycle = {}) {
     if (!command.is_object() || !command.contains("action") ||
         (command["action"] != "capture" && command["action"] != "validate" &&
-         command["action"] != "acknowledge")) return false;
+         command["action"] != "acknowledge" && command["action"] != "release")) return false;
     std::string expression;
     std::string error;
     if (!session.submission(command, expression, error)) {
         completion(nlohmann::json{{"ok", false}, {"error", error}}.dump());
-    } else if (command["action"] == "acknowledge") {
+    } else if (command["action"] == "acknowledge" || command["action"] == "release") {
         const auto snapshot = session.snapshot();
         update(snapshot.dump());
         completion(nlohmann::json{{"ok", true}, {"page_id", page_id},
             {"annotations", snapshot}}.dump());
     } else if (command["action"] == "validate") {
-        evaluate(expression, [completion, page_id](bool ok, nlohmann::json result) {
-            completion(nlohmann::json{{"ok", ok && result.is_object() && result.value("valid", false)},
+        const auto lease = command.value("lease_id", "");
+        evaluate(expression, [completion, page_id, lifecycle, lease](bool ok, nlohmann::json result) {
+            const bool valid = ok && result.is_object() && result.contains("valid") && result["valid"] == true;
+            const bool current = !lifecycle || lifecycle(result, valid ? "" : lease);
+            if (valid && !current && lifecycle) lifecycle(nlohmann::json(), lease);
+            completion(nlohmann::json{{"ok", valid && current},
                 {"page_id", page_id}, {"error", "Annotation target or document changed"}}.dump());
         });
     } else {
@@ -72,7 +99,7 @@ inline browser_capture::Validate annotation_capture_validation(
     if (expression.empty()) return {};
     return [expression, evaluate](std::function<void(bool)> done) {
         evaluate(expression, [done](bool ok, nlohmann::json value) {
-            done(ok && value.is_object() && value.value("valid", false));
+            done(ok && value.is_object() && value.contains("valid") && value["valid"] == true);
         });
     };
 }

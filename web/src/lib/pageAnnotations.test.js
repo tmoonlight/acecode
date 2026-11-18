@@ -17,9 +17,10 @@ function fixture() {
   const windowListeners = new Map();
   const observers = [];
   class Observer {
-    constructor(callback) { this.callback = callback; this.active = true; observers.push(this); }
+    constructor(callback) { this.callback = callback; this.active = true; this.records = []; observers.push(this); }
     observe() {}
     disconnect() { this.active = false; }
+    takeRecords() { return this.records.splice(0); }
   }
   let document;
   const element = (tag) => ({
@@ -114,9 +115,6 @@ function fixture() {
   assert.equal(shadow.children[3].textContent, '1');
   assert.equal(page.run('validate_batch', { target_ids: ['target-1'] }).valid, true);
   assert.equal(page.run('validate_batch', { target_ids: ['unknown'] }).valid, false);
-  page.target.isConnected = false;
-  assert.equal(page.run('validate_batch', { target_ids: ['target-1'] }).valid, false);
-  page.target.isConnected = true;
   page.run('exit');
   assert.equal(shadow.children[0].style.display, 'none');
   assert.equal(shadow.children[1].style.display, 'none');
@@ -125,6 +123,11 @@ function fixture() {
   page.observers.forEach(observer => observer.callback());
   assert.equal(shadow.children[3].style.left, '150px');
   assert.equal(shadow.children[3].style.top, '250px');
+  page.target.isConnected = false;
+  assert.equal(page.run('validate_batch', { target_ids: ['target-1'] }).valid, false);
+  page.target.isConnected = true;
+  assert.deepEqual(page.run('read').invalid_numbers, [1]);
+  assert.equal(shadow.children[3].style.display, 'none');
   assert.equal(page.target.style.cssText, 'color: red');
   assert.equal(page.target.textContent, 'Original content');
   assert.equal(page.target.children[0], page.child);
@@ -138,7 +141,7 @@ function fixture() {
   assert.equal(page.run('read').target.id, 'target-1');
   page.documentListeners.get('keydown')(page.event(page.target, true, { key: 'Escape' }));
   assert.equal(page.run('read').active, false);
-  assert.equal(shadow.children[3].style.display, 'block');
+  assert.equal(shadow.children[3].style.display, 'none');
   const pageWorld = vm.createContext({ document: page.document });
   assert.equal(vm.runInContext('typeof __acecodePageAnnotationsV1', pageWorld), 'undefined');
   assert.equal(page.run('read', { document_id: 'doc-2' }).error, 'stale_document');
@@ -150,6 +153,38 @@ function fixture() {
   assert.equal(page.document.documentElement.children[0].shadow.children.length, 3);
   assert.equal(page.run('read').error, 'stale_document');
   console.log('[pass] annotation runtime selects, opens, cancels, saves immutable pins and exits without changing content');
+}
+
+{
+  for (const ancestorRemoval of [false, true]) {
+    const page = fixture();
+    const ancestor = page.element('section');
+    page.target.parentNode = ancestor;
+    page.run('start'); page.click(); page.control();
+    page.run('add_target');
+    const second = page.element('aside');
+    page.choose(second);
+    page.run('add_region'); page.pointer('pointerdown', 1, 2); page.pointer('pointerup', 40, 50);
+    page.run('save', { target_id: null, number: 1 });
+    page.run('exit');
+    const removed = ancestorRemoval ? ancestor : page.target;
+    page.observers.forEach(observer => observer.records.push({ removedNodes: [removed] }));
+    assert.equal(page.target.isConnected, true);
+    const validation = page.run('validate_batch', { target_ids: ['target-1', 'target-2'], record_numbers: [1] });
+    assert.equal(validation.valid, false);
+    assert.deepEqual(validation.invalid_numbers, [1]);
+    assert.equal(page.run('validate_batch', { target_ids: ['target-2'], record_numbers: [1] }).valid, false);
+    const similar = page.element('button'); similar.id = page.target.id;
+    page.run('start'); page.choose(similar);
+    assert.equal(page.run('read').target.id, 'target-3');
+    assert.deepEqual(page.run('read').invalid_numbers, [1]);
+  }
+  const draft = fixture();
+  draft.run('start'); draft.click(); draft.control();
+  draft.observers.forEach(observer => observer.records.push({ removedNodes: [draft.target] }));
+  assert.equal(draft.run('read').popup, false);
+  assert.deepEqual(draft.run('read').targets, []);
+  console.log('[pass] queued exact-node/ancestor removal is sticky across reinsertion, invalidates multi-target regions and never relocates similar nodes');
 }
 
 {

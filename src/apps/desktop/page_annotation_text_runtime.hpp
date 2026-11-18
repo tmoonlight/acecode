@@ -173,6 +173,14 @@ inline constexpr const char kPageAnnotationTextRuntime[] = R"ACETEXT(
       return {differences};
     },
     cancel() { drafts.clear(); render(); releaseUnused(); },
+    invalidate(ids) {
+      for (let index = saved.length - 1; index >= 0; --index) {
+        if (ids.has(saved[index].entry.id)) saved.splice(index, 1);
+      }
+      for (const id of ids) drafts.delete(id);
+      render();
+      releaseUnused();
+    },
     setOriginal(enabled) { original = enabled; render(); },
     dispose() { saved.length = 0; drafts.clear(); original = true; render(); entries.clear(); originals.clear(); writes.clear(); },
   });

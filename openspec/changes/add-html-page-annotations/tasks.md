@@ -96,8 +96,30 @@ extraction is being implemented separately; no baseline exceptions are added her
 
 ## 7. Navigation and invalidation (#200)
 
-- [ ] 7.1 Guard active navigation/refresh with default-stay confirmation and no auto-send; verify all host entry paths.
-- [ ] 7.2 Retain invalid unsent records on document replacement or target removal and block affected batches without relocation; verify stale callbacks and absent conversation.
+- [x] 7.1 Guard active navigation/refresh with default-stay confirmation and no auto-send; verify all host entry paths.
+- [x] 7.2 Retain invalid unsent records on document replacement or target removal and block affected batches without relocation; verify stale callbacks and absent conversation.
+
+Ticket #200: document replacement retains invalid unsent records and numbering; exact
+element/ancestor removal (including shadow roots and remove/reinsert in one turn)
+invalidates the whole saved record without locator relocation and restores previews.
+Page-coordinate regions survive scrolling and mode exit. Default-stay native confirmation
+covers toolbar/address/history/reload, page navigation, destructive authenticated proxy
+commands, cookie/controller replacement and clear-data reload. Frozen store transitions
+reserve all affected pages before prompting; identity/revision/sequence/ticket checks
+reject nested-modal and asynchronous stale continuations. Sending holds a bounded trusted
+lease through receiver admission; page code receives no privileged messaging capability.
+Passive polling is single-flight and does not advance ordinary command sequence.
+
+Verified: 37 isolated MSVC session/navigation/native-boundary GoogleTests, Windows
+host/transport/bridge compilation, batch sender lease tests, real headless Chromium DOM
+lifecycle smoke, pnpm build, all four strict layer/size/ownership/document-path gates
+without baseline changes, and git diff --check. Full pnpm test remains blocked by the
+8f2 native-extraction source-path assertions owned by #201 (favicon serialization and
+isolated-world ownership); runtime behavioral cases run before the latter assertion.
+Native Windows interactive acceptance and macOS compilation/runtime remain unverified.
+R1 held capture/validation callback cancellation and host-owned deadlines are tracked
+as a separate follow-up; late callback identity rejection alone does not settle a lost
+native completion. Section 8 acceptance is unchanged.
 
 ## 8. Integration and acceptance (#201)
 

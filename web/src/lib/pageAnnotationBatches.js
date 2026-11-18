@@ -29,20 +29,27 @@ export function createAnnotationBatchSender({
     state = { ...state, ...changes };
     for (const listener of listeners) listener();
   };
-  const nativeCommand = async (action) => {
+  const nativeCommand = async (action, leaseId) => {
     const result = await invoke(pageId, {
       action, document_id: batch.documentId, record_ids: batch.recordIds,
+      ...(leaseId ? { lease_id: leaseId } : {}),
     });
     if (result?.ok !== true || result.page_id !== pageId) {
       throw new Error(result?.error || '批注页面不可用');
     }
     return result;
   };
+  const releaseLease = async () => {
+    if (!batch?.leasePending) return;
+    await nativeCommand('release', batch.id);
+    batch.leasePending = false;
+  };
   const run = async ({ snapshot, sessionId, api, page }) => {
     try {
       publish({ working: true, error: '' });
       if (!sessionId || !api) throw new Error('请先选择对话');
       if (batch && sessionId !== batch.sessionId) throw new Error('请切回发送批注的对话后重试');
+      if (batch?.leasePending) await releaseLease();
       if (!batch) {
         const records = JSON.parse(JSON.stringify((snapshot?.records || []).filter(annotationIsSendable)));
         if (!records.length) throw new Error('没有可发送的批注');
@@ -97,15 +104,25 @@ export function createAnnotationBatchSender({
           }
         }
         if (!batch.accepted) {
-          await nativeCommand('validate');
-          batch.attempted = true;
+          let failure = null;
           try {
-            accept(await batch.api.sendInput(batch.sessionId, JSON.parse(batch.payload)));
-          } catch (error) {
-            if (['annotation_batch_unavailable', 'annotation_batch_capacity', 'annotation_batch_conflict'].includes(error?.code)) {
-              batch.attempted = false;
+            batch.leasePending = true;
+            await nativeCommand('validate', batch.id);
+            batch.attempted = true;
+            try {
+              accept(await batch.api.sendInput(batch.sessionId, JSON.parse(batch.payload)));
+            } catch (error) {
+              if (['annotation_batch_unavailable', 'annotation_batch_capacity', 'annotation_batch_conflict'].includes(error?.code)) {
+                batch.attempted = false;
+              }
+              throw error;
             }
+          } catch (error) {
+            failure = error;
             throw error;
+          } finally {
+            try { await releaseLease(); }
+            catch (error) { if (!failure) throw error; }
           }
         }
       }

@@ -186,6 +186,15 @@ inline constexpr const char kPageAnnotationStyleRuntime[] = R"ACESTYLES(
       return differences;
     },
     cancel() { for (const state of targets.values()) state.draft = null; apply(); },
+    invalidate(ids) {
+      for (const id of ids) {
+        const state = targets.get(id);
+        if (!state) continue;
+        state.saved = {};
+        state.draft = null;
+      }
+      apply();
+    },
     setOriginal(enabled) {
       if (enabled && !original) {
         for (const state of targets.values()) if (state.draft) state.draft.comparison = changes(state);

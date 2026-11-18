@@ -13,6 +13,7 @@ inline constexpr const char kPageAnnotationRuntime[] = R"ACEANNOTATION(
   if (!runtime && command.action === 'start') {
     const documentId = command.document_id;
     const rootDocument = document;
+    const rootElement = document.documentElement;
     let active = false;
     let selected = null;
     let selectedId = '';
@@ -24,6 +25,13 @@ inline constexpr const char kPageAnnotationRuntime[] = R"ACEANNOTATION(
     let sequence = 0;
     const ids = new WeakMap();
     const pins = [];
+    const draftChains = new Map();
+    const ancestors = target => {
+      const chain = [];
+      for (let node = target; node; node = node.parentNode || node.host) chain.push(node);
+      return chain;
+    };
+    const observed = new WeakSet();
     const textPreview = createTextPreview();
     const styles = createStyles(rootDocument);
     let original = false;
@@ -55,6 +63,7 @@ inline constexpr const char kPageAnnotationRuntime[] = R"ACEANNOTATION(
       {left:`${bounds.x}px`, top:`${bounds.y}px`, width:`${bounds.width}px`, height:`${bounds.height}px`});
     const clearDraft = () => {
       targets.length = 0;
+      draftChains.clear();
       selected = null;
       selectedId = '';
       region = null;
@@ -81,19 +90,21 @@ inline constexpr const char kPageAnnotationRuntime[] = R"ACEANNOTATION(
       regionOutline.style.display = active && displayedRegion ? 'block' : 'none';
       if (displayedRegion) place(regionOutline, viewportRegion(displayedRegion));
       for (const pin of pins) {
-        pin.marker.style.display = pin.targets.every(connected) ? 'block' : 'none';
-        if (pin.outline) pin.outline.style.display = pin.targets.every(connected) ? 'block' : 'none';
-        if (!pin.targets.every(connected)) continue;
+        pin.marker.style.display = !pin.invalid && pin.targets.every(connected) ? 'block' : 'none';
+        if (pin.outline) pin.outline.style.display = !pin.invalid && pin.targets.every(connected) ? 'block' : 'none';
+        if (pin.invalid || !pin.targets.every(connected)) continue;
         const bounds = pin.region ? viewportRegion(pin.region) : rect(pin.targets[0]);
         pin.marker.style.left = `${bounds.x}px`;
         pin.marker.style.top = `${bounds.y}px`;
         if (pin.outline) place(pin.outline, bounds);
       }
     };
+    const lifecycle = () => ({document_id:documentId,
+      invalid_numbers:pins.filter(pin => pin.invalid).map(pin => pin.number)});
     const snapshot = () => {
       layout();
       const target = connected(selected) ? summary(selected) : null;
-      return {document_id:documentId, active, popup:!!(target || region) && open, target,
+      return {...lifecycle(), active, popup:!!(target || region) && open, target,
         targets:targets.map(summary), region, selection_mode:selectionMode, original,
         differences:[...textPreview.differences(), ...styles.differences()],
         viewport:{width:innerWidth, height:innerHeight, scroll_x:scrollX, scroll_y:scrollY}};
@@ -108,7 +119,11 @@ inline constexpr const char kPageAnnotationRuntime[] = R"ACEANNOTATION(
       if (!connected(target)) return;
       if (!targets.includes(target) && targets.length >= 64) return;
       if (!open) targets.length = 0;
-      if (!targets.includes(target)) targets.push(target);
+      if (!targets.includes(target)) {
+        targets.push(target);
+        draftChains.set(target, ancestors(target));
+        observe(target);
+      }
       selected = target;
       if (!ids.has(target)) ids.set(target, `target-${++sequence}`);
       selectedId = ids.get(target);
@@ -189,8 +204,38 @@ inline constexpr const char kPageAnnotationRuntime[] = R"ACEANNOTATION(
     document.addEventListener('keydown', escape, true);
     globalThis.addEventListener('scroll', layout, true);
     globalThis.addEventListener('resize', layout);
-    const mutations = typeof MutationObserver === 'function' ? new MutationObserver(layout) : null;
-    mutations?.observe(document.documentElement, {subtree:true, childList:true, attributes:true, characterData:true});
+    const removed = (target, chain, records) => !connected(target) || records.some(record =>
+      Array.from(record.removedNodes || []).some(node => node === target || chain.includes(node) || node.contains?.(target)));
+    const inspect = (records = []) => {
+      const invalidIds = new Set();
+      for (const pin of pins) {
+        if (!pin.invalid && pin.targets.some((target, index) => removed(target, pin.chains[index], records))) {
+          pin.invalid = true;
+          for (const target of pin.targets) invalidIds.add(ids.get(target));
+        }
+      }
+      if (targets.some(target => removed(target, draftChains.get(target) || ancestors(target), records))) {
+        textPreview.cancel();
+        styles.cancel();
+        clearDraft();
+      }
+      if (invalidIds.size) {
+        textPreview.invalidate?.(invalidIds);
+        styles.invalidate?.(invalidIds);
+      }
+      layout();
+    };
+    const mutations = typeof MutationObserver === 'function' ? new MutationObserver(inspect) : null;
+    const observe = target => {
+      for (const node of ancestors(target)) {
+        const root = node.getRootNode?.();
+        if (root && !observed.has(root)) {
+          observed.add(root);
+          mutations?.observe(root, {subtree:true, childList:true});
+        }
+      }
+    };
+    mutations?.observe(rootDocument, {subtree:true, childList:true});
     const sizes = typeof ResizeObserver === 'function' ? new ResizeObserver(layout) : null;
     sizes?.observe(document.documentElement);
     runtime = Object.freeze({document_id:documentId, dispose() {
@@ -210,10 +255,16 @@ inline constexpr const char kPageAnnotationRuntime[] = R"ACEANNOTATION(
       host.remove();
     }, run(next) {
       if (document !== rootDocument || next.document_id !== documentId) return {error:'stale_document'};
+      if (document.documentElement !== rootElement) {
+        runtime.dispose();
+        return {error:'replaced_document'};
+      }
+      inspect(mutations?.takeRecords?.() || []);
       switch (next.action) {
         case 'validate_batch':
-          return {valid:Array.isArray(next.target_ids) && next.target_ids.every(id =>
-            pins.some(pin => pin.targets.some(target => connected(target) && ids.get(target) === id)))};
+          return {...lifecycle(), valid:Array.isArray(next.target_ids) && next.target_ids.every(id =>
+            pins.some(pin => !pin.invalid && pin.targets.some(target => connected(target) && ids.get(target) === id))) &&
+            (!next.record_numbers || next.record_numbers.every(number => pins.some(pin => pin.number === number && !pin.invalid)))};
         case 'start': active = true; break;
         case 'read': break;
         case 'exit': textPreview.cancel(); styles.cancel(); active = false; clearDraft(); break;
@@ -270,7 +321,8 @@ inline constexpr const char kPageAnnotationRuntime[] = R"ACEANNOTATION(
             savedOutline.style.display = 'block';
             shadow.append(savedOutline);
           }
-          pins.push({targets:[...targets], region, marker, outline:savedOutline});
+          for (const target of targets) observe(target);
+          pins.push({number:next.number, targets:[...targets], chains:targets.map(ancestors), region, marker, outline:savedOutline, invalid:false});
           clearDraft();
           return {...snapshot(), differences};
         }

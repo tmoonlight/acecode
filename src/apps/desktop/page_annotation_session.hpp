@@ -5,6 +5,7 @@
 #include "page_annotation_targets.hpp"
 #include "page_annotation_style_runtime.hpp"
 #include "page_annotation_submission.hpp"
+#include "page_annotation_navigation.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -21,6 +22,41 @@ public:
     using Json = nlohmann::json;
 
     const std::string& document_id() const { return document_id_; }
+    AnnotationNavigationGuard navigation;
+    std::uint64_t revision() const { return revision_; }
+    bool has_unsent_work() const {
+        return !targets_.empty() || !region_.is_null() || !selection_mode_.is_null() || busy_ ||
+            std::any_of(records_.begin(), records_.end(), [](const auto& record) {
+                return record["status"] != "sent";
+            });
+    }
+
+    bool observe_lifecycle(const Json& result) {
+        if (!result.is_object() || result.value("document_id", Json()) != document_id_) return false;
+        if (!result.contains("invalid_numbers")) return true;
+        const auto& numbers = result["invalid_numbers"];
+        if (!numbers.is_array() || numbers.size() > records_.size()) return false;
+        Json matched = Json::array();
+        for (const auto& number : numbers) {
+            if (!number.is_number_unsigned() && !number.is_number_integer()) return false;
+            const auto found = std::find_if(records_.begin(), records_.end(), [&](const auto& record) {
+                return record["document_id"] == document_id_ && record["number"] == number;
+            });
+            if (found == records_.end() || std::find(matched.begin(), matched.end(), number) != matched.end()) return false;
+            matched.push_back(number);
+        }
+        bool changed = false;
+        for (auto& record : records_) {
+            if (record["document_id"] == document_id_ && record["valid"] == true &&
+                std::find(matched.begin(), matched.end(), record["number"]) != matched.end()) {
+                record["valid"] = false;
+                record["invalid_reason"] = "target_removed";
+                changed = true;
+            }
+        }
+        if (changed) ++revision_;
+        return true;
+    }
 
     Json snapshot() const {
         const auto pending_count = std::count_if(records_.begin(), records_.end(),
@@ -39,16 +75,33 @@ public:
             return false;
         }
         const bool acknowledge = command["action"] == "acknowledge";
-        if (!acknowledge && command["action"] != "capture" && command["action"] != "validate") {
+        const bool release = command["action"] == "release";
+        if (!acknowledge && !release && command["action"] != "capture" && command["action"] != "validate") {
             error = "Invalid submission action";
             return false;
         }
         for (const auto& field : command.items()) {
             if (field.key() != "action" && field.key() != "document_id" &&
-                field.key() != "record_ids") {
+                field.key() != "record_ids" && field.key() != "lease_id") {
                 error = "Unsupported submission field";
                 return false;
             }
+        }
+        if (release) {
+            if (!command.contains("lease_id") || !command["lease_id"].is_string() ||
+                !navigation.release(command["lease_id"].get<std::string>())) {
+                error = "Stale annotation submission lease";
+                return false;
+            }
+            return true;
+        }
+        if (command.contains("lease_id") && command["action"] != "validate") {
+            error = "Unsupported submission lease";
+            return false;
+        }
+        if (!acknowledge && navigation.blocked()) {
+            error = "Annotation navigation is pending";
+            return false;
         }
         Json selected;
         if (!annotation_submission_records(command, records_, selected, error)) return false;
@@ -68,12 +121,21 @@ public:
             }
             ++revision_;
         } else {
+            if (command["action"] == "validate" && command.contains("lease_id")) {
+                if (!command["lease_id"].is_string() ||
+                    !navigation.acquire(command["lease_id"].get<std::string>())) {
+                    error = "Annotation submission is already in progress";
+                    return false;
+                }
+            }
             expression = annotation_submission_expression(document_id_, selected);
         }
         return true;
     }
 
     void replace_document() {
+        poll_pending_ = false;
+        ++poll_token_;
         ++epoch_;
         ++sequence_;
         busy_ = false;
@@ -86,12 +148,19 @@ public:
         selection_mode_ = nullptr;
         differences_ = Json::array();
         document_id_.clear();
-        for (auto& record : records_) record["valid"] = false;
+        for (auto& record : records_) {
+            record["valid"] = false;
+            record["invalid_reason"] = "document_replaced";
+        }
         ++revision_;
     }
 
     bool prepare(const std::string& page_id, const Json& command,
                  std::string& expression, std::string& error) {
+        if (navigation.blocked() || navigation.sending()) {
+            error = "Annotation navigation is pending";
+            return false;
+        }
         if (!command.is_object() || command.dump().size() > 32768 ||
             !command.contains("action") || !command["action"].is_string()) {
             error = "Invalid annotation command";
@@ -208,6 +277,20 @@ public:
     }
 
     std::uint64_t sequence() const { return sequence_; }
+    void suspend() { ++sequence_; busy_ = false; poll_pending_ = false; ++poll_token_; }
+    bool pollable() const {
+        return !document_id_.empty() && !busy_ && !poll_pending_ && !navigation.blocked() && !navigation.sending();
+    }
+    std::uint64_t begin_poll() {
+        if (!pollable()) return 0;
+        poll_pending_ = true;
+        return ++poll_token_;
+    }
+    bool finish_poll(std::uint64_t token) {
+        if (!poll_pending_ || token != poll_token_) return false;
+        poll_pending_ = false;
+        return true;
+    }
 
     bool complete(std::uint64_t sequence, const Json& result, std::string& error) {
         if (sequence != sequence_ || !busy_) {
@@ -217,6 +300,10 @@ public:
         busy_ = false;
         if (result.is_object() && result.contains("error") && result["error"].is_string()) {
             const auto runtime_error = result["error"].get<std::string>();
+            if (runtime_error == "replaced_document") {
+                replace_document();
+                return true;
+            }
             if (runtime_error == "invalid_style_value") error = "Invalid style value";
             else if (runtime_error == "invalid_current_ratio") error = "Cannot lock zero or unresolved dimensions";
             else if (runtime_error == "original_view_active") error = "Leave original view before editing";
@@ -228,6 +315,10 @@ public:
             return false;
         }
         const auto action = pending_["action"].get<std::string>();
+        if (!observe_lifecycle(result)) {
+            error = "Invalid annotation lifecycle report";
+            return false;
+        }
         if ((action == "save" || action == "cancel" || action == "exit") &&
             (!result["target"].is_null() || result["popup"] != false ||
              !result["targets"].empty() || !result["region"].is_null() || !result["selection_mode"].is_null())) {
@@ -399,6 +490,8 @@ private:
     Json targets_ = Json::array();
     Json region_ = nullptr;
     Json selection_mode_ = nullptr;
+    bool poll_pending_ = false;
+    std::uint64_t poll_token_ = 0;
     Json viewport_ = nullptr;
     Json records_ = Json::array();
     Json differences_ = Json::array();
