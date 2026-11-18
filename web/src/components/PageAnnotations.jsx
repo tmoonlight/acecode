@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPageAnnotationController, pageAnnotationPopupPosition } from '../lib/pageAnnotations.js';
 import { notifyNativeSurfaceOverlayChange } from '../lib/agentBrowserSurfaceCoordinator.js';
 import { PageAnnotationTextField } from './PageAnnotationTextField.jsx';
+import { PageAnnotationTargets } from './PageAnnotationTargets.jsx';
 
 export function usePageAnnotations(pageId, nativeState) {
   const [snapshot, setSnapshot] = useState({ active: false, pending_count: 0 });
@@ -70,7 +71,11 @@ export function PageAnnotationPopup({ snapshot, command, working, viewportRef })
       const next = pageAnnotationPopupPosition({
         width: bounds.width, height: bounds.height,
         popupWidth: popupBounds.width, popupHeight: popupBounds.height,
-        target: snapshot.target, viewport: snapshot.viewport,
+        target: snapshot.target || (snapshot.region ? { bounds: {
+          ...snapshot.region,
+          x: snapshot.region.x - snapshot.viewport.scroll_x,
+          y: snapshot.region.y - snapshot.viewport.scroll_y,
+        } } : null), viewport: snapshot.viewport,
       });
       popup.style.left = `${next.left}px`;
       popup.style.top = `${next.top}px`;
@@ -81,7 +86,7 @@ export function PageAnnotationPopup({ snapshot, command, working, viewportRef })
     observer.observe(viewport);
     observer.observe(popup);
     return () => { observer.disconnect(); notifyNativeSurfaceOverlayChange(); };
-  }, [snapshot.target, snapshot.viewport, viewportRef]);
+  }, [snapshot.target, snapshot.region, snapshot.viewport, snapshot.selection_mode, viewportRef]);
   useEffect(() => {
     const previousFocus = document.activeElement;
     inputRef.current?.focus();
@@ -90,6 +95,9 @@ export function PageAnnotationPopup({ snapshot, command, working, viewportRef })
       if (previousFocus?.isConnected && document.activeElement === document.body) previousFocus.focus();
     };
   }, []);
+  useEffect(() => {
+    if (!snapshot.selection_mode) inputRef.current?.focus();
+  }, [snapshot.selection_mode]);
   const close = () => { if (!working) void command('cancel'); };
   const onKeyDown = (event) => {
     if (event.key === 'Escape') {
@@ -113,17 +121,19 @@ export function PageAnnotationPopup({ snapshot, command, working, viewportRef })
       ref={popupRef}
       role="dialog"
       aria-label="网页批注"
-      data-ace-native-overlay="overlap"
+      data-ace-native-overlay={snapshot.selection_mode ? undefined : 'overlap'}
+      style={snapshot.selection_mode ? { display: 'none' } : undefined}
       className="absolute z-20 flex w-80 max-w-[calc(100%-16px)] max-h-[calc(100%-16px)] flex-col gap-3 overflow-auto rounded-lg border border-border bg-surface p-3 text-[12px] text-fg"
       onKeyDown={onKeyDown}
       onSubmit={(event) => { event.preventDefault(); if (!working) void command('save', { description }); }}
     >
       <div className="flex items-center justify-between gap-2">
-        <span className="truncate">{snapshot.target.tag}</span>
+        <span className="truncate">{snapshot.target?.tag || '区域'}</span>
         <button type="button" disabled={working} aria-label="关闭批注" onClick={close} className="rounded px-2 py-1 hover:bg-surface-hi">关闭</button>
       </div>
       <button type="button" disabled={working} onClick={() => void command('original', { enabled: !snapshot.original })} className="self-start rounded px-2 py-1 hover:bg-surface-hi">{snapshot.original ? '恢复预览' : '查看原图'}</button>
       <PageAnnotationTextField target={snapshot.target} command={command} working={working} />
+      <PageAnnotationTargets snapshot={snapshot} command={command} working={working} />
       <textarea
         ref={inputRef}
         aria-label="批注描述"

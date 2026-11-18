@@ -1,4 +1,5 @@
 #include <gtest/gtest.h>
+#include <vector>
 
 #include "desktop/page_annotation_session.hpp"
 
@@ -10,13 +11,20 @@ using Json = nlohmann::json;
 class PageAnnotationSessionTest : public testing::Test {
 protected:
     Json command(const std::string& action) const {
-        return {{"action", action}, {"document_id", session.snapshot()["document_id"]}};
+        Json request{{"action", action}, {"document_id", session.snapshot()["document_id"]}};
+        if (action == "save") {
+            request["target_ids"] = annotation_target_ids(session.snapshot()["targets"]);
+            request["region"] = session.snapshot()["region"];
+        }
+        return request;
     }
 
     Json result(bool active = true, bool popup = false, Json target = nullptr) const {
         return {{"document_id", session.snapshot()["document_id"]},
                 {"active", active}, {"popup", popup}, {"target", target},
-                {"viewport", {{"width", 800}, {"height", 600}}}};
+                {"targets", target.is_null() ? Json::array() : Json::array({target})},
+                {"region", nullptr}, {"selection_mode", nullptr},
+                {"viewport", {{"width", 800}, {"height", 600}, {"scroll_x", 0}, {"scroll_y", 0}}}};
     }
 
     Json target() const {
@@ -244,6 +252,86 @@ TEST_F(PageAnnotationSessionTest, MalformedOrUnacknowledgedSaveCannotCreateRecor
     malformed["viewport"]["width"] = "800";
     ASSERT_TRUE(prepare(command("read")));
     EXPECT_FALSE(session.complete(session.sequence(), malformed, error));
+}
+
+TEST_F(PageAnnotationSessionTest, MultipleTargetsAndReplacementRegionSaveOneDescriptionAndNumber) {
+    start();
+    select();
+    auto second = target();
+    second["id"] = "target-2";
+    second["tag"] = "section";
+    second["differences"] = Json::array();
+    auto draft = result(true, true, second);
+    draft["targets"] = Json::array({target(), second});
+    ASSERT_TRUE(prepare(command("add_target"))) << error;
+    ASSERT_TRUE(session.complete(session.sequence(), draft, error)) << error;
+    auto select_first = command("select_target");
+    select_first["target_id"] = "target-1";
+    draft["target"] = target();
+    ASSERT_TRUE(prepare(select_first)) << error;
+    ASSERT_TRUE(session.complete(session.sequence(), draft, error)) << error;
+    ASSERT_TRUE(prepare(command("add_region"))) << error;
+    draft["region"] = {{"x", 10}, {"y", 520}, {"width", 100}, {"height", 80}};
+    draft["target"] = nullptr;
+    ASSERT_TRUE(session.complete(session.sequence(), draft, error)) << error;
+    ASSERT_TRUE(prepare(command("add_region"))) << error;
+    draft["region"] = {{"x", 30}, {"y", 900}, {"width", 120}, {"height", 40}};
+    ASSERT_TRUE(session.complete(session.sequence(), draft, error)) << error;
+    auto request = command("save");
+    request["target_id"] = nullptr;
+    request["description"] = "One shared description";
+    ASSERT_TRUE(prepare(request)) << error;
+    EXPECT_EQ(expression.find("One shared description"), std::string::npos);
+    ASSERT_TRUE(session.complete(session.sequence(), result(), error)) << error;
+    const auto saved = session.snapshot()["records"];
+    ASSERT_EQ(saved.size(), 1);
+    EXPECT_EQ(saved[0]["number"], 1);
+    EXPECT_EQ(saved[0]["description"], "One shared description");
+    EXPECT_EQ(saved[0]["targets"], draft["targets"]);
+    EXPECT_EQ(saved[0]["region"], draft["region"]);
+    EXPECT_EQ(saved[0]["differences"], Json::array());
+    select();
+    ASSERT_TRUE(prepare(command("cancel")));
+    ASSERT_TRUE(session.complete(session.sequence(), result(), error));
+    EXPECT_EQ(session.snapshot()["records"], saved);
+    EXPECT_TRUE(session.snapshot()["targets"].empty());
+    EXPECT_TRUE(session.snapshot()["region"].is_null());
+}
+
+TEST_F(PageAnnotationSessionTest, RejectsMalformedTargetArraysRegionsAndForeignIdentity) {
+    start();
+    select();
+    for (const auto& targets : {Json(nullptr), Json::object(), Json::array({target(), target()}),
+                               Json::array({Json("target-1")}), Json(std::vector<Json>(65, target()))}) {
+        auto malformed = result(true, true, target());
+        malformed["targets"] = targets;
+        ASSERT_TRUE(prepare(command("read")));
+        EXPECT_FALSE(session.complete(session.sequence(), malformed, error));
+    }
+    for (const auto& region : {Json::array(), Json{{"x", -1}, {"y", 2}, {"width", 3}, {"height", 4}},
+         Json{{"x", 1}, {"y", 2}, {"width", 0}, {"height", 4}},
+         Json{{"x", 1}, {"y", 2}, {"width", 3}, {"height", "4"}},
+         Json{{"x", 1}, {"y", 2}, {"width", 3}, {"height", 4}, {"script", "send()"}},
+         Json{{"x", 1}, {"y", 10000001}, {"width", 3}, {"height", 4}}}) {
+        auto malformed = result(true, true, target());
+        malformed["region"] = region;
+        ASSERT_TRUE(prepare(command("read")));
+        EXPECT_FALSE(session.complete(session.sequence(), malformed, error));
+    }
+    auto request = command("select_target");
+    request["target_id"] = "target-2";
+    EXPECT_FALSE(prepare(request));
+    EXPECT_FALSE(prepare(command("select_region")));
+    EXPECT_FALSE(session.prepare("page-2", command("read"), expression, error));
+    request = command("save");
+    request["target_id"] = "target-1";
+    request["description"] = "Stale membership";
+    request["target_ids"] = Json::array({"target-1", "target-1"});
+    EXPECT_FALSE(prepare(request));
+    request["target_ids"] = Json::array({"target-1"});
+    request["region"] = {{"x", 0}, {"y", 0}, {"width", 1}, {"height", 1}};
+    EXPECT_FALSE(prepare(request));
+    EXPECT_TRUE(session.snapshot()["records"].empty());
 }
 
 } // namespace

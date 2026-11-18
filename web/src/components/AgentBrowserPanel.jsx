@@ -495,9 +495,9 @@ export function AgentBrowserPanel({
       </div>
       <div className={clsx('ace-agent-browser-frame', agentActive && 'is-agent-active')}>
         <div ref={viewportRef} className="ace-agent-browser-native-viewport">
-          {nativePageVisible && annotations.snapshot.popup && annotations.snapshot.target && (
+          {nativePageVisible && annotations.snapshot.popup && (
             <PageAnnotationPopup
-              key={`${pageId}:${annotations.snapshot.document_id}:${annotations.snapshot.target.id}`}
+              key={`${pageId}:${annotations.snapshot.document_id}`}
               snapshot={annotations.snapshot}
               command={annotations.command}
               working={annotations.working}

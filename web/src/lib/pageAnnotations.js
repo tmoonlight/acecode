@@ -25,7 +25,11 @@ export function createPageAnnotationController({ pageId, invoke = runPageAnnotat
     command(action, fields = {}) {
       const command = {
         action, document_id: snapshot.document_id,
-        ...(action === 'save' ? { target_id: snapshot.target?.id } : {}),
+        ...(action === 'save' ? {
+          target_id: snapshot.target?.id ?? null,
+          target_ids: (snapshot.targets || []).map(target => target.id),
+          region: snapshot.region ? { ...snapshot.region } : null,
+        } : {}),
         ...fields,
       };
       const run = async () => {

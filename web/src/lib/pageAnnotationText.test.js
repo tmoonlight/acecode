@@ -44,15 +44,20 @@ function fixture(markup = '<button id="target">Hello <strong>world</strong>!<spa
   document.addEventListener = add;
   document.removeEventListener = remove;
   const context = vm.createContext({
-    document, innerWidth:800, innerHeight:600,
+    document, innerWidth:800, innerHeight:600, scrollX:0, scrollY:0,
     getComputedStyle: element => ({display:element.hasAttribute('hidden') ? 'none' : 'block', visibility:'visible'}),
     addEventListener() {}, removeEventListener() {},
   });
   const target = document.getElementById('target');
   const text = vm.runInContext(`${textRuntime}()`, context);
-  const run = (action, fields = {}) => JSON.parse(JSON.stringify(vm.runInContext(
-    `${runtime}(${JSON.stringify({action, document_id:'doc', ...fields})}, ${textRuntime})`, context,
-  )));
+  const run = (action, fields = {}) => {
+    const current = action === 'save' ? run('read') : null;
+    return JSON.parse(JSON.stringify(vm.runInContext(
+      `${runtime}(${JSON.stringify({action, document_id:'doc',
+        ...(current ? {target_ids:current.targets.map(item => item.id), region:current.region} : {}),
+        ...fields})}, ${textRuntime})`, context,
+    )));
+  };
   const click = node => listeners.get(node === target ? document : node).get('click')({
     isTrusted:true, button:0, composedPath:() => [node], preventDefault() {}, stopImmediatePropagation() {}, stopPropagation() {},
   });
@@ -193,7 +198,7 @@ function fixture(markup = '<button id="target">Hello <strong>world</strong>!<spa
   run('original', {enabled:false});
   run('cancel');
   assert.equal(target.firstChild.data, 'Saved ');
-  const pin = target.ownerDocument.documentElement.lastChild.shadow.childNodes[2];
+  const pin = target.ownerDocument.documentElement.lastChild.shadow.childNodes[3];
   assert.equal(pin.textContent, '1');
   select();
   run('preview_text', {target_id:id, text:'Unsaved world!'});

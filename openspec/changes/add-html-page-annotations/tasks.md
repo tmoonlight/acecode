@@ -19,8 +19,28 @@
 
 ## 4. Multiple targets and region (#197)
 
-- [ ] 4.1 Support adding multiple elements to one draft with shared description/pin; verify target switching and save.
-- [ ] 4.2 Support one page-coordinate region replaced by subsequent drags without property editing; verify scroll coordinates and replacement.
+- [x] 4.1 Support adding multiple elements to one draft with shared description/pin; verify target switching and save.
+- [x] 4.2 Support one page-coordinate region replaced by subsequent drags without property editing; verify scroll coordinates and replacement.
+
+Implementation contract (#197): `targets` contains at most 64 unique exact element identities;
+`target` is the current element or null when the region is selected. `region` is null or one
+finite, positive-size page-CSS-coordinate `{x,y,width,height}` rectangle. `selection_mode` is
+null, `element` or `region`; the trusted popup stays mounted but hidden during picking, so its
+single description survives target switching/replacement. `add_target`, `add_region`, `select_target`
+and `select_region` are restricted native actions, not page message capabilities. Save binds the
+document, current target, ordered `target_ids` and region; one record/number/pin covers the whole
+draft. Required target summary/identity/bounds fields are validated while bounded target metadata
+and the existing differences slots remain available to #195/#196; no text/style fields are added.
+The shared native session and runtime retain the existing callback sequence/incarnation guards.
+
+Focused runtime/popup behavioral tests and eight native session GoogleTests cover deduplication,
+switching, shared description/save/cancel, page-coordinate scrolling, reverse drag, region replacement,
+untrusted/cancelled/zero-area drags, malformed arrays/regions, stale identity and immutable records.
+Real Windows/macOS desktop interaction acceptance is not claimed by these automated tests;
+section 8 remains unchanged.
+Verification: standalone annotation JS tests, all eight native session tests (MSVC Release),
+and `pnpm build` pass. Full `pnpm test` fails at the unchanged `agentBrowser.test.js:40`
+native-page readiness assertion under the combined runner; that suite passes standalone.
 
 ## 5. Full-page native screenshot (#198)
 
