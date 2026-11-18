@@ -131,6 +131,8 @@ compile passes, and all four strict gates remain clean with unchanged size basel
 
 ## 8. Integration and acceptance (#201)
 
+- [x] 8.6 Restore Windows full-page capture's classic root scrollbar layout using an owned CDP helper; verify real beyond-viewport pixels, unchanged layout/scroll/viewport/styles, native error/cancellation cleanup, strict gates and independently linked native smoke without using the shared build graph. Verified 37 isolated native tests, normal/stable/both-edges/thin/horizontal-overflow real pixel smoke, safe unsupported-author-style failure with preserved state, and all four strict standards gates. Complete annotation workflow, integrated rebuild/rerun and macOS acceptance remain separate.
+
 - [x] 8.5 Extract focused native capture/annotation transport and state serialization boundaries, relocate shared smoke support, and correct ownership scanner header-token classification; verify strict standards gates and isolated native compilation/tests without changing capture behavior or baselines. Verified all four strict gates, 104 Python tests, 23 standalone native tests (including fake-client probe failure regressions), Windows host/transport/bridge/smoke translation-unit compilation, and OpenSpec validation. Probe null/error handling preserves native failures. No shared build, real native capture acceptance, or macOS compilation/runtime claimed.
 
 - [ ] 8.1 Complete interaction-to-submission regressions, security/lifetime checks and source-selection regression; verify focused native tests, pnpm test, pnpm build and git diff --check.

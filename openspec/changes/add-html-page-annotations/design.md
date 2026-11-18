@@ -213,3 +213,33 @@ results, validates capture metadata types, and retains the original native error
 failure. A platform-neutral checked-command seam has fake-client regressions for null
 full-page responses, malformed results, and transport errors; it does not replace the
 native pixel check or establish real capture acceptance.
+
+### Windows full-page scrollbar restoration
+
+WebView2 157.0.4341.60's surface screenshot hides the classic root scrollbar and can
+leave the restored document laid out at the scrollbar-free width (845 to 860 CSS
+pixels in the native fixture). Waiting for animation frames or forcing layout alone
+does not restore it. Disabling beyond-viewport painting instead loses real bottom
+pixels. Neither widening measured bounds nor accepting a viewport image is valid.
+
+`agent_browser_capture_layout` owns the narrow CDP workaround behind the existing
+injected native-command/current/completion seam. It inspects root computed styles
+in an isolated world. With a classic auto gutter, a distinct, forced inspector
+stylesheet reserves the existing gutter during capture. An existing stable or
+stable-both-edges gutter is not replaced: the owned sheet briefly flips overflowing
+root `overflow-y` between auto and scroll and forces layout after capture. The
+helper clears only its own sheet text before completion, including native failure
+and stale-page paths; it never edits original inline declarations, scroll position
+or viewport settings. It does not disable shared DOM/CSS domains. A preflight
+computed-style check rejects author cascade priorities that block the workaround
+with `capture_layout_unsupported` before taking a screenshot. Cleanup failures
+cannot produce success, and an earlier native error is retained.
+
+The original document identity, strict pre/post bounds and scale comparisons,
+resource budgets, complete-PNG validation and viewport-capture path remain intact.
+The native probe removes the example page's external body max-width constraint
+from its own fixture and uses explicit CSS pixel units when restoring fixture
+height. Its pixel sample therefore tests green content, not the gray area outside
+the body. It also checks root client dimensions, original inline styles and author
+stylesheet count, in addition to scroll/viewport preservation. This is scoped
+Windows capture evidence, not complete annotation workflow or macOS acceptance.

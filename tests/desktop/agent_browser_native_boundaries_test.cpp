@@ -35,7 +35,9 @@ browser_capture::Command command_for(const std::shared_ptr<CdpProbe>& probe) {
         } else if (method == "Page.createIsolatedWorld") {
             done({{"executionContextId", 7}}, {});
         } else if (method == "Runtime.evaluate") {
-            done({{"result", {{"value", 2}}}}, {});
+            const json value = params.value("expression", "") == "window.devicePixelRatio"
+                ? json(2) : json{{"pin", ""}, {"refresh", ""}};
+            done({{"result", {{"value", value}}}}, {});
         } else {
             done({{"data", "invalid PNG"}}, {});
         }
@@ -60,13 +62,14 @@ TEST(AgentBrowserNativeBoundaries, CdpUsesMeasuredCssClipAndDeviceScale) {
     start_probe(probe, command_for(probe));
     EXPECT_EQ(probe->methods, (std::vector<std::string>{"Page.getFrameTree",
         "Page.getLayoutMetrics", "Page.createIsolatedWorld", "Runtime.evaluate",
+        "Page.getFrameTree", "Page.createIsolatedWorld", "Runtime.evaluate",
         "Page.captureScreenshot"}));
-    ASSERT_EQ(probe->parameters.size(), 5u);
+    ASSERT_EQ(probe->parameters.size(), 8u);
     EXPECT_EQ(probe->parameters[2], (json{{"frameId", "frame"},
         {"worldName", "acecode.full-page-capture"}}));
     EXPECT_EQ(probe->parameters[3], (json{{"expression", "window.devicePixelRatio"},
         {"contextId", 7}, {"returnByValue", true}}));
-    EXPECT_EQ(probe->parameters[4], (json{{"format", "png"}, {"fromSurface", true},
+    EXPECT_EQ(probe->parameters[7], (json{{"format", "png"}, {"fromSurface", true},
         {"captureBeyondViewport", true}, {"clip", {{"x", 3}, {"y", 4},
             {"width", 2}, {"height", 2000}, {"scale", 0.5}}}}));
     ASSERT_EQ(probe->responses.size(), 1u);

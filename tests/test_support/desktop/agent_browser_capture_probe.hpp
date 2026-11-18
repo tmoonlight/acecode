@@ -78,18 +78,28 @@ inline bool run(agent_browser::AgentBrowserCdpClient& client, std::string& error
     };
     const auto fixture = evaluate(R"JS((async () => {
         document.documentElement.style.cssText = 'margin:0;padding:0;border:0;overflow:auto';
-        document.body.style.cssText = 'margin:0;padding:0;border:0';
+        document.body.style.cssText = 'margin:0;padding:0;border:0;max-width:none';
         const height = Math.max(2400, innerHeight * 3);
         document.body.innerHTML = '<div style="height:' + (height - 100) +
             'px;background:rgb(255,0,0)"></div><div style="height:100px;background:rgb(0,255,0)"></div>';
         scrollTo(0, 100);
         await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-        return {height, scroll:scrollY, viewport:innerHeight, width:innerWidth};
+        return {height, scroll:scrollY, viewport:innerHeight, width:innerWidth,
+            client:document.documentElement.clientWidth,
+            clientHeight:document.documentElement.clientHeight, sheets:document.styleSheets.length,
+            rootStyle:document.documentElement.getAttribute('style'),
+            bodyStyle:document.body.getAttribute('style')};
     })())JS");
     if (!require_object(fixture, "evaluate returned no fixture")) return false;
-    for (const auto* field : {"height", "scroll", "viewport", "width"}) {
+    for (const auto* field : {"height", "scroll", "viewport", "width", "client", "clientHeight", "sheets"}) {
         if (!fixture.contains(field) || !fixture[field].is_number_unsigned()) {
             error = "evaluate returned invalid fixture dimensions";
+            return false;
+        }
+    }
+    for (const auto* field : {"rootStyle", "bodyStyle"}) {
+        if (!fixture.contains(field) || !fixture[field].is_string()) {
+            error = "evaluate returned invalid fixture styles";
             return false;
         }
     }
@@ -121,12 +131,18 @@ inline bool run(agent_browser::AgentBrowserCdpClient& client, std::string& error
         if (error.empty()) error = "full-page PNG did not contain the beyond-viewport green pixels";
         return false;
     }
-    const auto after = evaluate("({scroll:scrollY, viewport:innerHeight, width:innerWidth})");
+    const auto after = evaluate(R"JS(({scroll:scrollY, viewport:innerHeight, width:innerWidth,
+        client:document.documentElement.clientWidth,
+        clientHeight:document.documentElement.clientHeight, sheets:document.styleSheets.length,
+        rootStyle:document.documentElement.getAttribute('style'),
+        bodyStyle:document.body.getAttribute('style')}))JS");
     if (!require_object(after, "evaluate returned no post-capture state")) return false;
-    if (!after.contains("scroll") || !after.contains("viewport") || !after.contains("width") ||
-        after["scroll"] != fixture["scroll"] ||
-        after["viewport"] != fixture["viewport"] || after["width"] != fixture["width"]) {
-        error = "full-page capture changed viewport or scroll"; return false;
+    for (const auto* field : {"scroll", "viewport", "width", "client", "clientHeight",
+                              "sheets", "rootStyle", "bodyStyle"}) {
+        if (!after.contains(field) || after[field] != fixture[field]) {
+            error = "full-page capture changed layout, viewport, scroll or styles";
+            return false;
+        }
     }
     client.command("Page.captureScreenshot", {{"fullPage", true}, {"documentId", "stale-document"}},
         20s, nullptr, error);
@@ -143,8 +159,8 @@ inline bool run(agent_browser::AgentBrowserCdpClient& client, std::string& error
         return false;
     }
     error.clear();
-    evaluate("document.body.firstElementChild.style.height = " +
-        std::to_string(fixture["height"].get<int>() - 100));
+    evaluate("document.body.firstElementChild.style.height = '" +
+        std::to_string(fixture["height"].get<int>() - 100) + "px'");
     if (!error.empty()) return false;
     const auto retry = checked_command(client, "Page.captureScreenshot", {{"fullPage", true},
         {"documentId", full.at("documentId")}}, 20s, error);

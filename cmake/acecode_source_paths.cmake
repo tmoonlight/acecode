@@ -18,6 +18,7 @@ set(ACECODE_DESKTOP_PET_MAC_SOURCE "${CMAKE_SOURCE_DIR}/src/apps/desktop/desktop
 set(ACECODE_DESKTOP_LINUX_SOURCE "${CMAKE_SOURCE_DIR}/src/apps/desktop/linux_desktop.cpp")
 set(ACECODE_AGENT_BROWSER_HOST_SOURCE "${CMAKE_SOURCE_DIR}/src/apps/desktop/agent_browser_host.cpp"
     "${CMAKE_SOURCE_DIR}/src/apps/desktop/agent_browser_capture_cdp.cpp"
+    "${CMAKE_SOURCE_DIR}/src/apps/desktop/agent_browser_capture_layout.cpp"
     "${CMAKE_SOURCE_DIR}/src/apps/desktop/agent_browser_native_commands_win.cpp"
     "${CMAKE_SOURCE_DIR}/src/apps/desktop/agent_browser_windows_helpers.cpp"
     "${CMAKE_SOURCE_DIR}/src/apps/desktop/agent_browser_host_common.cpp")

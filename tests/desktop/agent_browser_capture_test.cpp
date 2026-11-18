@@ -229,7 +229,7 @@ TEST(AgentBrowserCapture, CdpPipelineRemeasuresBeforeReturningCompletePng) {
     const auto methods = std::make_shared<std::vector<std::string>>();
     const auto responses = std::make_shared<std::vector<json>>();
     capture_cdp("page-a", json::object(),
-        [methods](const std::string& method, const json&, CommandResult done) {
+        [methods](const std::string& method, const json& params, CommandResult done) {
             methods->push_back(method);
             if (method == "Page.getFrameTree") {
                 done({{"frameTree", {{"frame", {{"id", "frame"}, {"loaderId", "document"}}}}}}, {});
@@ -238,13 +238,16 @@ TEST(AgentBrowserCapture, CdpPipelineRemeasuresBeforeReturningCompletePng) {
             } else if (method == "Page.createIsolatedWorld") {
                 done({{"executionContextId", 7}}, {});
             } else if (method == "Runtime.evaluate") {
-                done({{"result", {{"value", 1}}}}, {});
+                const json value = params.value("expression", "") == "window.devicePixelRatio"
+                    ? json(1) : json{{"pin", ""}, {"refresh", ""}};
+                done({{"result", {{"value", value}}}}, {});
             } else {
                 done({{"data", acecode::base64_encode(png())}}, {});
             }
         }, [] { return true; },
         [responses](json response) { responses->push_back(std::move(response)); });
     EXPECT_EQ(*methods, (std::vector<std::string>{"Page.getFrameTree", "Page.getLayoutMetrics",
+        "Page.createIsolatedWorld", "Runtime.evaluate", "Page.getFrameTree",
         "Page.createIsolatedWorld", "Runtime.evaluate", "Page.captureScreenshot",
         "Page.getFrameTree", "Page.getLayoutMetrics", "Page.createIsolatedWorld", "Runtime.evaluate"}));
     ASSERT_EQ(responses->size(), 1u);

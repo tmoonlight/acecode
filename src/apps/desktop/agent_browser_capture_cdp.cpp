@@ -1,4 +1,5 @@
 #include "agent_browser_capture_cdp.hpp"
+#include "agent_browser_capture_layout.hpp"
 
 namespace acecode::desktop::browser_capture {
 
@@ -65,7 +66,7 @@ void capture_cdp(std::string page_id, const nlohmann::json& params,
     };
     const Capture capture = [command, current](const Bounds& bounds, Captured done) {
         if (!current()) { done({}, "capture_document_changed"); return; }
-        command("Page.captureScreenshot",
+        capture_preserving_layout(command, current,
             {{"format", "png"}, {"fromSurface", true}, {"captureBeyondViewport", true},
              {"clip", {{"x", bounds.x}, {"y", bounds.y},
                        {"width", std::ceil(bounds.width)},
