@@ -121,6 +121,21 @@ using Measure = std::function<void(Measured)>;
 using Capture = std::function<void(const Bounds&, Captured)>;
 using Current = std::function<bool()>;
 using Complete = std::function<void(nlohmann::json)>;
+using Validate = std::function<void(std::function<void(bool)>)>;
+
+inline Measure validated_measure(Measure measure, Current current, Validate validate) {
+    if (!validate) return measure;
+    return [measure, current, validate](Measured done) {
+        if (!current()) { done({}, "capture_document_changed"); return; }
+        validate([measure, current, done](bool valid) {
+            if (!valid || !current()) {
+                done({}, "annotation_target_or_document_changed");
+                return;
+            }
+            measure(done);
+        });
+    };
+}
 
 class FullPageCapture : public std::enable_shared_from_this<FullPageCapture> {
 public:

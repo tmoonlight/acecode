@@ -101,6 +101,8 @@ extraction is being implemented separately; no baseline exceptions are added her
 
 ## 8. Integration and acceptance (#201)
 
+- [x] 8.5 Extract focused native capture/annotation transport and state serialization boundaries, relocate shared smoke support, and correct ownership scanner header-token classification; verify strict standards gates and isolated native compilation/tests without changing capture behavior or baselines. Verified all four strict gates, 104 Python tests, 23 standalone native tests (including fake-client probe failure regressions), Windows host/transport/bridge/smoke translation-unit compilation, and OpenSpec validation. Probe null/error handling preserves native failures. No shared build, real native capture acceptance, or macOS compilation/runtime claimed.
+
 - [ ] 8.1 Complete interaction-to-submission regressions, security/lifetime checks and source-selection regression; verify focused native tests, pnpm test, pnpm build and git diff --check.
 - [ ] 8.2 Review against baseline 0155a863 on standards and spec axes, fix findings and update API/acceptance documentation; verify final diff and review results.
 - [ ] 8.3 Perform real Windows complete desktop workflow including all fields and long-page screenshot pixels; record observed results without substituting automated tests.

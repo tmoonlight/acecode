@@ -1,4 +1,5 @@
 #include "desktop/agent_browser_capture.hpp"
+#include "desktop/agent_browser_capture_cdp.hpp"
 
 #include <gtest/gtest.h>
 #include <limits>
@@ -222,6 +223,34 @@ TEST(AgentBrowserCapture, MeasurementAndResourceFailuresNeverDispatchCapture) {
     backend.start(); backend.measure();
     backend.expect_error("capture_resource_limit");
     EXPECT_EQ(backend.captures, 0);
+}
+
+TEST(AgentBrowserCapture, CdpPipelineRemeasuresBeforeReturningCompletePng) {
+    const auto methods = std::make_shared<std::vector<std::string>>();
+    const auto responses = std::make_shared<std::vector<json>>();
+    capture_cdp("page-a", json::object(),
+        [methods](const std::string& method, const json&, CommandResult done) {
+            methods->push_back(method);
+            if (method == "Page.getFrameTree") {
+                done({{"frameTree", {{"frame", {{"id", "frame"}, {"loaderId", "document"}}}}}}, {});
+            } else if (method == "Page.getLayoutMetrics") {
+                done({{"cssContentSize", {{"x", 0}, {"y", 0}, {"width", 2}, {"height", 2000}}}}, {});
+            } else if (method == "Page.createIsolatedWorld") {
+                done({{"executionContextId", 7}}, {});
+            } else if (method == "Runtime.evaluate") {
+                done({{"result", {{"value", 1}}}}, {});
+            } else {
+                done({{"data", acecode::base64_encode(png())}}, {});
+            }
+        }, [] { return true; },
+        [responses](json response) { responses->push_back(std::move(response)); });
+    EXPECT_EQ(*methods, (std::vector<std::string>{"Page.getFrameTree", "Page.getLayoutMetrics",
+        "Page.createIsolatedWorld", "Runtime.evaluate", "Page.captureScreenshot",
+        "Page.getFrameTree", "Page.getLayoutMetrics", "Page.createIsolatedWorld", "Runtime.evaluate"}));
+    ASSERT_EQ(responses->size(), 1u);
+    EXPECT_EQ((*responses)[0]["ok"], true);
+    EXPECT_EQ((*responses)[0]["result"]["data"], acecode::base64_encode(png()));
+    EXPECT_EQ((*responses)[0]["result"]["captureBeyondViewport"], true);
 }
 
 TEST(AgentBrowserCapture, NativeViewportImageAndPostCaptureMeasurementFailureAreNotSuccess) {

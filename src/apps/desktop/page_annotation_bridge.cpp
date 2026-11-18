@@ -18,9 +18,10 @@ acecode::LifetimeToken install_page_annotation_bridge(WebHost& host, AgentBrowse
                 reply("{\"ok\":false,\"error\":\"Invalid annotation request\"}");
                 return;
             }
-            const bool delivered = browser.with([&](AgentBrowserHost& current) {
-                current.annotation_command(args[0]["page_id"].get<std::string>(),
-                                           args[0]["command"].dump(), reply);
+            const std::string page_id = args[0]["page_id"].get<std::string>();
+            const std::string command = args[0]["command"].dump();
+            const bool delivered = browser.with([page_id, command, reply](AgentBrowserHost& current) {
+                current.annotation_command(page_id, command, reply);
             });
             if (!delivered) reply("{\"ok\":false,\"error\":\"Browser closed\"}");
         });

@@ -190,3 +190,26 @@ remains open rather than accepting an undocumented exception or changing origina
 inline styles. Normal inline/stylesheet declarations and every approved field are
 covered by actual Chromium CSS tests. Real Windows/macOS Desktop acceptance is
 still outstanding and is not implied by those tests.
+### Focused native standards boundaries
+
+The hosts retain page membership, navigation/controller incarnation, sharing and annotation
+sequence checks. `agent_browser_capture_cdp` owns full-page CDP measurement/clip orchestration
+behind injected command/current/completion functions; `agent_browser_native_commands_win`
+owns WebView2 transport and isolated annotation evaluation. `agent_browser_capture_mac` owns
+WebKit snapshot/PDF/rasterization, with native-view retention and host-guarded evaluation.
+`agent_browser_proxy_request` owns the existing authenticated request/deadline and exactly-once
+completion/wait contract shared by both hosts. `agent_browser_state_json` owns browser-state
+serialization without changing optional selected-element or annotations payload semantics.
+These extractions preserve viewport defaults and full-page bounds/PNG/stale-document checks.
+
+The shared capture probe lives under `tests/test_support/desktop` and both native smoke
+programs include that full prefix. The ownership scanner masks only actual include header
+tokens before scanning allocations; preprocessor macro allocations remain counted. No size
+or ownership baseline is changed. Native runtime/pixel acceptance remains separate from
+the focused boundary tests and translation-unit compilation.
+
+The probe checks native errors and object shape before inspecting command/evaluation
+results, validates capture metadata types, and retains the original native error on
+failure. A platform-neutral checked-command seam has fake-client regressions for null
+full-page responses, malformed results, and transport errors; it does not replace the
+native pixel check or establish real capture acceptance.

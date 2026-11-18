@@ -1,6 +1,7 @@
 #pragma once
 
 #include "tool/agent_browser/cdp_client.hpp"
+#include "test_support/desktop/agent_browser_capture_probe_command.hpp"
 
 #ifdef _WIN32
 #include <windows.h>
@@ -58,14 +59,11 @@ inline bool run(agent_browser::AgentBrowserCdpClient& client, std::string& error
     using namespace std::chrono_literals;
     const auto require_object = [&error](const nlohmann::json& result,
                                         const char* message) {
-        if (!error.empty()) return false;
-        if (result.is_object()) return true;
-        error = message;
-        return false;
+        return capture_probe::require_object(result, error, message);
     };
     const auto evaluate = [&client, &error, &require_object](const std::string& expression) {
-        const auto result = client.command("Runtime.evaluate", {{"expression", expression},
-            {"awaitPromise", true}, {"returnByValue", true}}, 10s, nullptr, error);
+        const auto result = checked_command(client, "Runtime.evaluate", {{"expression", expression},
+            {"awaitPromise", true}, {"returnByValue", true}}, 10s, error);
         if (!require_object(result, "evaluate returned a non-object result")) return nlohmann::json();
         const auto remote = result.find("result");
         if (remote == result.end() || !require_object(*remote, "evaluate returned no remote object")) {
@@ -95,8 +93,8 @@ inline bool run(agent_browser::AgentBrowserCdpClient& client, std::string& error
             return false;
         }
     }
-    const auto viewport = client.command("Page.captureScreenshot", {{"format", "png"}},
-        20s, nullptr, error);
+    const auto viewport = checked_command(client, "Page.captureScreenshot", {{"format", "png"}},
+        20s, error);
     if (!require_object(viewport, "viewport capture returned a non-object result")) return false;
     if (!viewport.contains("data") || !viewport["data"].is_string()) {
         error = "viewport capture returned no PNG data";
@@ -106,8 +104,8 @@ inline bool run(agent_browser::AgentBrowserCdpClient& client, std::string& error
     const auto viewport_size = viewport_bytes
         ? agent_browser::agent_browser_png_dimensions(*viewport_bytes) : std::nullopt;
     if (!error.empty() || !viewport_size) { error = "viewport capture failed"; return false; }
-    const auto full = client.command("Page.captureScreenshot", {{"fullPage", true}},
-        20s, nullptr, error);
+    const auto full = checked_command(client, "Page.captureScreenshot", {{"fullPage", true}},
+        20s, error);
     if (!require_object(full, "full-page capture returned a non-object result")) return false;
     if (!full.contains("data") || !full["data"].is_string() ||
         !full.contains("fullPage") || !full["fullPage"].is_boolean() ||
@@ -148,8 +146,8 @@ inline bool run(agent_browser::AgentBrowserCdpClient& client, std::string& error
     evaluate("document.body.firstElementChild.style.height = " +
         std::to_string(fixture["height"].get<int>() - 100));
     if (!error.empty()) return false;
-    const auto retry = client.command("Page.captureScreenshot", {{"fullPage", true},
-        {"documentId", full.at("documentId")}}, 20s, nullptr, error);
+    const auto retry = checked_command(client, "Page.captureScreenshot", {{"fullPage", true},
+        {"documentId", full.at("documentId")}}, 20s, error);
     if (!require_object(retry, "retry capture returned a non-object result")) return false;
     if (!retry.contains("fullPage") || !retry["fullPage"].is_boolean() ||
         !retry["fullPage"].get<bool>()) {

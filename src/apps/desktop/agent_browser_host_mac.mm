@@ -1,10 +1,13 @@
 #include "agent_browser_host.hpp"
 #include "page_annotation_session.hpp"
+#include "page_annotation_host_submission.hpp"
 
 #ifdef __APPLE__
 
 #include "agent_browser_cookie_jars.hpp"
 #include "agent_browser_capture.hpp"
+#include "agent_browser_capture_mac.hpp"
+#include "agent_browser_proxy_request.hpp"
 #include "agent_browser_macos_helpers.hpp"
 #include "agent_browser_navigation_state.hpp"
 #include "ipc/agent_browser_runtime.hpp"
@@ -435,14 +438,6 @@ struct AgentBrowserHost::Impl final
       public std::enable_shared_from_this<AgentBrowserHost::Impl> {
     bool parent_surface_visible = true;
 
-    struct PendingProxyCall {
-        std::mutex mutex;
-        std::condition_variable ready;
-        bool completed = false;
-        json response;
-        std::function<void(json)> completion;
-    };
-
     struct Page {
         std::string id;
         PageAnnotationSession annotations;
@@ -668,21 +663,6 @@ struct AgentBrowserHost::Impl final
             value.ready = false;
             value.error = message;
         });
-    }
-
-    static void finish_proxy_call(
-        const std::shared_ptr<PendingProxyCall>& pending,
-        json response) {
-        std::function<void(json)> completion;
-        {
-            std::lock_guard<std::mutex> lock(pending->mutex);
-            if (pending->completed) return;
-            pending->completed = true;
-            completion = std::move(pending->completion);
-            if (!completion) pending->response = std::move(response);
-        }
-        pending->ready.notify_all();
-        if (completion) completion(std::move(response));
     }
 
     void start() {
@@ -2321,186 +2301,36 @@ void AgentBrowserHost::Impl::capture_screenshot(
     const json& params,
     const std::shared_ptr<PendingProxyCall>& pending,
     const std::string& annotation_validation) {
-    bool full_page = false;
-    const auto request_error = browser_capture::request_mode(params, full_page);
-    if (!request_error.empty()) {
-        finish_proxy_call(pending, {{"ok", false}, {"page_id", page->id},
-            {"error", request_error}, {"recoverable", true}});
-        return;
-    }
-    if (full_page) {
-        const auto weak = weak_from_this();
-        const auto navigation_id = page->navigation.current_navigation_id();
-        const auto view = std::shared_ptr<WKWebView>([page->webview retain],
-            [](WKWebView* value) { [value release]; });
-        const auto annotation_document = page->annotations.document_id();
-        const auto current = [weak, page, view, navigation_id, pending,
-                              annotation_document,
-                              trusted_annotation = !annotation_validation.empty()] {
+    const auto weak = weak_from_this();
+    const auto navigation_id = page->navigation.current_navigation_id();
+    const auto view = std::shared_ptr<WKWebView>([page->webview retain],
+        [](WKWebView* value) { [value release]; });
+    const auto annotation_document = page->annotations.document_id();
+    const auto current = [weak, page, view, navigation_id, pending, annotation_document,
+                          trusted_annotation = !annotation_validation.empty()] {
+        const auto self = weak.lock();
+        if (pending->completed()) return false;
+        return self && self->find_page(page->id) == page && !page->closing &&
+            page->webview == view.get() && !page->state.loading &&
+            page->navigation.current_navigation_id() == navigation_id &&
+            page->state.content_state == kAgentBrowserContentStateLive &&
+            (!trusted_annotation || page->annotations.document_id() == annotation_document) &&
+            (trusted_annotation || self->page_shared_with_agent(page));
+    };
+    browser_capture::capture_webkit(view, page->id, params,
+        [weak, page, current](const std::string& expression, browser_capture::Evaluated done) {
             const auto self = weak.lock();
-            {
-                std::lock_guard<std::mutex> lock(pending->mutex);
-                if (pending->completed) return false;
-            }
-            return self && self->find_page(page->id) == page && !page->closing &&
-                page->webview == view.get() && !page->state.loading &&
-                page->navigation.current_navigation_id() == navigation_id &&
-                page->state.content_state == kAgentBrowserContentStateLive &&
-                (!trusted_annotation || page->annotations.document_id() == annotation_document) &&
-                (trusted_annotation || self->page_shared_with_agent(page));
-        };
-        const browser_capture::Measure measure = [weak, page, current](
-            browser_capture::Measured done) {
-            const auto self = weak.lock();
-            if (!self || !current()) { done({}, "capture_document_changed"); return; }
-            const auto expression = std::string(R"JS((() => {
-                const key = '__acecodeFullPageCaptureDocument';
-                if (!globalThis[key] || globalThis[key].document !== document) {
-                    globalThis[key] = { document, id: )JS") +
-                        json(acecode::generate_uuid()).dump() + R"JS( };
-                }
-                const root = document.documentElement;
-                const body = document.body;
-                return { document: globalThis[key].id,
-                    width: Math.max(innerWidth, root?.scrollWidth || 0,
-                        root?.offsetWidth || 0, body?.scrollWidth || 0, body?.offsetWidth || 0),
-                    height: Math.max(innerHeight, root?.scrollHeight || 0,
-                        root?.offsetHeight || 0, body?.scrollHeight || 0, body?.offsetHeight || 0) };
-            })())JS";
-            self->evaluate_value(page, expression, [done](bool ok, json value, std::string error) {
-                if (!ok) { done({}, "capture_measure_failed: " + error); return; }
-                if (!value.is_object() || !value.contains("width") ||
-                    !value["width"].is_number() || !value.contains("height") ||
-                    !value["height"].is_number() || !value.contains("document") ||
-                    !value["document"].is_string()) {
-                    done({}, "capture_invalid_bounds"); return;
-                }
-                done({0, 0, value["width"].get<double>(), value["height"].get<double>(),
-                    value["document"].get<std::string>()}, {});
-            });
-        };
-        const browser_capture::Capture capture = [view, current](
-            const browser_capture::Bounds& bounds, browser_capture::Captured done) {
-            if (!current()) { done({}, "capture_document_changed"); return; }
-            WKPDFConfiguration* configuration = [[[WKPDFConfiguration alloc] init] autorelease];
-            const auto width = static_cast<std::size_t>(std::ceil(bounds.width));
-            const auto height = static_cast<std::size_t>(std::ceil(bounds.height));
-            configuration.rect = CGRectMake(bounds.x, bounds.y,
-                width, height);
-            [view.get() createPDFWithConfiguration:configuration
-                completionHandler:^(NSData* data, NSError* error) {
-                if (!current()) { done({}, "capture_document_changed"); return; }
-                if (error || !data) { done({}, "capture_native_failed"); return; }
-                if (data.length > browser_capture::kMaxPngBytes) {
-                    done({}, "capture_resource_limit"); return;
-                }
-                const auto provider = std::unique_ptr<CGDataProvider, decltype(&CGDataProviderRelease)>(
-                    CGDataProviderCreateWithCFData((CFDataRef)data), CGDataProviderRelease);
-                const auto pdf = std::unique_ptr<CGPDFDocument, decltype(&CGPDFDocumentRelease)>(
-                    provider ? CGPDFDocumentCreateWithProvider(provider.get()) : nullptr,
-                    CGPDFDocumentRelease);
-                if (!pdf || CGPDFDocumentGetNumberOfPages(pdf.get()) != 1) {
-                    done({}, "capture_incomplete_image"); return;
-                }
-                const auto pdf_page = CGPDFDocumentGetPage(pdf.get(), 1);
-                const CGRect box = CGPDFPageGetBoxRect(pdf_page, kCGPDFMediaBox);
-                if (std::abs(box.size.width - width) > 0.01 ||
-                    std::abs(box.size.height - height) > 0.01) {
-                    done({}, "capture_incomplete_image"); return;
-                }
-                const auto color = std::unique_ptr<CGColorSpace, decltype(&CGColorSpaceRelease)>(
-                    CGColorSpaceCreateDeviceRGB(), CGColorSpaceRelease);
-                if (!color) { done({}, "capture_resource_limit"); return; }
-                const auto bitmap = std::unique_ptr<CGContext, decltype(&CGContextRelease)>(
-                    CGBitmapContextCreate(nullptr, width, height, 8, width * 4,
-                        color.get(), kCGImageAlphaPremultipliedLast), CGContextRelease);
-                if (!bitmap) { done({}, "capture_resource_limit"); return; }
-                CGContextSetRGBFillColor(bitmap.get(), 1, 1, 1, 1);
-                CGContextFillRect(bitmap.get(), CGRectMake(0, 0, width, height));
-                CGContextConcatCTM(bitmap.get(), CGPDFPageGetDrawingTransform(
-                    pdf_page, kCGPDFMediaBox, CGRectMake(0, 0, width, height), 0, false));
-                CGContextDrawPDFPage(bitmap.get(), pdf_page);
-                const auto image = std::unique_ptr<CGImage, decltype(&CGImageRelease)>(
-                    CGBitmapContextCreateImage(bitmap.get()), CGImageRelease);
-                if (!image) { done({}, "capture_native_failed"); return; }
-                NSBitmapImageRep* representation = [[[NSBitmapImageRep alloc]
-                    initWithCGImage:image.get()] autorelease];
-                NSData* png = [representation representationUsingType:NSBitmapImageFileTypePNG
-                    properties:@{}];
-                if (!png || png.length > browser_capture::kMaxPngBytes) {
-                    done({}, "capture_resource_limit"); return;
-                }
-                try {
-                    done(std::string(static_cast<const char*>(png.bytes), png.length), {});
-                } catch (const std::bad_alloc&) {
-                    done({}, "capture_resource_limit");
-                }
-            }];
-        };
-        browser_capture::Measure verified_measure = measure;
-        if (!annotation_validation.empty()) {
-            verified_measure = [weak, page, current, measure, annotation_validation](browser_capture::Measured done) {
+            if (!self || !current()) { done(false, {}, "capture_document_changed"); return; }
+            self->evaluate_value(page, expression, std::move(done));
+        }, current,
+        [pending](json response) { finish_proxy_call(pending, std::move(response)); },
+        annotation_capture_validation(annotation_validation,
+            [weak, page, current](const std::string& expression, std::function<void(bool, json)> done) {
                 const auto self = weak.lock();
-                if (!self || !current()) { done({}, "capture_document_changed"); return; }
-                self->evaluate_value(page, annotation_validation,
-                    [measure, current, done](bool ok, json value, std::string) {
-                        if (!ok || !current() || !value.is_object() || value.value("valid", false) != true) {
-                            done({}, "annotation_target_or_document_changed"); return;
-                        }
-                        measure(done);
-                    });
-            };
-        }
-        std::make_shared<browser_capture::FullPageCapture>(page->id,
-            params.value("documentId", ""), verified_measure, capture, current,
-            [pending](json response) { finish_proxy_call(pending, std::move(response)); })
-            ->start();
-        return;
-    }
-    // Objective-C blocks retain C++ values, but a reference parameter would
-    // otherwise leave the asynchronous callback pointing at the caller's
-    // short-lived shared_ptr object.
-    const auto target_page = page;
-    const auto completion = pending;
-    WKSnapshotConfiguration* configuration =
-        [[[WKSnapshotConfiguration alloc] init] autorelease];
-    configuration.rect = [target_page->webview bounds];
-    [target_page->webview takeSnapshotWithConfiguration:configuration
-                               completionHandler:^(NSImage* image, NSError* error) {
-        if (error || !image) {
-            finish_proxy_call(completion,
-                {{"ok", false}, {"page_id", target_page->id},
-                 {"error", error
-                    ? utf8_string([error localizedDescription])
-                    : "WKWebView snapshot failed"}});
-            return;
-        }
-        CGImageRef cg_image = [image CGImageForProposedRect:nil
-                                                   context:nil
-                                                     hints:nil];
-        if (!cg_image) {
-            finish_proxy_call(completion,
-                {{"ok", false}, {"page_id", target_page->id},
-                 {"error", "WKWebView snapshot returned no image"}});
-            return;
-        }
-        NSBitmapImageRep* representation = [[[NSBitmapImageRep alloc]
-            initWithCGImage:cg_image] autorelease];
-        NSData* data = [representation
-            representationUsingType:NSBitmapImageFileTypePNG properties:@{}];
-        if (!data || [data length] == 0) {
-            finish_proxy_call(completion,
-                {{"ok", false}, {"page_id", target_page->id},
-                 {"error", "failed to encode WKWebView snapshot"}});
-            return;
-        }
-        const std::string bytes(
-            static_cast<const char*>([data bytes]), [data length]);
-        finish_proxy_call(completion,
-            {{"ok", true}, {"page_id", target_page->id},
-             {"result", {{"data", acecode::base64_encode(bytes)},
-                          {"captureBeyondViewport", false}}}});
-    }];
+                if (!self || !current()) { done(false, {}); return; }
+                self->evaluate_value(page, expression,
+                    [done](bool ok, json value, std::string) { done(ok, std::move(value)); });
+            }));
 }
 
 bool AgentBrowserHost::Impl::handle_dialog_on_ui(
@@ -2793,38 +2623,10 @@ void AgentBrowserHost::Impl::execute_proxy_request_on_ui(
 }
 
 json AgentBrowserHost::Impl::execute_proxy_request(const json& request) {
-    if (!request.is_object()) {
-        return {{"ok", false}, {"error", "proxy request must be an object"}};
-    }
-    if (!request.contains("auth_token") ||
-        !request["auth_token"].is_string() ||
-        request["auth_token"].get_ref<const std::string&>() !=
-            proxy_auth_token) {
-        return {{"ok", false},
-                {"error", "Agent Browser proxy authentication failed"}};
-    }
-    const std::string operation = request.value("operation", "cdp");
-    if (operation != "cdp" && operation != "create_page" &&
-        operation != "claim_page" && operation != "close_page" &&
-        operation != "select_page" && operation != "drain_store_tasks") {
-        return {{"ok", false},
-                {"error", "Agent Browser proxy operation is invalid"}};
-    }
-    if (operation == "cdp") {
-        if (!request.contains("method") || !request["method"].is_string() ||
-            request["method"].get_ref<const std::string&>().empty() ||
-            request["method"].get_ref<const std::string&>().size() > 256) {
-            return {{"ok", false},
-                    {"error", "Agent Browser command method is invalid"}};
-        }
-    }
-    const int requested_timeout =
-        request.contains("timeout_ms") && request["timeout_ms"].is_number_integer()
-        ? request["timeout_ms"].get<int>() : 15000;
-    const int timeout_ms = (std::max)(
-        100, (std::min)(120000, requested_timeout));
-    const auto deadline = std::chrono::steady_clock::now() +
-                          std::chrono::milliseconds(timeout_ms);
+    const auto request_error = browser_proxy_request_error(
+        request, proxy_auth_token, "Agent Browser command method is invalid");
+    if (!request_error.empty()) return {{"ok", false}, {"error", request_error}};
+    const auto deadline = browser_proxy_deadline(request);
     auto pending = std::make_shared<PendingProxyCall>();
     const auto weak = weak_from_this();
     try {
@@ -2842,27 +2644,7 @@ json AgentBrowserHost::Impl::execute_proxy_request(const json& request) {
                               std::string(error.what())}};
     }
 
-    std::unique_lock<std::mutex> lock(pending->mutex);
-    while (!pending->completed && !proxy_stopping.load() &&
-           std::chrono::steady_clock::now() < deadline) {
-        pending->ready.wait_for(lock, std::chrono::milliseconds(50));
-    }
-    if (pending->completed) return pending->response;
-    bool full_page = false;
-    if (request.value("method", "") == "Page.captureScreenshot" &&
-        browser_capture::request_mode(request.value("params", json::object()), full_page).empty() &&
-        full_page) {
-        pending->completed = true;
-        pending->response = {{"ok", false}, {"page_id", request.value("page_id", "")},
-            {"error", proxy_stopping.load() ? "capture_stopped" : "capture_timeout"},
-            {"recoverable", true}};
-        return pending->response;
-    }
-    return {{"ok", false},
-            {"page_id", request.value("page_id", "")},
-            {"error", proxy_stopping.load()
-                ? "Agent Browser stopped"
-                : "WKWebView command timed out"}};
+    return pending->wait(request, proxy_stopping, deadline, "WKWebView command timed out");
 }
 
 void AgentBrowserHost::Impl::handle_proxy_connection(int connection) {
@@ -3231,43 +3013,24 @@ void AgentBrowserHost::annotation_command(
     const auto command = json::parse(command_json, nullptr, false);
     std::string expression;
     std::string error;
-    if (command.is_object() && command.contains("action") &&
-        (command["action"] == "capture" || command["action"] == "validate" || command["action"] == "acknowledge")) {
-        if (!page->annotations.submission(command, expression, error)) {
-            completion(json{{"ok", false}, {"error", error}}.dump());
-            return;
-        }
-        if (command["action"] == "acknowledge") {
-            const auto snapshot = page->annotations.snapshot();
-            const auto serialized = snapshot.dump();
-            impl_->update_page(page, [serialized](AgentBrowserState& state) {
+    const auto host = impl_;
+    if (annotation_host_submission(page->annotations, page_id, command, completion,
+        [host, page](const std::string& script, std::function<void(bool, json)> done) {
+            const auto incarnation = page->annotation_incarnation;
+            const std::weak_ptr<Impl> weak = host;
+            host->evaluate_value(page, script,
+                [weak, page, incarnation, done](bool ok, json value, std::string) {
+                    const auto self = weak.lock();
+                    done(ok && self && !page->closing && self->find_page(page->id) == page &&
+                        page->annotation_incarnation == incarnation, std::move(value));
+                });
+        }, [host, page](const std::string& serialized) {
+            host->update_page(page, [serialized](AgentBrowserState& state) {
                 state.page_annotations_json = serialized;
             });
-            completion(json{{"ok", true}, {"page_id", page_id}, {"annotations", snapshot}}.dump());
-        } else if (command["action"] == "validate") {
-            const auto incarnation = page->annotation_incarnation;
-            const std::weak_ptr<Impl> weak = impl_;
-            const std::weak_ptr<Impl::Page> weak_page = page;
-            impl_->evaluate_value(page, expression,
-                [completion, page_id, incarnation, weak, weak_page](bool ok, json result, std::string) {
-                    const auto self = weak.lock();
-                    const auto current = weak_page.lock();
-                    const bool valid = ok && self && current && !current->closing &&
-                        self->find_page(page_id) == current && current->annotation_incarnation == incarnation &&
-                        result.is_object() && result.value("valid", false);
-                    completion(json{{"ok", valid}, {"page_id", page_id},
-                        {"error", "Annotation target or document changed"}}.dump());
-                });
-        } else {
-            auto pending = std::make_shared<Impl::PendingProxyCall>();
-            pending->completion = [completion, document = command["document_id"]](json response) {
-                if (response.value("ok", false)) response["annotation_document_id"] = document;
-                completion(response.dump());
-            };
-            impl_->capture_screenshot(page, {{"fullPage", true}}, pending, expression);
-        }
-        return;
-    }
+        }, [host, page](const std::shared_ptr<PendingProxyCall>& pending, const std::string& script) {
+            host->capture_screenshot(page, {{"fullPage", true}}, pending, script);
+        })) return;
     if (!page->annotations.prepare(page_id, command, expression, error)) {
         completion(json{{"ok", false}, {"error", error}}.dump());
         return;
@@ -3278,21 +3041,9 @@ void AgentBrowserHost::annotation_command(
     const auto incarnation = page->annotation_incarnation;
     impl_->evaluate_value(page, expression,
         [weak, weak_page, sequence, incarnation, completion](bool ok, json result, std::string error) {
-            const auto self = weak.lock();
             const auto current = weak_page.lock();
-            if (!self || !current || current->closing ||
-                self->find_page(current->id) != current || current->annotation_incarnation != incarnation || !ok ||
-                !current->annotations.complete(sequence, result, error)) {
-                if (current) current->annotations.fail(sequence);
-                completion(json{{"ok", false}, {"error", error.empty() ? "Annotation document changed or runtime failed" : error}}.dump());
-                return;
-            }
-            const auto snapshot = current->annotations.snapshot();
-            const auto serialized = snapshot.dump();
-            self->update_page(current, [serialized](AgentBrowserState& state) {
-                state.page_annotations_json = serialized;
-            });
-            completion(json{{"ok", true}, {"page_id", current->id}, {"annotations", snapshot}}.dump());
+            annotation_host_result(weak, weak_page, sequence, completion,
+                ok && current && current->annotation_incarnation == incarnation, result, std::move(error));
         });
 }
 
