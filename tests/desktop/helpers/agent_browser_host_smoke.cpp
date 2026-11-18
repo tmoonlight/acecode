@@ -11,7 +11,7 @@
 #endif
 #include <windows.h>
 #include <objbase.h>
-#include "agent_browser_capture_probe.hpp"
+#include "test_support/desktop/agent_browser_capture_probe.hpp"
 
 #include <chrono>
 #include <cstdint>

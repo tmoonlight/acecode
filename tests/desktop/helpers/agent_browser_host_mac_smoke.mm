@@ -3,7 +3,7 @@
 
 #import <AppKit/AppKit.h>
 #import <QuartzCore/QuartzCore.h>
-#include "agent_browser_capture_probe.hpp"
+#include "test_support/desktop/agent_browser_capture_probe.hpp"
 
 #include <atomic>
 #include <chrono>
