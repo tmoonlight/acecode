@@ -2225,8 +2225,8 @@ struct AgentBrowserHost::Impl
                 [weak, page, current](const std::string& expression, AnnotationResult done) {
                     const auto self = weak.lock();
                     if (!self || !current()) { done(false, {}); return; }
-                    self->evaluate_annotation(page, page->annotations.sequence(), expression, std::move(done));
-                }));
+                    agent_browser_windows::evaluate_annotation(page->webview, current, expression, std::move(done));
+                }), page->annotations.requests.cleanup(pending));
     }
 
     void call_cdp_on_ui(

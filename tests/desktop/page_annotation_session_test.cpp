@@ -120,6 +120,67 @@ TEST_F(PageAnnotationSessionTest, HeldCaptureCancelsOnReplacementAndDeadlineExac
     }
 }
 
+TEST_F(PageAnnotationSessionTest, FrozenCaptureValidationSurvivesFrontendReadsAndNextDraftCommands) {
+    start();
+    select();
+    save("Frozen member");
+    auto request = command("capture");
+    request["record_ids"] = Json::array({session.snapshot()["records"].back()["id"]});
+    const auto document = session.document_id();
+    const auto sequence = session.sequence();
+    std::vector<std::function<void(bool, Json)>> validations;
+    std::vector<std::string> expressions;
+    std::vector<std::string> failures;
+    int measurements = 0;
+    int completions = 0;
+    std::shared_ptr<PendingProxyCall> capture;
+    browser_capture::Measure measure;
+    ASSERT_TRUE(annotation_host_submission(session, "page-1", request,
+        [&completions](const auto&) { ++completions; }, [](const auto&, auto) {}, [](const auto&) {},
+        [this, &capture, &measure, &validations, &expressions, &measurements, document]
+        (const auto& pending, const auto& expression) {
+            capture = pending;
+            const auto current = [this, pending, document] {
+                return !pending->completed() && session.document_id() == document;
+            };
+            measure = browser_capture::validated_measure([&measurements](auto done) {
+                ++measurements;
+                done({}, {});
+            }, current, annotation_capture_validation(expression,
+                [&validations, &expressions](const auto& script, auto done) {
+                    expressions.push_back(script);
+                    validations.push_back(std::move(done));
+                }));
+        }));
+    const auto measured = [&failures](auto, auto error) { failures.push_back(error); };
+    measure(measured);
+    ASSERT_TRUE(prepare(command("read"))) << error;
+    ASSERT_TRUE(session.complete(session.sequence(), result(), error)) << error;
+    EXPECT_GT(session.sequence(), sequence);
+    validations.back()(true, {{"valid", true}});
+    EXPECT_EQ(measurements, 1);
+    measure(measured);
+    select();
+    save("Next batch");
+    validations.back()(true, {{"valid", true}});
+    EXPECT_EQ(measurements, 2);
+    EXPECT_EQ(expressions[0], expressions[1]);
+    EXPECT_EQ(session.snapshot()["records"].size(), 2u);
+    EXPECT_FALSE(session.navigation.sending());
+    measure(measured);
+    validations.back()(true, {{"valid", false}});
+    EXPECT_EQ(measurements, 2);
+    EXPECT_EQ(failures.back(), "annotation_target_or_document_changed");
+    measure(measured);
+    session.replace_document();
+    EXPECT_EQ(completions, 1);
+    EXPECT_TRUE(capture->completed());
+    validations.back()(true, {{"valid", true}});
+    EXPECT_EQ(measurements, 2);
+    EXPECT_EQ(failures.back(), "annotation_target_or_document_changed");
+    EXPECT_EQ(completions, 1);
+}
+
 TEST_F(PageAnnotationSessionTest, HeldValidationCancelsReleasesLeaseAndIgnoresLateSuccess) {
     for (const auto& cause : {"timeout", "replacement", "navigation", "close"}) {
         start();
@@ -203,6 +264,38 @@ TEST(AnnotationRequests, DeadlineBoundShutdownAndReentrantCompletion) {
     EXPECT_EQ(completions, 35);
     late->finish({{"ok", true}});
     EXPECT_EQ(completions, 35);
+}
+
+TEST(AnnotationRequests, RetirementPrecedesResponseAndLateRegistrationCannotLeakResource) {
+    AnnotationRequests requests;
+    int retired = 0;
+    int completions = 0;
+    std::shared_ptr<PendingProxyCall> next;
+    const auto first = requests.add([&](Json) {
+        EXPECT_EQ(retired, 1);
+        ++completions;
+        next = requests.add([&](Json) { ++completions; });
+        requests.cleanup(next)([&] { ++retired; });
+    });
+    const auto register_cleanup = requests.cleanup(first);
+    auto resource = std::make_shared<int>(0);
+    const std::weak_ptr<int> weak_resource = resource;
+    register_cleanup([resource, &retired] { ++retired; });
+    resource.reset();
+    EXPECT_FALSE(weak_resource.expired());
+    requests.cancel("replaced");
+    EXPECT_TRUE(weak_resource.expired());
+    EXPECT_EQ(completions, 1);
+    ASSERT_TRUE(next);
+    EXPECT_FALSE(next->completed());
+    register_cleanup([&] { ++retired; });
+    EXPECT_EQ(retired, 2);
+    first->finish({{"ok", true}});
+    EXPECT_EQ(completions, 1);
+    EXPECT_FALSE(next->completed());
+    requests.stop();
+    EXPECT_EQ(retired, 3);
+    EXPECT_EQ(completions, 2);
 }
 
 TEST_F(PageAnnotationSessionTest, SaveCreatesImmutableDescriptionOnlyPendingRecordWithoutConversation) {

@@ -5,6 +5,7 @@
 namespace acecode::desktop::browser_capture {
 
 void capture_preserving_layout(Command command, Current current,
-                               nlohmann::json params, CommandResult complete);
+                               nlohmann::json params, CommandResult complete,
+                               RegisterCleanup cleanup = {});
 
 }

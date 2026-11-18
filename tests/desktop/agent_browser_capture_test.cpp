@@ -1,8 +1,10 @@
 #include "desktop/agent_browser_capture.hpp"
 #include "desktop/agent_browser_capture_cdp.hpp"
+#include "desktop/page_annotation_session.hpp"
 
 #include <gtest/gtest.h>
 #include <limits>
+#include <map>
 #include <vector>
 
 using namespace acecode::desktop::browser_capture;
@@ -254,6 +256,106 @@ TEST(AgentBrowserCapture, CdpPipelineRemeasuresBeforeReturningCompletePng) {
     EXPECT_EQ((*responses)[0]["ok"], true);
     EXPECT_EQ((*responses)[0]["result"]["data"], acecode::base64_encode(png()));
     EXPECT_EQ((*responses)[0]["result"]["captureBeyondViewport"], true);
+}
+
+TEST(AgentBrowserCapture, SessionRetirementClearsCdpPinBeforeRetryAndLateCallbacksCannotTouchNewLease) {
+    for (const bool replace : {false, true}) {
+        acecode::desktop::PageAnnotationSession session;
+        const auto now = acecode::desktop::AnnotationRequests::Clock::time_point{};
+        std::map<std::string, std::string> sheets;
+        std::vector<CommandResult> screenshots;
+        std::vector<json> responses;
+        int commands = 0;
+        int clears = 0;
+        const auto start_document = [&] {
+            std::string expression, error;
+            ASSERT_TRUE(session.prepare("page-a", {{"action", "start"}, {"document_id", ""}}, expression, error));
+            ASSERT_TRUE(session.complete(session.sequence(), {{"document_id", session.document_id()},
+                {"active", true}, {"popup", false}, {"original", false}, {"target", nullptr},
+                {"targets", json::array()}, {"region", nullptr}, {"selection_mode", nullptr},
+                {"differences", json::array()},
+                {"viewport", {{"width", 800}, {"height", 600}, {"scroll_x", 0}, {"scroll_y", 0}}}}, error));
+        };
+        start_document();
+        const Command command = [&](const std::string& method, const json& params, CommandResult done) {
+            ++commands;
+            if (method == "Page.getFrameTree") {
+                done({{"frameTree", {{"frame", {{"id", "frame"}, {"loaderId", session.document_id()}}}}}}, {});
+            } else if (method == "Page.getLayoutMetrics") {
+                done({{"cssContentSize", {{"x", 0}, {"y", 0}, {"width", 2}, {"height", 2000}}}}, {});
+            } else if (method == "Page.createIsolatedWorld") {
+                done({{"executionContextId", 7}}, {});
+            } else if (method == "Runtime.evaluate") {
+                const auto expression = params.value("expression", "");
+                const json value = expression == "window.devicePixelRatio" ? json(1)
+                    : expression.find("getComputedStyle(document.documentElement)") == 0 ? json(true)
+                    : json{{"pin", ":root{scrollbar-gutter:stable!important}"}, {"refresh", ""}};
+                done({{"result", {{"value", value}}}}, {});
+            } else if (method == "CSS.createStyleSheet") {
+                const auto id = session.document_id() + "-" + std::to_string(sheets.size());
+                sheets[id] = "";
+                done({{"styleSheetId", id}}, {});
+            } else if (method == "CSS.setStyleSheetText") {
+                sheets.at(params.at("styleSheetId").get<std::string>()) = params.at("text");
+                if (params.at("text") == "") ++clears;
+                done(json::object(), {});
+            } else if (method == "Page.captureScreenshot") {
+                screenshots.push_back(std::move(done));
+            } else if (method == "DOM.enable" || method == "CSS.enable") {
+                done(json::object(), {});
+            } else FAIL() << method;
+        };
+        const auto begin = [&] {
+            const auto pending = session.requests.add([&](json response) {
+                responses.push_back(std::move(response));
+            }, now);
+            const auto document = session.document_id();
+            capture_cdp("page-a", json::object(), command,
+                [&session, document, pending] {
+                    return session.document_id() == document && !pending->completed();
+                }, [pending](json response) { pending->finish(std::move(response)); }, {},
+                session.requests.cleanup(pending));
+            return pending;
+        };
+        const auto old = begin();
+        ASSERT_EQ(screenshots.size(), 1u);
+        const auto old_sheet = sheets.begin()->first;
+        ASSERT_FALSE(sheets.at(old_sheet).empty());
+        if (replace) session.replace_document();
+        else session.requests.expire(now + std::chrono::seconds(16));
+        ASSERT_EQ(responses.size(), 1u);
+        EXPECT_EQ(responses[0]["ok"], false);
+        EXPECT_TRUE(old->completed());
+        EXPECT_TRUE(sheets.at(old_sheet).empty());
+        EXPECT_EQ(clears, 1);
+        if (replace) start_document();
+        ASSERT_TRUE(session.navigation.acquire("new-batch"));
+        const auto next = begin();
+        ASSERT_EQ(screenshots.size(), 2u);
+        const auto before_late = commands;
+        screenshots.front()({{"data", acecode::base64_encode(png())}}, {});
+        EXPECT_EQ(commands, before_late);
+        EXPECT_EQ(responses.size(), 1u);
+        EXPECT_FALSE(next->completed());
+        EXPECT_TRUE(session.navigation.sending());
+        EXPECT_FALSE(session.navigation.release("old-batch"));
+        EXPECT_EQ(std::count_if(sheets.begin(), sheets.end(), [](const auto& sheet) {
+            return !sheet.second.empty();
+        }), 1);
+        screenshots.back()({{"data", acecode::base64_encode(png())}}, {});
+        ASSERT_EQ(responses.size(), 2u);
+        EXPECT_EQ(responses.back()["ok"], true);
+        EXPECT_EQ(responses.back()["result"]["documentId"], session.document_id());
+        EXPECT_TRUE(next->completed());
+        EXPECT_EQ(clears, 2);
+        const auto finished = commands;
+        screenshots.front()({{"data", "duplicate"}}, {});
+        screenshots.back()({{"data", "duplicate"}}, {});
+        EXPECT_EQ(commands, finished);
+        EXPECT_EQ(responses.size(), 2u);
+        EXPECT_TRUE(session.navigation.sending());
+        EXPECT_TRUE(session.navigation.release("new-batch"));
+    }
 }
 
 TEST(AgentBrowserCapture, NativeViewportImageAndPostCaptureMeasurementFailureAreNotSuccess) {

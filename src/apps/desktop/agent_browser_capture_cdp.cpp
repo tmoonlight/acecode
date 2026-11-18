@@ -4,7 +4,8 @@
 namespace acecode::desktop::browser_capture {
 
 void capture_cdp(std::string page_id, const nlohmann::json& params,
-                 Command command, Current current, Complete complete, Validate validate) {
+                 Command command, Current current, Complete complete, Validate validate,
+                 RegisterCleanup cleanup) {
     const Measure measure = [command, current](Measured done) {
         if (!current()) { done({}, "capture_document_changed"); return; }
         command("Page.getFrameTree", nlohmann::json::object(),
@@ -64,7 +65,7 @@ void capture_cdp(std::string page_id, const nlohmann::json& params,
                     });
             });
     };
-    const Capture capture = [command, current](const Bounds& bounds, Captured done) {
+    const Capture capture = [command, current, cleanup](const Bounds& bounds, Captured done) {
         if (!current()) { done({}, "capture_document_changed"); return; }
         capture_preserving_layout(command, current,
             {{"format", "png"}, {"fromSurface", true}, {"captureBeyondViewport", true},
@@ -83,7 +84,7 @@ void capture_cdp(std::string page_id, const nlohmann::json& params,
                 }
                 const auto bytes = acecode::base64_decode(encoded->get_ref<const std::string&>());
                 done(bytes.value_or(""), bytes ? "" : "capture_invalid_png");
-            });
+            }, cleanup);
     };
     std::make_shared<FullPageCapture>(std::move(page_id), params.value("documentId", ""),
         validated_measure(measure, current, std::move(validate)), capture,

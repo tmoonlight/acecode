@@ -21,9 +21,23 @@ public:
             completion(failure(stopped_ ? "Annotation page closed" : "Too many annotation requests"));
             return {};
         }
-        auto pending = std::make_shared<PendingProxyCall>(std::move(completion));
-        entries_.push_back({pending, now + std::chrono::seconds(15)});
+        const auto retirement = std::make_shared<Retirement>();
+        auto pending = std::make_shared<PendingProxyCall>(
+            [retirement, completion = std::move(completion)](nlohmann::json response) {
+                retirement->retire();
+                completion(std::move(response));
+            });
+        entries_.push_back({pending, now + std::chrono::seconds(15), retirement});
         return pending;
+    }
+
+    browser_capture::RegisterCleanup cleanup(const std::shared_ptr<PendingProxyCall>& pending) const {
+        for (const auto& entry : entries_) {
+            if (entry.pending == pending) return [retirement = entry.retirement](std::function<void()> cleanup) {
+                retirement->install(std::move(cleanup));
+            };
+        }
+        return {};
     }
 
     void expire(Clock::time_point now = Clock::now()) {
@@ -47,9 +61,27 @@ public:
     void restart() { stopped_ = false; }
 
 private:
+    class Retirement {
+    public:
+        void install(std::function<void()> cleanup) {
+            if (!cleanup) return;
+            if (auto previous = std::move(cleanup_)) previous();
+            if (retired_) cleanup();
+            else cleanup_ = std::move(cleanup);
+        }
+        void retire() {
+            retired_ = true;
+            if (auto cleanup = std::move(cleanup_)) cleanup();
+        }
+    private:
+        std::function<void()> cleanup_;
+        bool retired_ = false;
+    };
     struct Entry {
         std::shared_ptr<PendingProxyCall> pending;
         Clock::time_point deadline;
+        // Shared by the registry, pending completion and resource registration.
+        std::shared_ptr<Retirement> retirement;
     };
     static nlohmann::json failure(const std::string& reason) {
         return {{"ok", false}, {"error", reason}, {"recoverable", true}};

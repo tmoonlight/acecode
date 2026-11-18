@@ -122,6 +122,7 @@ using Capture = std::function<void(const Bounds&, Captured)>;
 using Current = std::function<bool()>;
 using Complete = std::function<void(nlohmann::json)>;
 using Validate = std::function<void(std::function<void(bool)>)>;
+using RegisterCleanup = std::function<void(std::function<void()>)>;
 
 inline Measure validated_measure(Measure measure, Current current, Validate validate) {
     if (!validate) return measure;

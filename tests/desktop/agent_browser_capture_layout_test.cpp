@@ -1,8 +1,10 @@
 #include "desktop/agent_browser_capture_layout.hpp"
+#include "desktop/page_annotation_requests.hpp"
 
 #include <gtest/gtest.h>
 
 #include <vector>
+#include <map>
 
 namespace acecode::desktop::browser_capture {
 namespace {
@@ -26,7 +28,7 @@ struct LayoutProbe {
     std::string error;
 };
 
-void run(const std::shared_ptr<LayoutProbe>& probe) {
+void run(const std::shared_ptr<LayoutProbe>& probe, RegisterCleanup cleanup = {}) {
     const Command command = [probe](const std::string& method, const json& params, CommandResult done) {
         probe->methods.push_back(method);
         probe->params.push_back(params);
@@ -61,7 +63,7 @@ void run(const std::shared_ptr<LayoutProbe>& probe) {
             ++probe->completions;
             probe->result = std::move(result);
             probe->error = std::move(error);
-        });
+        }, std::move(cleanup));
 }
 
 void expect_cleared(const std::shared_ptr<LayoutProbe>& probe) {
@@ -140,6 +142,125 @@ TEST(AgentBrowserCaptureLayout, DeferredCaptureOwnsStateAndCleansAfterCancellati
     delayed({{"data", "late PNG"}}, {});
     EXPECT_EQ(probe->error, "capture_document_changed");
     expect_cleared(probe);
+}
+
+TEST(AgentBrowserCaptureLayout, RegistryRetiresOwnedPinWithoutScreenshotCallbackBeforeRetry) {
+    for (const bool deadline : {false, true}) {
+        AnnotationRequests requests;
+        const auto now = AnnotationRequests::Clock::time_point{};
+        std::map<std::string, std::string> sheets;
+        std::vector<CommandResult> screenshots;
+        int completions = 0;
+        int pins = 0;
+        const Command command = [&sheets, &screenshots, &pins](const std::string& method,
+            const json& params, CommandResult done) {
+            if (method == "Page.getFrameTree") {
+                done({{"frameTree", {{"frame", {{"id", "frame"}}}}}}, {});
+            } else if (method == "Page.createIsolatedWorld") {
+                done({{"executionContextId", 7}}, {});
+            } else if (method == "Runtime.evaluate") {
+                const bool verification = params.at("expression").get<std::string>().find(
+                    "getComputedStyle(document.documentElement)") == 0;
+                const bool pinned = std::any_of(sheets.begin(), sheets.end(), [](const auto& sheet) {
+                    return !sheet.second.empty();
+                });
+                done({{"result", {{"value", verification ? json(pinned) : json{
+                    {"pin", pinned ? "" : ":root{scrollbar-gutter:stable!important}"},
+                    {"refresh", pinned ? "scroll" : ""}}}}}}, {});
+            } else if (method == "CSS.createStyleSheet") {
+                const auto id = "owned-" + std::to_string(sheets.size());
+                sheets[id] = "";
+                done({{"styleSheetId", id}}, {});
+            } else if (method == "CSS.setStyleSheetText") {
+                sheets.at(params.at("styleSheetId").get<std::string>()) = params.at("text");
+                if (params.at("text") == ":root{scrollbar-gutter:stable!important}") ++pins;
+                done(json::object(), {});
+            } else if (method == "Page.captureScreenshot") {
+                screenshots.push_back(std::move(done));
+            } else done(json::object(), {});
+        };
+        const auto begin = [&requests, now, &completions, &command] {
+            const auto pending = requests.add([&completions](json response) {
+                ++completions;
+                EXPECT_FALSE(response.value("ok", true));
+            }, now);
+            capture_preserving_layout(command, [pending] { return !pending->completed(); },
+                json::object(), [pending](json, std::string error) {
+                    pending->finish({{"ok", error.empty()}});
+                }, requests.cleanup(pending));
+            return pending;
+        };
+        const auto first = begin();
+        ASSERT_EQ(screenshots.size(), 1u);
+        ASSERT_FALSE(sheets.at("owned-0").empty());
+        if (deadline) requests.expire(now + std::chrono::seconds(16));
+        else requests.cancel("Annotation navigation started");
+        EXPECT_TRUE(first->completed());
+        EXPECT_EQ(completions, 1);
+        EXPECT_TRUE(sheets.at("owned-0").empty());
+        const auto retry = begin();
+        ASSERT_EQ(screenshots.size(), 2u);
+        EXPECT_EQ(pins, 2);
+        EXPECT_FALSE(sheets.at("owned-1").empty());
+        screenshots.front()({{"data", "late old image"}}, {});
+        EXPECT_EQ(completions, 1);
+        EXPECT_FALSE(retry->completed());
+        EXPECT_FALSE(sheets.at("owned-1").empty());
+        requests.stop();
+        EXPECT_EQ(completions, 2);
+        EXPECT_TRUE(sheets.at("owned-1").empty());
+        screenshots.back()({{"data", "late retry image"}}, {});
+        EXPECT_EQ(completions, 2);
+    }
+}
+
+TEST(AgentBrowserCaptureLayout, RegistryCancellationRetiresLateCreatedSheetWithoutAdvancingOldCapture) {
+    AnnotationRequests requests;
+    int completions = 0;
+    const auto pending = requests.add([&completions](json) { ++completions; });
+    const auto probe = std::make_shared<LayoutProbe>();
+    probe->delay = "CSS.createStyleSheet";
+    run(probe, requests.cleanup(pending));
+    auto late = std::move(probe->delayed);
+    ASSERT_TRUE(late);
+    requests.cancel("Replaced document");
+    EXPECT_EQ(completions, 1);
+    EXPECT_EQ(probe->completions, 0);
+    late({{"styleSheetId", "retired-sheet"}}, {});
+    EXPECT_EQ(probe->params.back(), (json{{"styleSheetId", "retired-sheet"}, {"text", ""}}));
+    EXPECT_EQ(probe->methods.back(), "CSS.setStyleSheetText");
+    EXPECT_EQ(completions, 1);
+    EXPECT_EQ(probe->completions, 0);
+    EXPECT_EQ(std::count(probe->methods.begin(), probe->methods.end(), "CSS.setStyleSheetText"), 1);
+    EXPECT_EQ(std::count(probe->methods.begin(), probe->methods.end(), "Page.captureScreenshot"), 0);
+}
+
+TEST(AgentBrowserCaptureLayout, RegistryDeadlineDuringRefreshClearsWithoutWaitingOrLateRootEvaluation) {
+    AnnotationRequests requests;
+    const auto now = AnnotationRequests::Clock::time_point{};
+    int completions = 0;
+    const auto pending = requests.add([&completions](json) { ++completions; }, now);
+    const auto probe = std::make_shared<LayoutProbe>();
+    probe->pin.clear();
+    probe->refresh = "scroll";
+    probe->delay = "Page.captureScreenshot";
+    run(probe, requests.cleanup(pending));
+    auto screenshot = std::move(probe->delayed);
+    ASSERT_TRUE(screenshot);
+    probe->delay = "CSS.setStyleSheetText";
+    screenshot({{"data", "native PNG"}}, {});
+    auto refresh = std::move(probe->delayed);
+    ASSERT_TRUE(refresh);
+    EXPECT_NE(probe->params.back()["text"], "");
+    requests.expire(now + std::chrono::seconds(16));
+    EXPECT_EQ(completions, 1);
+    EXPECT_EQ(probe->params.back(), (json{{"styleSheetId", "owned-sheet"}, {"text", ""}}));
+    const auto commands = probe->methods.size();
+    refresh(json::object(), {});
+    screenshot({{"data", "duplicate PNG"}}, {});
+    EXPECT_EQ(probe->methods.size(), commands);
+    EXPECT_EQ(probe->completions, 0);
+    EXPECT_EQ(completions, 1);
 }
 
 TEST(AgentBrowserCaptureLayout, CleanupFailureNeverReportsCaptureSuccess) {
