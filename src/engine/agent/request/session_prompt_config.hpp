@@ -10,6 +10,7 @@ namespace acecode {
 // Missing configuration keeps the legacy unconfigured-service behavior.
 // A provider returns one value, never pointers into a mutable AppConfig.
 struct SessionPromptConfig {
+    std::optional<std::string> system_prompt_override;
     std::optional<MemoryConfig> memory;
     std::optional<ProjectInstructionsConfig> project_instructions;
     std::optional<CustomInstructionsConfig> custom_instructions;

@@ -245,6 +245,8 @@ struct ToolImpl {
     // Non-empty: hidden from scheduled-task executions (and their child
     // agents); a call made anyway returns this text.
     std::string loop_execution_refusal;
+    // Original unqualified MCP tool identity, before name encoding or truncation.
+    std::string source_tool_name;
 };
 
 // A skill-gated tool that the current policy allows.
@@ -264,6 +266,8 @@ struct RegisteredToolInfo {
 class ToolExecutor {
 public:
     ToolExecutor() = default;
+    explicit ToolExecutor(std::optional<std::unordered_set<std::string>> registration_allowlist)
+        : registration_allowlist_(std::move(registration_allowlist)) {}
     ~ToolExecutor() { lifetime_.revoke(); }
     LifetimeRef<ToolExecutor> lifetime_ref() { return lifetime_.ref(*this); }
     // Register or refresh a tool only when an existing entry has the same
@@ -368,6 +372,7 @@ public:
 private:
     void filter_deferred_tools(std::vector<ToolDef>& definitions,
                                const std::unordered_set<std::string>& loaded_skills) const;
+    const std::optional<std::unordered_set<std::string>> registration_allowlist_;
     std::map<std::string, ToolImpl> tools_;
     mutable std::mutex tools_mu_;
     LifetimeToken lifetime_;

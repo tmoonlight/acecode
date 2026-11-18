@@ -146,3 +146,21 @@ TEST(ToolExecutorNameResolution, UnknownToolErrorDoesNotEchoCorruptedNames) {
     EXPECT_EQ(result.output.find("</arg_value>"), std::string::npos) << result.output;
     EXPECT_EQ(result.output.find("skill_view(name="), std::string::npos) << result.output;
 }
+
+TEST(ToolRegistrationRestrictions, ExactOwnerAndNameControlDiscoveryAndExecution) {
+    acecode::ToolExecutor tools(std::unordered_set<std::string>{"catalog:lookup"});
+    auto tool = make_named_tool("mcp_catalog_lookup");
+    tool.source = acecode::ToolSource::Mcp;
+    tool.source_owner = "unrelated";
+    tool.source_tool_name = "lookup";
+    EXPECT_FALSE(tools.register_tool(tool));
+    EXPECT_FALSE(tools.register_tool(make_named_tool("bash")));
+    EXPECT_TRUE(tools.get_model_tool_definitions().empty());
+    EXPECT_FALSE(tools.execute("mcp_catalog_lookup", "{}").success);
+    tool.source_owner = "catalog";
+    ASSERT_TRUE(tools.register_tool(tool));
+    EXPECT_TRUE(tools.execute("mcp_catalog_lookup", "{}").success);
+    tool.source_tool_name = "different";
+    EXPECT_FALSE(tools.register_tool(tool));
+    EXPECT_EQ(tools.get_model_tool_definitions().size(), 1u);
+}
