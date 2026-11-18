@@ -114,6 +114,21 @@ bool LocalSessionClient::send_input(const std::string& session_id, const UserInp
     return entry->loop->submit(input);
 }
 
+AnnotationSubmissionReceipt LocalSessionClient::send_annotation_batch(
+    const std::string& session_id, const UserInput& input,
+    const AnnotationSubmissionIdentity& identity) {
+    std::shared_lock<std::shared_mutex> migration_lock(environment::data_dir_write_mutex());
+    if (environment::data_dir_writes_blocked()) return {};
+    auto entry = registry_.acquire(session_id);
+    if (!entry || !entry->loop || !entry->sm ||
+        !entry->sm->current_agent_path().empty()) return {};
+    const auto receipt = entry->loop->submit_annotation(input, identity);
+    if (receipt.status == AnnotationSubmissionStatus::Accepted) {
+        registry_.maybe_start_auto_title(session_id, input);
+    }
+    return receipt;
+}
+
 bool LocalSessionClient::retry_last_user_message(
     const std::string& session_id,
     const std::string& expected_user_message_id,

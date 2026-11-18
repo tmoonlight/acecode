@@ -7236,6 +7236,81 @@ TEST(WebServerHttp, TrajectoryRouteProjectsInactiveLegacySession) {
 
 // 场景:POST /api/sessions/:id/messages 只负责把输入交给 daemon 的
 // AgentLoop 入队,不依赖当前 WebSocket 连接是否还绑定该会话。
+TEST(WebServerHttp, AnnotationBatchReturnsMatchingReceiptAndRejectsConflictingReuse) {
+    WebServerFixture fx;
+    auto create = cpr::Post(cpr::Url{fx.url("/api/sessions")},
+        cpr::Header{{"Content-Type", "application/json"}}, cpr::Body{R"({})"});
+    ASSERT_EQ(create.status_code, 201) << create.text;
+    const auto session_id = json::parse(create.text)["session_id"].get<std::string>();
+    const auto url = fx.url("/api/sessions/" + session_id + "/messages");
+    const json payload{{"text", "annotation changes"},
+                       {"annotation_batch_id", "batch-http-1"},
+                       {"client_message_id", "batch-client-1"}};
+    auto failed_payload = payload;
+    failed_payload["attachments"] = json::array({"missing-attachment"});
+    const auto failed = cpr::Post(cpr::Url{url},
+        cpr::Header{{"Content-Type", "application/json"}}, cpr::Body{failed_payload.dump()});
+    ASSERT_EQ(failed.status_code, 404) << failed.text;
+    EXPECT_FALSE(json::parse(failed.text).contains("annotation_batch_id"));
+
+    for (const bool duplicate : {false, true}) {
+        const auto response = cpr::Post(cpr::Url{url},
+            cpr::Header{{"Content-Type", "application/json"}}, cpr::Body{payload.dump()});
+        ASSERT_EQ(response.status_code, 202) << response.text;
+        const auto receipt = json::parse(response.text);
+        EXPECT_TRUE(receipt["queued"].get<bool>());
+        EXPECT_EQ(receipt["annotation_batch_id"], "batch-http-1");
+        EXPECT_EQ(receipt["duplicate"], duplicate);
+    }
+    auto changed = payload;
+    changed["text"] = "different changes";
+    const auto conflict = cpr::Post(cpr::Url{url},
+        cpr::Header{{"Content-Type", "application/json"}}, cpr::Body{changed.dump()});
+    ASSERT_EQ(conflict.status_code, 409) << conflict.text;
+    EXPECT_EQ(json::parse(conflict.text)["error"], "annotation_batch_conflict");
+    EXPECT_FALSE(json::parse(conflict.text).contains("annotation_batch_id"));
+
+    int user_messages = 0;
+    const auto deadline = std::chrono::steady_clock::now() + 10s;
+    while (std::chrono::steady_clock::now() < deadline) {
+        const auto response = cpr::Get(cpr::Url{url});
+        ASSERT_EQ(response.status_code, 200) << response.text;
+        user_messages = 0;
+          const auto body = json::parse(response.text);
+          for (const auto& message : body["messages"]) {
+            if (message.value("role", "") != "user") continue;
+            ++user_messages;
+            EXPECT_EQ(message.value("content", ""), "annotation changes");
+            EXPECT_EQ(message["metadata"]["annotation_batch_id"], "batch-http-1");
+            EXPECT_EQ(message["metadata"]["client_message_id"], "batch-client-1");
+        }
+        if (user_messages != 0) break;
+        std::this_thread::sleep_for(20ms);
+    }
+    EXPECT_EQ(user_messages, 1);
+}
+
+TEST(WebServerHttp, AnnotationBatchCannotSteerOrChangeSessionSettings) {
+    WebServerFixture fx;
+    auto create = cpr::Post(cpr::Url{fx.url("/api/sessions")},
+        cpr::Header{{"Content-Type", "application/json"}}, cpr::Body{R"({})"});
+    ASSERT_EQ(create.status_code, 201) << create.text;
+    const auto session_id = json::parse(create.text)["session_id"].get<std::string>();
+    const json payload{{"text", "annotation changes"}, {"annotation_batch_id", "batch-http-2"}};
+    for (const auto* endpoint : {"/turn/steer", "/turn/interrupt", "/questions/interject"}) {
+        const auto response = cpr::Post(cpr::Url{fx.url("/api/sessions/" + session_id + endpoint)},
+            cpr::Header{{"Content-Type", "application/json"}}, cpr::Body{payload.dump()});
+        EXPECT_EQ(response.status_code, 400) << response.text;
+    }
+    for (const auto* field : {"worktree", "swarm_mode"}) {
+        auto changed = payload;
+        changed[field] = true;
+        const auto response = cpr::Post(cpr::Url{fx.url("/api/sessions/" + session_id + "/messages")},
+            cpr::Header{{"Content-Type", "application/json"}}, cpr::Body{changed.dump()});
+        EXPECT_EQ(response.status_code, 400) << response.text;
+    }
+}
+
 TEST(WebServerHttp, PostMessageQueuesInputInDaemonSession) {
     WebServerFixture fx;
     auto post = cpr::Post(cpr::Url{fx.url("/api/sessions")},

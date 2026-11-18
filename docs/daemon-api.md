@@ -1848,6 +1848,55 @@ whether a paste stayed inline or became a file. Expansion is also skipped when
 the first non-empty composer piece is an inline pasted block.
 Returns `202 {"queued":true}`.
 
+#### Annotation batch receipt
+
+Trusted annotation senders may opt into receiver idempotency by adding
+`annotation_batch_id` (`[A-Za-z0-9_-]{1,128}`) to this ordinary messages endpoint:
+
+```json
+{
+  "annotation_batch_id": "annotation-batch-uuid",
+  "text": "Numbered targets, descriptions and old/new differences",
+  "attachments": [{"id": "att-prepared-full-page-image"}],
+  "client_message_id": "optional-client-message-id"
+}
+```
+
+Only these four fields are allowed for a batch. Non-empty `text` is required;
+the sender prepares and freezes the attachment before submitting. Batch IDs
+are rejected on steer, interrupt and question-interjection paths. Ordinary
+messages without `annotation_batch_id`, including source selections and
+`client_message_id` reconciliation, retain their existing behavior.
+
+First acceptance returns `202` with
+`{"queued":true,"annotation_batch_id":"annotation-batch-uuid","duplicate":false}`.
+An identical retry returns the same accepted ID and `duplicate:true`, with no
+additional user turn or auto-title request. The sender must match the returned
+ID to its frozen batch before acknowledging it. This acknowledges queue
+admission, not model completion or a durable transcript write.
+
+Identity is scoped to the receiving session's live AgentLoop. The receiver hashes
+the complete parsed JSON request using SHA-256 (object key order and whitespace
+do not matter; array order, field omission and all values do). Reuse the exact
+original payload and attachment references on retry; changed payload under an
+accepted ID returns `409 {"error":"annotation_batch_conflict"}`. Checking the ID,
+remembering its fingerprint and enqueueing the ordinary Chat task share the
+existing queue admission lock, including concurrent requests and busy turns.
+Failed admission does not remember an ID. The fingerprint is computed before
+prompt expansion, so retry comparison does not depend on changing workspace
+context. Existing authentication, migration, attachment and mesh checks remain
+in force before acceptance.
+
+Each live receiver retains at most 1024 accepted batch fingerprints, including
+completed turns. Records are never evicted to make room for new batches:
+`503 {"error":"annotation_batch_capacity"}` rejects a new ID at the limit while
+known identical retries still succeed. Other admission failures return
+`503 {"error":"annotation_batch_unavailable"}` without a success receipt;
+normal parse/security errors retain their existing status. Receipt state is
+runtime-only and is lost when the receiving session is destroyed or the daemon
+restarts; there is no restart-recovery guarantee. Do not retry an uncertain
+batch against a recreated receiver as though its earlier receipt survived.
+
 ### `POST /api/sessions/:id/turn/steer`
 
 Appends structured user input to the currently running regular agent turn.

@@ -163,6 +163,7 @@ struct ParsedSessionUserInputRequest {
     int status = 400;
     std::string error;
     UserInput input;
+    AnnotationSubmissionIdentity annotation_identity;
     bool worktree_create = false;
     std::string worktree_base;
     std::string worktree_path;

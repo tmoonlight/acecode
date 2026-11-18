@@ -15,6 +15,7 @@
 //   - SessionClient 方法可阻塞(create/list);事件订阅是 push 模式(回调)
 
 #include "config/saved_models.hpp"
+#include "session/annotation_submission.hpp"
 
 #include <cstdint>
 #include <chrono>
@@ -415,6 +416,15 @@ public:
     // not understand attachments degrade to the visible text.
     virtual bool send_input(const std::string& session_id, const UserInput& input) {
         return send_input(session_id, input.text, input.display_text);
+    }
+
+    virtual AnnotationSubmissionReceipt send_annotation_batch(
+        const std::string& session_id, const UserInput& input,
+        const AnnotationSubmissionIdentity& identity) {
+        (void)session_id;
+        (void)input;
+        (void)identity;
+        return {};
     }
 
     // Reuse the exact trailing user message without appending new input.
