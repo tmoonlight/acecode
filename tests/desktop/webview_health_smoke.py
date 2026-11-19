@@ -7,7 +7,7 @@ import sys
 import tempfile
 import threading
 
-SCENARIOS = ("healthy", "hung", "hung-user", "browser-exit")
+SCENARIOS = ("healthy", "nav-cancelled", "hung", "hung-user", "browser-exit")
 
 
 class Handler(http.server.BaseHTTPRequestHandler):

@@ -243,7 +243,12 @@ inline void on_page_probe_reply(unsigned round, HRESULT error, const std::string
     if (state.step != ProbeStep::AwaitingFirst && state.step != ProbeStep::AwaitingSecond) return;
     ::KillTimer(state.host, kHealthReplyTimer);
     if (FAILED(error)) {
-        conclude_page_probe(PageHealthVerdict::NoReply, "script failed " + health_hresult(error));
+        // 脚本执行失败不是卡死的证据(探活途中页面整页跳转就会这样),而「没回音」
+        // 的处置是结束渲染进程,所以这里只记一行并放弃本轮;只有超时才算没回音。
+        LOG_WARN(std::string("[desktop] page probe after ") +
+                 host_wake_event_name(state.probe_reason) + " abandoned: script failed " +
+                 health_hresult(error));
+        stop_page_probe();
         return;
     }
     const PageProbeSample sample = parse_page_probe_reply(result_json);
@@ -476,7 +481,10 @@ inline void observe_host_window_message(HWND hwnd, UINT msg, WPARAM wparam, LPAR
     }
 }
 
-// 页面加载完成的时刻是探活的前提;加载失败(daemon 连不上等)记一行。
+// 页面加载完成的时刻是探活的前提。没完成的跳转只记一行、不改「已加载」:被宿主
+// 取消的外链、文件拖放兜底、下载、未知协议都按失败上报,而页面并没有离开;若把它们
+// 当成「页面没了」,单页应用此后再没有成功的顶层导航,探活就永久关掉了。真停在
+// 错误页时探针自己会报 not-app-page。
 inline HRESULT install_main_navigation_observer(ICoreWebView2* core) {
     EventRegistrationToken token{};
     return core->add_NavigationCompleted(
@@ -488,10 +496,13 @@ inline HRESULT install_main_navigation_observer(ICoreWebView2* core) {
                 args->get_IsSuccess(&succeeded);
                 args->get_WebErrorStatus(&status);
                 auto& state = main_webview_health();
-                state.page_loaded = succeeded != FALSE;
-                state.page_loaded_at_ms = health_now_ms();
-                if (!succeeded) {
-                    LOG_WARN("[desktop] main page navigation failed (web_error_status=" +
+                if (succeeded) {
+                    // 换了文档:帧计数从零开始,在途的一轮探活作废。
+                    stop_page_probe();
+                    state.page_loaded = true;
+                    state.page_loaded_at_ms = health_now_ms();
+                } else {
+                    LOG_WARN("[desktop] main page navigation did not complete (web_error_status=" +
                              std::to_string(static_cast<int>(status)) + ")");
                 }
                 return S_OK;

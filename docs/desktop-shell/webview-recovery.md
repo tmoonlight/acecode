@@ -80,7 +80,8 @@ WebView2 的浏览器主进程退出后,控件无法就地修复,只能重启桌
 | `ended N unresponsive render process(es); …` | 页面没有回音,宿主结束了卡死的渲染进程 |
 | `user asked to reload the page: ended N render process(es)` | 用户点了托盘的「重新加载界面」 |
 | `page needs a reload (…) but the automatic reload limit is reached` | 重载次数用完 |
-| `main page navigation failed (web_error_status=…)` | 页面没加载成功(daemon 连不上等) |
+| `page probe after <事件> abandoned: script failed …` | 探活途中页面换了文档,本轮作废,不处置 |
+| `main page navigation did not complete (web_error_status=…)` | 一次顶层跳转没完成:可能是 daemon 连不上,也可能只是被取消的外链或下载 |
 | `WebView render process exited (…); reloading the page` | 渲染进程退出(多为内存耗尽) |
 | `WebView render process unresponsive (…)` | 渲染进程无响应 |
 | `WebView browser process exited (… shutting_down=0/1)` | 浏览器主进程退出;`shutting_down=1` 是关机 / 注销 |
@@ -100,7 +101,7 @@ WebView2 的浏览器主进程退出后,控件无法就地修复,只能重启桌
 ## 验证
 
 - 单测:`tests/desktop/webview_health_test.cpp`、`tests/desktop/renderer_recovery_test.cpp`、`tests/desktop/desktop_restart_test.cpp`,前端 `web/src/lib/rootErrorRecovery.test.js`。
-- 真实 WebView2 冒烟(需手动运行,不在 CI 里):先构建 `webview_health_smoke` 目标,再运行 `python tests/desktop/webview_health_smoke.py <webview_health_smoke.exe>`。四个场景:正常页面探活、页面脚本死循环后自动恢复、页面脚本死循环后由用户要求重新加载、结束浏览器主进程后的恢复回调。
+- 真实 WebView2 冒烟(需手动运行,不在 CI 里):先构建 `webview_health_smoke` 目标,再运行 `python tests/desktop/webview_health_smoke.py <webview_health_smoke.exe>`。五个场景:正常页面探活、一次被取消的跳转之后照样探活、页面脚本死循环后自动恢复、页面脚本死循环后由用户要求重新加载、结束浏览器主进程后的恢复回调。
 
 ## 没有在真实桌面版上跑过的
 
@@ -123,4 +124,5 @@ Get-CimInstance Win32_Process -Filter "Name='msedgewebview2.exe'" | Where-Object
 - macOS 与 Linux 只有第一节(页面兜底)。
 - WebView2 不可用时的兼容模式(Edge 应用窗口)下,宿主拿不到这些事件,同样只有第一节。
 - 「进程都活着但不出画面」只有证据,没有处置。
+- 页面停在脚本的原生对话框(`alert` / `confirm`,HTML 预览的框允许弹)或开发者工具的断点上时,探针同样没有回音。解锁时恰好处于这种状态,约 28 秒后会被当成卡死处理(结束渲染进程并重新加载)。
 - 结束渲染进程按 WebView2 环境(用户数据目录)列进程。同时开着的另一个桌面壳实例(开发时多开,或开发版与安装版并存)共用同一个环境,它的页面会跟着重新加载一次。

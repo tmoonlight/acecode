@@ -2,6 +2,7 @@
 // 在真实 WebView2 上走一遍主页面的探活与恢复。单测只能守判定逻辑,下面三件事
 // 只有真实控件才测得出来:
 //   healthy       收到「会话解锁」后探活,正常页面的结论是 healthy,不重载;
+//   nav-cancelled 一次被宿主取消的跳转(页面没有离开)之后,解锁照样探活;
 //   hung          页面脚本死循环,探针没有回音,宿主结束渲染进程后页面恢复;
 //   hung-user     页面脚本死循环,用户从原生入口要求重新加载,页面恢复;
 //   browser-exit  浏览器主进程被结束,宿主记下控件失效;没人在窗口前时不自动恢复,
@@ -92,10 +93,29 @@ void check_browser_exit() {
            "recovery handler after a user request");
 }
 
+// Cancel navigations to .../cancel-me the way the shell cancels external links:
+// WebView2 reports them as failed although the page never left.
+void cancel_marked_navigations() {
+    detail::with_main_webview_core([](ICoreWebView2& core) {
+        EventRegistrationToken token{};
+        core.add_NavigationStarting(
+            Microsoft::WRL::Callback<ICoreWebView2NavigationStartingEventHandler>(
+                [](ICoreWebView2*, ICoreWebView2NavigationStartingEventArgs* args) -> HRESULT {
+                    LPWSTR uri = nullptr;
+                    if (FAILED(args->get_Uri(&uri)) || !uri) return S_OK;
+                    const bool marked = ::wcsstr(uri, L"cancel-me") != nullptr;
+                    ::CoTaskMemFree(uri);
+                    if (marked) args->put_Cancel(TRUE);
+                    return S_OK;
+                }).Get(),
+            &token);
+    });
+}
+
 void on_page_ready(int loads) {
     auto& state = run();
     state.loads = loads;
-    if (state.scenario == "healthy" && loads == 1) {
+    if ((state.scenario == "healthy" || state.scenario == "nav-cancelled") && loads == 1) {
         // Give the navigation time to complete: only a loaded page is probed.
         ::SetTimer(nullptr, 0, 1000, +[](HWND, UINT, UINT_PTR id, DWORD) {
             ::KillTimer(nullptr, id);
@@ -133,7 +153,7 @@ void on_probe(PageHealthVerdict verdict) {
     auto& state = run();
     ++state.probes;
     state.last_verdict = verdict;
-    if (state.scenario == "healthy") {
+    if (state.scenario == "healthy" || state.scenario == "nav-cancelled") {
         finish(verdict == PageHealthVerdict::Healthy, "probe after session unlock");
     }
 }
@@ -160,6 +180,7 @@ int main(int argc, char** argv) {
         run().recovery_was_user_initiated = user_initiated;
     });
 
+    cancel_marked_navigations();
     host.bind("aceHealthReady", [](const std::string& message) {
         on_page_ready(nlohmann::json::parse(message).at(0).get<int>());
         return std::string("null");
@@ -178,6 +199,9 @@ int main(int argc, char** argv) {
             root.appendChild(document.createElement('p'));
             document.body.appendChild(root);
             aceHealthReady(loads);
+            if (window.__aceScenario === 'nav-cancelled') {
+                setTimeout(() => { location.href = '/cancel-me'; }, 300);
+            }
             if (window.__aceScenario.startsWith('hung') && loads === 1) {
                 setTimeout(() => { for (;;) {} }, 600);
             }
