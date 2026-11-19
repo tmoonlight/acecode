@@ -77,6 +77,8 @@ export const enUS = {
     pendingReply: 'Reply needed',
     transcriptLoading: 'Loading conversation content…',
     transcriptError: 'Conversation content failed to load. Switch away and retry.',
+    sessionCreating: 'Creating conversation…',
+    worktreeCreating: 'Creating worktree…',
   },
   counts: {
     filesChanged_one: '{{formattedCount}} file changed',

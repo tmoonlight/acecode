@@ -84,6 +84,7 @@
 #endif
 
 #include "web_host_focus.hpp"
+#include "web_host_health.hpp"
 
 namespace acecode::desktop {
 
@@ -1143,6 +1144,7 @@ LRESULT frameless_nc_calc(HWND hwnd, WPARAM wparam, LPARAM lparam) {
 }
 
 LRESULT CALLBACK host_window_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
+    detail::observe_host_window_message(hwnd, msg, wparam, lparam);
     switch (msg) {
         case WM_CREATE:
             ::AddClipboardFormatListener(hwnd);
@@ -2725,6 +2727,8 @@ void WebHost::set_window_focus_handler(WindowFocusHandler handler) {
 void WebHost::set_clipboard_changed_handler(ClipboardChangedHandler handler) { detail::set_clipboard_changed_handler(std::move(handler)); }
 void WebHost::set_open_invite_handler(OpenInviteHandler handler) { detail::set_open_invite_handler(std::move(handler)); }
 void WebHost::check_clipboard_invitation() { detail::check_clipboard_invitation(); }
+void WebHost::set_webview_recovery_handler(WebviewRecoveryHandler handler) { detail::set_main_webview_recovery_handler(std::move(handler)); }
+bool WebHost::reload_page() { return detail::reload_main_page_for_user(); }
 void WebHost::set_existing_instance_focus_handler(
     ExistingInstanceFocusHandler handler) {
     g_existing_instance_focus_handler = std::move(handler);

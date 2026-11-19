@@ -56,6 +56,7 @@
 #include "utils/cwd_hash.hpp"
 #include "workspace/files_handler.hpp"
 #include "web/handlers/fork_handler.hpp"
+#include "web/handlers/html_site_handler.hpp"
 #include "web/handlers/history_handler.hpp"
 #include "web/handlers/grok_auth_handler.hpp"
 #include "web/handlers/models_handler.hpp"
@@ -702,6 +703,11 @@ struct WebServer::Impl {
     void register_image_generation();
     void register_image_compression();
     void register_inline_visuals();
+    // HTML 文件预览的页面资源站点(routes_html_site.cpp)。GET 走静态兜底路由的
+    // serve_path:Crow 1.3.2 的 <path> 模板会破坏 bind,任意深度的路径只能从那里进来。
+    void register_html_site();
+    crow::response serve_html_site(const crow::request& req);
+    HtmlSiteRegistry html_sites;
     void register_speech_recognition();
     void register_computer_use();
     void register_ios_simulator();

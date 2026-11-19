@@ -167,6 +167,9 @@ function homeFixture({ workspace = 'workspace', attachments = false, failSend = 
     payloadWithAttachmentIds: (payload) => payload,
     setPendingNewSessionFirstUserMessage() {}, applyEvent() {},
     isBuiltin: builtin, explicitHomeSend: !builtin, worktreeIntent: null,
+    // 新建会话的等待登记(内置命令在会话建好后先结束它),这里只记次数。
+    sessionStartToken: {},
+    sessionStartMask: { end: () => { state.sessionStartEnds = (state.sessionStartEnds || 0) + 1; } },
     hasExtras: attachments, hasSwarmMode: builtin,
     composerDirtyRef: { current: true },
     sendInputOrBuiltin: async () => {

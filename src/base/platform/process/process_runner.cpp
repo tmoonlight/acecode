@@ -1,5 +1,6 @@
 #include "process_runner.hpp"
 
+#include "inherited_handles.hpp"
 #include "utils/encoding.hpp"
 #include "utils/utf8_path.hpp"
 
@@ -371,12 +372,24 @@ static HookProcessResult run_hook_process_impl(
         return finish();
     }
 
-    STARTUPINFOW si{};
-    si.cb = sizeof(si);
-    si.dwFlags = STARTF_USESTDHANDLES;
-    si.hStdInput = child_stdin_read;
-    si.hStdOutput = child_stdout_write;
-    si.hStdError = child_stderr_write;
+    // 子进程只继承自己的三个标准流。不限定的话,别的线程此刻正开着的文件(运行库打开的
+    // 句柄默认可继承)会落到子进程和它再起的后台进程手上,一直占到它们退出。
+    platform::InheritedHandleList inherited(
+        {child_stdin_read, child_stdout_write, child_stderr_write});
+    if (!inherited.ready()) {
+        result.error = "Cannot restrict inherited handles: " +
+            windows_error_message(inherited.error_code());
+        cleanup();
+        return finish();
+    }
+
+    STARTUPINFOEXW si{};
+    si.StartupInfo.cb = sizeof(si);
+    si.StartupInfo.dwFlags = STARTF_USESTDHANDLES;
+    si.StartupInfo.hStdInput = child_stdin_read;
+    si.StartupInfo.hStdOutput = child_stdout_write;
+    si.StartupInfo.hStdError = child_stderr_write;
+    si.lpAttributeList = inherited.attribute_list();
 
     PROCESS_INFORMATION pi{};
     std::wstring cmdline;
@@ -456,7 +469,7 @@ static HookProcessResult run_hook_process_impl(
         }
     }
 
-    DWORD creation_flags = CREATE_NO_WINDOW;
+    DWORD creation_flags = CREATE_NO_WINDOW | EXTENDED_STARTUPINFO_PRESENT;
     if (process_job) creation_flags |= CREATE_SUSPENDED;
     if (!environment_block.empty()) {
         creation_flags |= CREATE_UNICODE_ENVIRONMENT;
@@ -471,7 +484,7 @@ static HookProcessResult run_hook_process_impl(
                                  ? nullptr
                                  : environment_block.data(),
                              wide_cwd.empty() ? nullptr : wide_cwd.c_str(),
-                             &si,
+                             &si.StartupInfo,
                              &pi);
     close_handle(child_stdin_read);
     close_handle(child_stdout_write);

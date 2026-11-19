@@ -261,6 +261,10 @@ const LLM_ROUNDTRIP_TIMEOUT_MS = 600000;
 // 下默认 30 秒传不完。仍用有限值,不归入上面「合法地会阻塞很久」的无超时端点。
 // pastedText.js 以同名常量重新导出,粘贴相关代码统一从那里取。
 export const PASTED_TEXT_UPLOAD_TIMEOUT_MS = 5 * 60 * 1000;
+// 首条消息带着建 worktree 的意图时,daemon 在这次请求里同步建好 worktree 才返回
+// (git worktree add 自身上限 120 秒,之后还有稀疏检出和文件复制)。走默认 30 秒的话,
+// 大仓库会出现「界面报发送失败、daemon 却照常建完并开始回合」。仍用有限值。
+export const WORKTREE_CREATE_TIMEOUT_MS = 5 * 60 * 1000;
 
 function workspaceDraftAttachmentsPath(workspaceHash = '') {
   return `${workspaceDraftPath(workspaceHash)}/attachments`;
@@ -527,7 +531,16 @@ export function createApi(base = null) {
         ? payload
         : { text: payload };
       const query = options.reconcileOnly === true ? '?annotation_reconcile_only=1' : '';
-      return request('POST', `/api/sessions/${encodeURIComponent(id)}/messages${query}`, body, base);
+      const requestOptions = body.worktree?.create
+        ? { timeoutMs: WORKTREE_CREATE_TIMEOUT_MS }
+        : {};
+      return request(
+        'POST',
+        `/api/sessions/${encodeURIComponent(id)}/messages${query}`,
+        body,
+        base,
+        requestOptions,
+      );
     },
     retryLastUserMessage: (id, expectedUserMessageId) => request(
       'POST',
@@ -1002,6 +1015,14 @@ export function createApi(base = null) {
     readEditableFile: (cwd, path) => {
       const qs = `?cwd=${encodeURIComponent(cwd)}&path=${encodeURIComponent(path)}`;
       return request('GET', '/api/files/editable' + qs, undefined, base);
+    },
+    // HTML 文件预览:登记页面资源站点,返回 {id, prefix, entry, url}。url 是入口文件的完整地址,
+    // 隔离框的 <base href> 由它得出(docs/html-preview.md)。
+    htmlSite: async (cwd, path) => {
+      const result = await request('POST', '/api/files/html-site', { cwd, path }, base);
+      const relative = `${result?.prefix || ''}${result?.entry || ''}`;
+      const origin = fullUrl('', base) || globalThis.location?.origin || '';
+      return { ...result, url: relative ? new URL(relative, origin || undefined).href : '' };
     },
     saveEditableFile: (cwd, path, text, readId) => request(
       'PUT',

@@ -482,3 +482,15 @@ TEST(HeadlessOptions, ParsesAndValidatesSwarmMode) {
     auto mixed = parse_headless_cli_options({"-p", "--list-tools", "--swarm", "mesh"});
     EXPECT_NE(mixed.error.find("cannot be combined"), std::string::npos) << mixed.error;
 }
+
+TEST(HeadlessRestrictions, RequireExplicitToolPolicyAndPromptPath) {
+    const auto opts = acecode::headless::parse_headless_cli_options(
+        {"-p", "--tool-policy=deny-by-default", "--allow-tool", "demo:lookup",
+         "--system-prompt-file=role.txt", "hello"});
+    EXPECT_TRUE(opts.error.empty()) << opts.error;
+    EXPECT_TRUE(opts.deny_tools_by_default);
+    EXPECT_EQ(opts.allowed_tools, std::vector<std::string>{"demo:lookup"});
+    EXPECT_EQ(opts.system_prompt_file, "role.txt");
+    EXPECT_FALSE(acecode::headless::parse_headless_cli_options({"-p", "--allow-tool", "demo:lookup"}).error.empty());
+    EXPECT_FALSE(acecode::headless::parse_headless_cli_options({"-p", "--system-prompt-file="}).error.empty());
+}

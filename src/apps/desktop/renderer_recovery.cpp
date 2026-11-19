@@ -10,14 +10,16 @@ RendererRecoveryAction RendererRecoveryTracker::on_failure(RendererFailure failu
     if (failure != RendererFailure::RenderProcessExited) {
         return RendererRecoveryAction::Ignore;
     }
+    return admit_reload(now_ms) ? RendererRecoveryAction::Reload : RendererRecoveryAction::GiveUp;
+}
+
+bool RendererRecoveryTracker::admit_reload(std::int64_t now_ms) {
     while (!reloads_ms_.empty() && now_ms - reloads_ms_.front() >= limits_.window_ms) {
         reloads_ms_.pop_front();
     }
-    if (static_cast<int>(reloads_ms_.size()) >= limits_.max_reloads) {
-        return RendererRecoveryAction::GiveUp;
-    }
+    if (static_cast<int>(reloads_ms_.size()) >= limits_.max_reloads) return false;
     reloads_ms_.push_back(now_ms);
-    return RendererRecoveryAction::Reload;
+    return true;
 }
 
 } // namespace acecode::desktop

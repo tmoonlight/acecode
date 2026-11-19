@@ -2,6 +2,7 @@
 
 #include "environment/shell_command_line.hpp"
 #include "environment/terminal_runtime.hpp"
+#include "platform/process/inherited_handles.hpp"
 #include "sandbox/sandbox_backend.hpp"
 #include "utils/encoding.hpp"
 #include "utils/stream_processing.hpp"
@@ -135,11 +136,23 @@ std::unique_ptr<ShellProcess> ShellProcess::launch(const ShellLaunchSpec& spec,
     }
     SetHandleInformation(read_pipe.get(), HANDLE_FLAG_INHERIT, 0);
 
-    STARTUPINFOW si = {};
-    si.cb = sizeof(si);
-    si.dwFlags = STARTF_USESTDHANDLES;
-    si.hStdOutput = write_pipe.get();
-    si.hStdError = write_pipe.get();
+    // 命令进程只继承自己的输出管道(stdin 照旧不给)。不限定的话,宿主此刻开着的可继承
+    // 句柄(运行库打开的文件默认可继承)会全数落到命令进程和它再起的子进程手上:文件被
+    // 占到命令结束;受限令牌分支里,沙盒内的进程还会白拿到一批权限属于宿主的句柄。
+    // 清单建不出来按普通启动失败返回:不退回全量继承,也不算沙盒后端不可用。
+    platform::InheritedHandleList inherited({write_pipe.get()});
+    if (!inherited.ready()) {
+        failure.message = "Failed to restrict inherited handles (error " +
+                          std::to_string(inherited.error_code()) + ").";
+        return nullptr;
+    }
+
+    STARTUPINFOEXW si = {};
+    si.StartupInfo.cb = sizeof(si);
+    si.StartupInfo.dwFlags = STARTF_USESTDHANDLES;
+    si.StartupInfo.hStdOutput = write_pipe.get();
+    si.StartupInfo.hStdError = write_pipe.get();
+    si.lpAttributeList = inherited.attribute_list();
 
     PROCESS_INFORMATION pi = {};
 
@@ -171,20 +184,20 @@ std::unique_ptr<ShellProcess> ShellProcess::launch(const ShellLaunchSpec& spec,
     // 挂起启动 → 挂进 Job Object → 再放行(align-codex-sandboxing D7):超时 / 中止时
     // TerminateJobObject 能杀掉整棵进程树(cmd → node → 子工具),而不是只杀 cmd。
     // Job 不设 KILL_ON_JOB_CLOSE,正常结束关闭句柄不影响有意留下的后台孙进程。
-    const DWORD creation_flags = CREATE_NO_WINDOW | CREATE_SUSPENDED |
+    const DWORD creation_flags = CREATE_NO_WINDOW | CREATE_SUSPENDED | EXTENDED_STARTUPINFO_PRESENT |
                                  (env_ptr ? CREATE_UNICODE_ENVIRONMENT : 0);
     if (sandboxed) {
         auto token = sandbox::create_restricted_token(spec.sandbox->policy, &sandbox_error);
         if (token) {
             std::wstring desktop = L"winsta0\\default";
-            si.lpDesktop = desktop.data();
+            si.StartupInfo.lpDesktop = desktop.data();
             ok = CreateProcessAsUserW(token.get(), nullptr, full_cmd_buffer.data(), nullptr, nullptr, TRUE,
-                                      creation_flags, env_ptr, cwd_ptr, &si, &pi);
+                                      creation_flags, env_ptr, cwd_ptr, &si.StartupInfo, &pi);
             if (!ok) sandbox_error = "CreateProcessAsUserW failed: " + std::to_string(GetLastError());
         }
     } else {
         ok = CreateProcessW(nullptr, full_cmd_buffer.data(), nullptr, nullptr, TRUE,
-                            creation_flags, env_ptr, cwd_ptr, &si, &pi);
+                            creation_flags, env_ptr, cwd_ptr, &si.StartupInfo, &pi);
     }
 
     write_pipe.reset();

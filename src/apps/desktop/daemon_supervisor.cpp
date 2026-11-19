@@ -3,6 +3,7 @@
 #include "utils/encoding.hpp"
 #include "utils/token.hpp"
 #include "platform/process/graceful_stop.hpp"
+#include "platform/process/inherited_handles.hpp"
 
 #include <chrono>
 #include <cerrno>
@@ -363,14 +364,21 @@ SpawnResult DaemonSupervisor::spawn(const SpawnRequest& req) {
                                OPEN_EXISTING, 0, nullptr);
     if (nul == INVALID_HANDLE_VALUE) nul = nullptr; // 兜底,STARTF_USESTDHANDLES 不会致命
 
-    STARTUPINFOW si{};
-    si.cb = sizeof(si);
-    si.dwFlags = STARTF_USESHOWWINDOW | (nul ? STARTF_USESTDHANDLES : 0);
-    si.wShowWindow = SW_HIDE;
-    if (nul) {
-        si.hStdInput  = nul;
-        si.hStdOutput = nul;
-        si.hStdError  = nul;
+    // daemon 与桌面版同寿命:只让它继承 NUL。不限定的话,桌面版此刻别的线程正开着的文件
+    // (运行库打开的句柄默认可继承)会被 daemon 一直占到退出,升级替换安装目录里的文件时
+    // 报「文件被占用」。清单建不出来(含 NUL 没打开)就不重定向、也不继承任何句柄。
+    acecode::platform::InheritedHandleList inherited({nul});
+    const bool redirect = inherited.ready();
+
+    STARTUPINFOEXW si{};
+    si.StartupInfo.cb = redirect ? sizeof(si) : sizeof(si.StartupInfo);
+    si.StartupInfo.dwFlags = STARTF_USESHOWWINDOW | (redirect ? STARTF_USESTDHANDLES : 0);
+    si.StartupInfo.wShowWindow = SW_HIDE;
+    if (redirect) {
+        si.StartupInfo.hStdInput  = nul;
+        si.StartupInfo.hStdOutput = nul;
+        si.StartupInfo.hStdError  = nul;
+        si.lpAttributeList = inherited.attribute_list();
     }
     PROCESS_INFORMATION pi{};
 
@@ -378,7 +386,8 @@ SpawnResult DaemonSupervisor::spawn(const SpawnRequest& req) {
     // CREATE_SUSPENDED: 先挂起,绑 Job 后再 Resume,避免子进程创建后到绑 Job
     //   之间的窗口期里若立刻 spawn 孙子进程会逃出 Job 控制(MVP 风险低,但
     //   走这条路稳妥)。
-    DWORD flags = CREATE_NO_WINDOW | CREATE_SUSPENDED;
+    DWORD flags = CREATE_NO_WINDOW | CREATE_SUSPENDED |
+                  (redirect ? EXTENDED_STARTUPINFO_PRESENT : 0);
 
     // lpApplicationName 显式传 exe_w,避免带空格/非 ASCII 路径时依赖系统从
     // lpCommandLine 重新解析。lpCommandLine 仍需可写 buffer 供子进程拿 argv。
@@ -388,14 +397,15 @@ SpawnResult DaemonSupervisor::spawn(const SpawnRequest& req) {
     // lpCurrentDirectory: 让子进程在指定 cwd 启动。daemon 用 current_path()
     // 决定 session 存储目录 / project_instructions 起点等,所以这是 multi-workspace
     // 模型里关键的隔离点 — 不靠父进程改自身 cwd 的 hack。
-    // bInheritHandles=TRUE 让 nul handle 真正传给子进程(STARTF_USESTDHANDLES 必需)
+    // bInheritHandles=TRUE 让 nul handle 真正传给子进程(STARTF_USESTDHANDLES 必需);
+    // 传过去的只有上面清单里的 NUL。
     BOOL ok = ::CreateProcessW(
         exe_w.c_str(),
         cmd_buf.data(),
         nullptr, nullptr,
-        nul ? TRUE : FALSE, flags,
+        redirect ? TRUE : FALSE, flags,
         nullptr, cwd_arg,
-        &si, &pi);
+        &si.StartupInfo, &pi);
     if (!ok) {
         DWORD err = ::GetLastError();
         std::ostringstream e;

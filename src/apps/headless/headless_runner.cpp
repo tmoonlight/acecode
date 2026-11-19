@@ -50,6 +50,7 @@
 #include "utils/paths.hpp"
 #include "platform/power_inhibitor.hpp"
 #include "utils/utf8_path.hpp"
+#include "utils/text_file_buffer.hpp"
 #include "skills/skill_command_expander.hpp"
 
 #include <nlohmann/json.hpp>
@@ -63,6 +64,8 @@
 #include <cstdlib>
 #include <filesystem>
 #include <iostream>
+#include <fstream>
+#include <algorithm>
 #include <memory>
 #include <mutex>
 #include <sstream>
@@ -328,6 +331,19 @@ int run_print_mode(const HeadlessCliOptions& opts) {
     g_interrupt_count.store(0);
 
     // ---- prompt 先行:参数错误要在任何重初始化之前廉价失败 ----
+    std::optional<std::string> replacement_prompt;
+    if (!opts.system_prompt_file.empty()) {
+        std::ifstream input(path_from_utf8(opts.system_prompt_file), std::ios::binary);
+        std::ostringstream contents;
+        if (input) contents << input.rdbuf();
+        auto value = contents.str();
+        if (!input || input.bad() || value.find_first_not_of(" \r\n\t") == std::string::npos ||
+            value.find('\0') != std::string::npos || !text_bytes_are_valid_utf8(value)) {
+            std::cerr << "acecode -p: cannot load a nonempty text system prompt\n";
+            return 64;
+        }
+        replacement_prompt = std::move(value);
+    }
     const std::string prompt = build_effective_prompt(opts.prompt);
     if (prompt.empty()) {
         std::cerr << "acecode -p: input must be provided either through stdin or "
@@ -353,6 +369,8 @@ int run_print_mode(const HeadlessCliOptions& opts) {
     }
 
     AppConfig cfg = load_config();
+    // Auto-title uses a second provider request with its own system instructions.
+    if (replacement_prompt) cfg.session_title.enabled = false;
     cfg.mcp_servers = effective_mcp_config(
         cfg.mcp_servers, load_project_mcp_config(acecode::current_path_utf8()));
     acecode::environment::bootstrap(cfg, {false, true});
@@ -497,7 +515,10 @@ int run_print_mode(const HeadlessCliOptions& opts) {
     // 记忆:注入与工具和 TUI / daemon 一致,但 headless 不跑记忆摘要调度器。
     auto memory_runtime = acecode::create_memory_runtime(
         cfg, acecode::get_acecode_dir(), acecode::MemorySurface::Headless);
-    acecode::ToolExecutor tools;
+    std::optional<std::unordered_set<std::string>> registration_allowlist;
+    if (opts.deny_tools_by_default)
+        registration_allowlist.emplace(opts.allowed_tools.begin(), opts.allowed_tools.end());
+    acecode::ToolExecutor tools(registration_allowlist);
     auto subagent_deps = std::make_shared<acecode::SubagentToolDeps>();
     auto thread_deps = std::make_shared<acecode::ThreadToolDeps>();
     auto workspace_deps = std::make_shared<acecode::WorkspaceToolDeps>();
@@ -540,6 +561,20 @@ int run_print_mode(const HeadlessCliOptions& opts) {
         // cfg.mcp_servers 此时已经是本次 invocation 的 allowlist 副本;
         // 空 map 会直接跳过,非空只启动点名 server。
         mcp_runtime.start(cfg, tools);
+        if (registration_allowlist && !registration_allowlist->empty()) {
+            // Discovery is asynchronous. A requested but missing tool must fail before the first model call.
+            for (;;) {
+                const auto servers = mcp_runtime.manager().list_servers();
+                if (std::none_of(servers.begin(), servers.end(), [](const auto& server) {
+                        return server.state == McpServerState::Starting;
+                    })) break;
+                std::this_thread::sleep_for(std::chrono::milliseconds(25));
+            }
+            if (tools.get_registered_tools().size() != registration_allowlist->size()) {
+                std::cerr << "acecode -p: one or more allowed tools are unavailable\n";
+                return 64;
+            }
+        }
 
         // ---- 权限模板:-p 未显式传参固定从 default 起步,不继承可能更宽
         // 的全局/历史模式;--yolo = dangerous(全放行)。 ----
@@ -552,6 +587,13 @@ int run_print_mode(const HeadlessCliOptions& opts) {
         reg_deps.provider_accessor = []() -> std::shared_ptr<acecode::LlmProvider> {
             return nullptr; // config 路径下 registry 按 profile 自建 provider
         };
+        if (replacement_prompt) {
+            reg_deps.prompt_config = [prompt = *replacement_prompt] {
+                SessionPromptConfig config;
+                config.system_prompt_override = prompt;
+                return config;
+            };
+        }
         reg_deps.tools                    = &tools;
         reg_deps.cwd                      = cwd;
         reg_deps.config                   = &cfg;
@@ -670,6 +712,14 @@ int run_print_mode(const HeadlessCliOptions& opts) {
                 std::cerr << "acecode -p: session initialization failed\n";
                 return 1;
             }
+            if (registration_allowlist && effective_permission_mode == "auto") {
+                // The operator explicitly approved these exact MCP tools for unattended calls.
+                // Normal rule denials and checks for builtin tools still apply.
+                for (const auto& tool : tools.get_registered_tools()) {
+                    if (tool.source == ToolSource::Mcp)
+                        entry->perm->add_session_allow(tool.definition.name);
+                }
+            }
             auto p = entry->model_binding->provider_snapshot();
             if (!p) {
                 write_stream_error("ModelConfigurationError",
@@ -719,7 +769,7 @@ int run_print_mode(const HeadlessCliOptions& opts) {
 
         std::string send_text = prompt;
         std::string display_text;
-        expand_skill_prompt(skill_registry, send_text, display_text);
+        if (!replacement_prompt) expand_skill_prompt(skill_registry, send_text, display_text);
 
         std::signal(SIGINT, sigint_handler);
 

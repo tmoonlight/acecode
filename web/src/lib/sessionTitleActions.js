@@ -10,6 +10,7 @@ export function sessionTitleActionStates({
   sessionId = '',
   auxiliaryPage = false,
   readOnly = false,
+  starting = false,
   summaryToggle = false,
   agentBrowser = false,
   iosSimulator = false,
@@ -17,14 +18,17 @@ export function sessionTitleActionStates({
   // 定时任务页 / 专家组件页(ChatView 的 children)即使带着上一次的会话 ref,也不是会话视图。
   const session = !!sessionId && !auxiliaryPage;
   const homePage = !sessionId && !auxiliaryPage;
+  // starting:新建会话 / 建 worktree 的等待遮罩正盖着工作区。顶栏在遮罩外面,
+  // 标题照常显示,但这排按钮跟着不可用(否则还能归档一个正在建 worktree 的会话)。
+  const usable = session && !starting;
   return {
     session,
-    share: { visible: true, enabled: session && !readOnly },
-    summary: { visible: !!summaryToggle, enabled: session },
-    trajectory: { visible: true, enabled: session },
-    sideChat: { visible: true, enabled: session && !readOnly },
-    browser: { visible: !!agentBrowser, enabled: session || homePage },
-    iosSimulator: { visible: !!iosSimulator, enabled: session },
-    sessionMenu: { visible: true, enabled: session },
+    share: { visible: true, enabled: usable && !readOnly },
+    summary: { visible: !!summaryToggle, enabled: usable },
+    trajectory: { visible: true, enabled: usable },
+    sideChat: { visible: true, enabled: usable && !readOnly },
+    browser: { visible: !!agentBrowser, enabled: (session || homePage) && !starting },
+    iosSimulator: { visible: !!iosSimulator, enabled: usable },
+    sessionMenu: { visible: true, enabled: usable },
   };
 }

@@ -279,3 +279,29 @@ TEST(TrayMenuLayout, ItemsCarrySessionMetadata) {
     }
     EXPECT_TRUE(found);
 }
+
+// 场景:页面坏掉时托盘菜单要有一个不依赖页面的「重新加载界面」。只有注册了处理
+// 函数的平台才带这一项。
+// 期望:带上时它排在「打开」之后、「退出」之前,命令号固定;默认不带,菜单结构不变。
+TEST(TrayMenuLayout, ReloadWindowEntryIsOptIn) {
+    const auto plain = compute_menu_layout(empty_payload());
+    EXPECT_EQ(count_kind(plain, TrayMenuEntryKind::ReloadWindow), 0u);
+
+    const auto layout = compute_menu_layout(empty_payload(), "en-US", /*include_reload=*/true);
+    ASSERT_EQ(count_kind(layout, TrayMenuEntryKind::ReloadWindow), 1u);
+    std::size_t open_at = 0, reload_at = 0, quit_at = 0;
+    for (std::size_t i = 0; i < layout.entries.size(); ++i) {
+        const auto& entry = layout.entries[i];
+        if (entry.kind == TrayMenuEntryKind::OpenApp) open_at = i;
+        if (entry.kind == TrayMenuEntryKind::Quit) quit_at = i;
+        if (entry.kind == TrayMenuEntryKind::ReloadWindow) {
+            reload_at = i;
+            EXPECT_EQ(entry.id, acecode::desktop::kMenuIdReloadWindow);
+            EXPECT_EQ(entry.label, "Reload Window");
+        }
+    }
+    EXPECT_EQ(reload_at, open_at + 1);
+    EXPECT_LT(reload_at, quit_at);
+    EXPECT_EQ(compute_menu_layout(empty_payload(), "zh-CN", true).entries[reload_at].label,
+              u8"重新加载界面");
+}

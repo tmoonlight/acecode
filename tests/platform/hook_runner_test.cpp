@@ -2,6 +2,8 @@
 
 #include "hooks/hook_manager.hpp"
 #include "platform/process/process_runner.hpp"
+#include "test_support/platform/inherited_file_probe.hpp"
+#include "utils/utf8_path.hpp"
 
 #include <algorithm>
 #include <atomic>
@@ -126,6 +128,55 @@ TEST(HookRunner, BoundedOptionsAbortLongRunningProcess) {
     EXPECT_FALSE(result.timed_out);
     EXPECT_LT(elapsed.count(), 2000);
 }
+
+#ifdef _WIN32
+TEST(HookRunner, ChildDoesNotInheritUnrelatedOpenFiles) {
+    // 触发场景:通用子进程运行器(hooks、grep、git 调用、终端探测都走这里)起子进程的
+    // 那一刻,别的线程正用 std::ifstream 读文件(MSVC 运行库打开的句柄默认可继承,且不允许
+    // 别人删除 / 改名)。多数调用很快结束,但 hook 命令可以跑很久,它再起的后台进程更久。
+    // 期望:子进程只拿到自己的三个标准流;父进程关掉文件后马上就能给它改名。
+    // 回归:CreateProcessW 以 bInheritHandles=TRUE 启动且没有限定句柄清单,子进程把那一刻
+    // 所有可继承句柄都带走。实际表现:这个文件在命令(以及它留下的后台进程)结束之前
+    // 改不了名、删不掉,报「另一个程序正在使用此文件」(错误 32)。
+    //
+    // 运行器是同步的:返回时子进程已经退出、带走的句柄也放了,所以改名必须趁它还在跑。
+    // 命令先写一个标记文件报告「已经起来了」再空转;主线程看到标记后改名,然后中止命令。
+    acecode_test::InheritedFileProbe probe("hook-inherit");
+    ASSERT_TRUE(probe.reading());
+    const auto marker = probe.root() / "started";
+    const std::string command = "echo started> \"" + acecode::path_to_utf8(marker) +
+                                "\" & \"" + acecode_test::idle_child_path() + "\"";
+
+    std::atomic<bool> abort{false};
+    acecode::HookProcessOptions options;
+    options.timeout_ms = 20000;
+    options.abort_flag = &abort;
+    options.terminate_process_tree = true;
+    acecode::HookProcessResult result;
+    std::thread runner([&result, &options, &command] {
+        result = acecode::run_hook_shell_command(command, "", "", options);
+    });
+
+    bool child_started = false;
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+    while (std::chrono::steady_clock::now() < deadline) {
+        std::error_code ec;
+        if (std::filesystem::exists(marker, ec)) {
+            child_started = true;
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+    const int rename_error = probe.close_and_rename();
+    abort.store(true);
+    runner.join();
+
+    ASSERT_TRUE(child_started) << result.error;
+    // 是被中止的而不是自己结束的:改名那一刻命令还在跑,结果才说明问题。
+    EXPECT_TRUE(result.aborted);
+    EXPECT_EQ(rename_error, 0);
+}
+#endif
 
 TEST(HookRunner, BoundedOptionsStopAtStdoutLineLimit) {
     acecode::platform::ProcessSpec cmd;

@@ -92,6 +92,7 @@ import { StickyUserContext } from './StickyUserContext.jsx';
 import { AttachmentTextLoaderContext } from './AttachmentTextLoaderContext.jsx';
 import { InlineVisualBridgeContext } from './InlineVisualBridgeContext.jsx';
 import { SessionContentLoading } from './SessionContentLoading.jsx';
+import { SessionStartLoading } from './SessionStartLoading.jsx';
 import { sessionContentLoadingPhase } from '../lib/sessionContentLoading.js';
 import { SidePanel } from './SidePanel.jsx';
 import { BackgroundTasksView } from './SubagentPanel.jsx';
@@ -323,6 +324,7 @@ import {
 import { createUnsavedFileGuard, runAfterFileApproval } from '../lib/unsavedFileGuard.js';
 import { sessionWorkbench } from '../lib/sessionWorkbench.js';
 import { useStableCallback } from '../lib/useStableCallback.js';
+import { useSessionStartMask } from '../lib/useSessionStartMask.js';
 import {
   activeNextStep,
   readDismissedNextSteps,
@@ -858,6 +860,8 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
     validateHomeWorkspaceSelection,
   );
   const [homeSubmitting, setHomeSubmitting] = useState(false);
+  // 新建会话 / 首条消息里建 worktree 的等待:迟迟没完成才出遮罩(见 sessionStartMask.js)。
+  const sessionStartMask = useSessionStartMask({ sessionId: sid, auxiliaryPage: !!children });
   const [pendingNewSessionFirstUserMessage, setPendingNewSessionFirstUserMessage] = useState(null);
   useEffect(() => {
     setPendingNewSessionFirstUserMessage((pending) => (
@@ -1549,6 +1553,8 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
     firstUserMessageAttachments = [],
     preserveExtras = false,
     title = '',
+    // { token, worktree }:调用方持有 token,在首条消息发出后收尾。
+    sessionStart = null,
   } = {}) => {
     if (homeSubmitting || reasoningSwitching) return null;
     const sourcePreviewContext = previewContextRef.current;
@@ -1578,6 +1584,10 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
       })
       : createIn(options);
     setHomeSubmitting(true);
+    // 放在离开确认之后:确认弹窗开着的时候不计时,遮罩也不会去抢弹窗的焦点。
+    if (sessionStart) {
+      sessionStartMask.begin({ token: sessionStart.token, home: true, worktree: !!sessionStart.worktree });
+    }
     try {
       const r = await create;
       const id = r && (r.session_id || r.id);
@@ -1631,6 +1641,8 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
           void closeAgentBrowserPage(page.pageId);
         }
       }
+      // 与切到新会话同一拍记下归属,遮罩跟着进新会话,不重新计时。
+      if (sessionStart) sessionStartMask.attachSession(sessionStart.token, id);
       onSessionPromoted?.(next);
       notifySessionListChanged({
         reason: 'session-created',
@@ -2978,6 +2990,15 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
     });
   });
 
+  // 等待遮罩出现时会把焦点拿走;它散掉后还给输入框,可以直接接着打字。
+  const sessionStartMaskShown = !!sessionStartMask.kind;
+  const sessionStartMaskShownRef = useRef(false);
+  useEffect(() => {
+    const wasShown = sessionStartMaskShownRef.current;
+    sessionStartMaskShownRef.current = sessionStartMaskShown;
+    if (wasShown && !sessionStartMaskShown) restoreChatInputFocusSoon(false);
+  }, [sessionStartMaskShown, restoreChatInputFocusSoon]);
+
   useEffect(() => {
     if (sid || !stagedExpertDraft.present) return;
     // The expert page shares this mounted ChatView. A new prompt can arrive
@@ -3651,6 +3672,8 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
   // 'fork'(Ctrl+Alt+Enter,在分叉出的新会话里发送)。
   const submit = useStableCallback((text, { sendMode = 'send' } = {}) => {
     if (sessionRuntimeUnavailable) return;
+    // 这个会话还在创建 / 建 worktree:遮罩出现之前也不接受第二次发送。
+    if (sessionStartMask.isBlocking()) return;
     const submittedContent = reconcileComposerContentAttachments(composerContentRef.current, composerAttachments);
     const activeAttachments = submittedContent ? composerContentAttachments(submittedContent, composerAttachments, { sessionId: sid }) : composerAttachments;
     if (activeAttachments.some((item) => item.error || (!item.id && !item.pending_upload && !item.uploading))) {
@@ -3886,8 +3909,10 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
         : sessionCreateOptionsForText(payload.text);
       let sessionCreated = false;
       let createdSessionId = '';
+      const sessionStartToken = {};
       setComposerSubmitting(true);
       createHomeComposerSession(payload.text, {
+        sessionStart: { token: sessionStartToken, worktree: !!worktreeIntent },
         createOptions,
         firstUserMessageText: !isBuiltin ? payload.text : '',
         firstUserMessageContent: !isBuiltin ? payload.composer_content : null,
@@ -3920,6 +3945,8 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
               : pending);
           }
           if (isBuiltin) {
+            // 会话已经建好;命令自己可能跑很久(有各自的进度反馈),不归这层遮罩管。
+            sessionStartMask.end(sessionStartToken);
             await sendInputOrBuiltin(id, materializedPayload);
           } else if (explicitHomeSend) {
             applyEvent({ type: 'busy_changed', payload: { busy: true } }, { emitEffects: false });
@@ -3975,6 +4002,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
           });
         })
         .finally(() => {
+          sessionStartMask.end(sessionStartToken);
           setComposerSubmitting(false);
           restoreChatInputFocusSoon(false);
         });
@@ -4023,6 +4051,10 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
     if (!isBuiltin) {
       sessionSendPayload.client_message_id = `input-${targetSid}-${globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`}`;
     }
+    // 空会话的首条消息要先建 worktree:同样可能等很久。
+    const sessionStartToken = sessionWorktreeIntent
+      ? sessionStartMask.begin({ worktree: true, sessionId: targetSid })
+      : null;
     sendInputOrBuiltin(targetSid, sessionSendPayload)
       .then((queued) => {
         if (!isBuiltin && sidRef.current === targetSid) {
@@ -4054,7 +4086,10 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
           applyEvent({ type: 'busy_changed', payload: { busy: false } }, { emitEffects: false });
         }
       })
-      .finally(() => setComposerSubmitting(false));
+      .finally(() => {
+        if (sessionStartToken) sessionStartMask.end(sessionStartToken);
+        setComposerSubmitting(false);
+      });
   });
 
   const drainQueuedInput = useStableCallback(() => {
@@ -4180,6 +4215,8 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
 
   const stopCurrentWork = useStableCallback(() => {
     if (!sid || !busy) return;
+    // 首条消息还没被接受(busy 只是界面先行置位):此时没有回合可停。
+    if (sessionStartMask.isBlocking()) return;
     abort();
   });
 
@@ -6394,6 +6431,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
     sessionId: sid,
     auxiliaryPage: !!children,
     readOnly: readOnlyExternalSession,
+    starting: sessionStartMaskShown,
     summaryToggle: !!onToggleSummaryPanel,
     agentBrowser: hasNativeAgentBrowser(),
     iosSimulator: iosSimulatorHostLikelySupported(),
@@ -7089,6 +7127,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
           onOpeningPrompt={selectExpertOpeningPrompt}
         />
       )}
+      <SessionStartLoading kind={sessionStartMask.kind} sessionId={sid} />
     </div>
   );
 }

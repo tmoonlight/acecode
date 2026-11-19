@@ -1,14 +1,21 @@
 #include "desktop_restart.hpp"
 
+#include "daemon_pool.hpp"
+#include "ipc/runtime_files.hpp"
+#include "platform/process/os_process.hpp"
+#include "utils/logger.hpp"
 #include "utils/state_file.hpp"
 #include "utils/utf8_path.hpp"
+#include "webview_health.hpp"
 
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
+#include <chrono>
 #include <filesystem>
 #include <cstdint>
 #include <system_error>
+#include <thread>
 #include <vector>
 
 #ifdef _WIN32
@@ -37,6 +44,11 @@ namespace acecode::desktop {
 namespace {
 
 constexpr const char* kLaunchVersionStateKey = "desktop_last_launch_version";
+constexpr const char* kWebviewRecoveryRestartsStateKey = "desktop_webview_recovery_restarts";
+
+bool has_argument(const std::vector<std::string>& argv, const char* argument) {
+    return argv.size() > 1 && std::find(argv.begin() + 1, argv.end(), argument) != argv.end();
+}
 
 #ifndef _WIN32
 // fork + exec. A close-on-exec pipe reports an exec failure back to the caller.
@@ -189,8 +201,89 @@ DesktopRestartPreflight validate_desktop_restart_target(const fs::path& executab
 }
 
 bool desktop_relaunched_after_update(const std::vector<std::string>& argv) {
-    return argv.size() > 1 &&
-           std::find(argv.begin() + 1, argv.end(), kRelaunchedAfterUpdateArgument) != argv.end();
+    return has_argument(argv, kRelaunchedAfterUpdateArgument);
+}
+
+bool desktop_was_relaunched(const std::vector<std::string>& argv) {
+    return has_argument(argv, kRelaunchedAfterUpdateArgument) ||
+           has_argument(argv, kRelaunchedAfterWebviewFailureArgument);
+}
+
+bool DesktopRestartRequest::request(DesktopRestartReason reason) {
+    DesktopRestartReason expected = DesktopRestartReason::None;
+    return reason != DesktopRestartReason::None &&
+           reason_.compare_exchange_strong(expected, reason);
+}
+
+DesktopRestartReason DesktopRestartRequest::reason() const { return reason_.load(); }
+
+bool DesktopRestartRequest::pending() const {
+    return reason_.load() != DesktopRestartReason::None;
+}
+
+DesktopExitPlan plan_desktop_exit(DesktopRestartReason reason) {
+    DesktopExitPlan plan;
+    switch (reason) {
+    case DesktopRestartReason::None:
+        break;
+    case DesktopRestartReason::Upgrade:
+        plan.relaunch = true;
+        plan.stop_daemons_for_upgrade = true;
+        plan.relaunch_argument = kRelaunchedAfterUpdateArgument;
+        plan.label = "post-upgrade";
+        break;
+    case DesktopRestartReason::WebviewRecovery:
+        plan.relaunch = true;
+        plan.keep_daemons_running = true;
+        plan.relaunch_argument = kRelaunchedAfterWebviewFailureArgument;
+        plan.label = "webview-recovery";
+        break;
+    }
+    return plan;
+}
+
+bool note_webview_recovery_restart(std::int64_t now_unix_ms) {
+    bool admitted = false;
+    const bool saved = update_state_json([now_unix_ms, &admitted](nlohmann::json& state) {
+        std::vector<std::int64_t> history;
+        const auto it = state.find(kWebviewRecoveryRestartsStateKey);
+        if (it != state.end() && it->is_array()) {
+            for (const auto& item : *it) {
+                if (item.is_number_integer()) history.push_back(item.get<std::int64_t>());
+            }
+        }
+        admitted = admit_recovery_restart(history, now_unix_ms);
+        state[kWebviewRecoveryRestartsStateKey] = history;
+        return true;
+    });
+    return saved && admitted;
+}
+
+std::function<void(bool user_initiated)> make_webview_recovery_handler(
+    DesktopRestartRequest& request,
+    fs::path executable,
+    std::function<void()> quit) {
+    // Borrowed: the request lives in main's run scope, which outlives the GUI loop.
+    DesktopRestartRequest* slot = &request;
+    return [slot, executable = std::move(executable), quit = std::move(quit)](bool user_initiated) {
+        if (slot->pending()) return;
+        const auto preflight = validate_desktop_restart_target(executable);
+        if (!preflight.ok) {
+            LOG_ERROR("[desktop] webview-recovery restart preflight failed: " + preflight.error);
+            return;
+        }
+        const auto now_unix_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+        if (!user_initiated && !note_webview_recovery_restart(now_unix_ms)) {
+            LOG_ERROR("[desktop] webview-recovery restart skipped: too many automatic "
+                      "restarts recently, or the restart record could not be saved");
+            return;
+        }
+        if (!slot->request(DesktopRestartReason::WebviewRecovery)) return;
+        LOG_WARN(std::string("[desktop] webview-recovery restart requested (") +
+                 (user_initiated ? "user request" : "automatic") + ")");
+        if (quit) quit();
+    };
 }
 
 bool note_desktop_version_launch(const std::string& version) {
@@ -299,6 +392,71 @@ bool launch_desktop_replacement(const fs::path& executable,
     command.insert(command.end(), arguments.begin(), arguments.end());
     return spawn_process(command, /*wait_for_exit=*/false, error);
 #endif
+}
+
+bool wait_for_replacement_desktop_owner(const std::string& run_dir,
+                                        std::int64_t timeout_ms,
+                                        std::int64_t self_pid) {
+    const std::int64_t self = self_pid != 0
+        ? self_pid
+        : static_cast<std::int64_t>(acecode::daemon::current_pid());
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms);
+    for (;;) {
+        const auto owner = acecode::daemon::read_desktop_owner_record(run_dir);
+        if (owner && owner->pid > 0 && owner->pid != self &&
+            acecode::daemon::is_pid_alive(owner->pid)) {
+            return true;
+        }
+        if (std::chrono::steady_clock::now() >= deadline) return false;
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    }
+}
+
+int finish_desktop_exit(DaemonPool& pool,
+                        DesktopRestartReason reason,
+                        const fs::path& executable,
+                        const std::string& run_dir,
+                        const std::function<void()>& release_single_instance) {
+    const DesktopExitPlan plan = plan_desktop_exit(reason);
+    const std::string label = plan.label;
+    if (plan.relaunch) LOG_INFO("[desktop] " + label + " daemon shutdown started");
+    if (plan.keep_daemons_running) pool.set_keep_alive_on_exit(true);
+    const auto failures = pool.shutdown_all(plan.stop_daemons_for_upgrade
+        ? DaemonShutdownReason::UpgradeRestart
+        : DaemonShutdownReason::ApplicationExit);
+    if (!plan.relaunch) return failures.empty() ? 0 : 100; // 部分失败返回非零便于诊断
+    LOG_INFO("[desktop] " + label + " daemon shutdown finished; failures=" +
+             std::to_string(failures.size()));
+    for (const auto& failure : failures) {
+        LOG_ERROR("[desktop] " + label + " daemon shutdown failed: " + failure.first + ": " +
+                  failure.second);
+    }
+    if (!failures.empty() && plan.stop_daemons_for_upgrade) {
+        LOG_ERROR("[desktop] upgrade restart aborted");
+        return 100;
+    }
+    // The replacement must not see the dying process's singleton guard and
+    // focus it instead of starting. At this point the WebView loop, tray,
+    // notifications, and managed daemons have all completed teardown.
+    if (release_single_instance) release_single_instance();
+    LOG_INFO("[desktop] " + label + " replacement launch started");
+    std::string restart_error;
+    if (!launch_desktop_replacement(executable, {plan.relaunch_argument}, &restart_error)) {
+        LOG_ERROR("[desktop] failed to launch replacement (" + label + "): " + restart_error);
+        return 101;
+    }
+    LOG_INFO("[desktop] launched replacement (" + label + ")");
+    if (plan.keep_daemons_running) {
+        // 替身起得慢一些也要等:先退出的话 daemon 会当作属主没了而自行停止。
+        const bool handed_over = wait_for_replacement_desktop_owner(run_dir, 20 * 1000);
+        if (handed_over) {
+            LOG_INFO("[desktop] replacement took over the managed daemons");
+        } else {
+            LOG_WARN("[desktop] replacement did not publish its owner record in time; "
+                     "managed daemons may stop");
+        }
+    }
+    return failures.empty() ? 0 : 100;
 }
 
 } // namespace acecode::desktop

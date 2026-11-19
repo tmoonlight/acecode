@@ -1,5 +1,6 @@
 #include "remote_web_proxy.hpp"
 
+#include "platform/process/inherited_handles.hpp"
 #include "platform/process/os_process.hpp"
 #include "utils/atomic_file.hpp"
 #include "utils/encoding.hpp"
@@ -388,24 +389,32 @@ std::int64_t spawn_proxy_child(
         OPEN_EXISTING, 0, nullptr);
     if (nul == INVALID_HANDLE_VALUE) nul = nullptr;
 
-    STARTUPINFOW startup{};
-    startup.cb = sizeof(startup);
-    startup.dwFlags = STARTF_USESHOWWINDOW |
-        (nul ? STARTF_USESTDHANDLES : 0);
-    startup.wShowWindow = SW_HIDE;
-    if (nul) {
-        startup.hStdInput = nul;
-        startup.hStdOutput = nul;
-        startup.hStdError = nul;
+    // 代理进程和 daemon 同寿命:只让它继承 NUL。不限定的话,daemon 启动阶段别的线程
+    // 正开着的文件会被它一直占住(升级替换安装目录里的文件时报「文件被占用」)。
+    // 清单建不出来(含 NUL 没打开)就不重定向、也不继承任何句柄。
+    acecode::platform::InheritedHandleList inherited({nul});
+    const bool redirect = inherited.ready();
+
+    STARTUPINFOEXW startup{};
+    startup.StartupInfo.cb = redirect ? sizeof(startup) : sizeof(startup.StartupInfo);
+    startup.StartupInfo.dwFlags = STARTF_USESHOWWINDOW |
+        (redirect ? STARTF_USESTDHANDLES : 0);
+    startup.StartupInfo.wShowWindow = SW_HIDE;
+    if (redirect) {
+        startup.StartupInfo.hStdInput = nul;
+        startup.StartupInfo.hStdOutput = nul;
+        startup.StartupInfo.hStdError = nul;
+        startup.lpAttributeList = inherited.attribute_list();
     }
     PROCESS_INFORMATION process{};
     std::vector<wchar_t> mutable_command(command.begin(), command.end());
     mutable_command.push_back(L'\0');
     const BOOL started = ::CreateProcessW(
         wide.front().c_str(), mutable_command.data(), nullptr, nullptr,
-        nul ? TRUE : FALSE,
-        CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP,
-        nullptr, nullptr, &startup, &process);
+        redirect ? TRUE : FALSE,
+        CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP |
+            (redirect ? EXTENDED_STARTUPINFO_PRESENT : 0),
+        nullptr, nullptr, &startup.StartupInfo, &process);
     if (nul) ::CloseHandle(nul);
     if (!started) {
         error = "CreateProcessW failed (error " +

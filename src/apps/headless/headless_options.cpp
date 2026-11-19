@@ -203,6 +203,17 @@ HeadlessCliOptions parse_headless_cli_options(const std::vector<std::string>& to
             if (!parse_max_turns(eq_value)) {
                 return fail("--max-turns must be a positive integer, got: " + eq_value);
             }
+        } else if (t == "--tool-policy" || split_eq(t, "--tool-policy", eq_value)) {
+            if (t == "--tool-policy" && i + 1 < tokens.size()) eq_value = tokens[++i];
+            if (eq_value != "deny-by-default") return fail("--tool-policy expects deny-by-default");
+            o.deny_tools_by_default = true;
+        } else if (t == "--allow-tool" || split_eq(t, "--allow-tool", eq_value)) {
+            if (t == "--allow-tool" && i + 1 < tokens.size()) eq_value = tokens[++i];
+            if (!parse_name_list("--allow-tool", eq_value, o.allowed_tools)) return o;
+        } else if (t == "--system-prompt-file" || split_eq(t, "--system-prompt-file", eq_value)) {
+            if (t == "--system-prompt-file" && i + 1 < tokens.size()) eq_value = tokens[++i];
+            if (eq_value.empty()) return fail("--system-prompt-file requires a path");
+            o.system_prompt_file = eq_value;
         } else if (t == "--disable-tools") {
             if (i + 1 >= tokens.size()) return fail("--disable-tools requires one or more tool names");
             if (!parse_name_list(t, tokens[++i], o.disabled_system_tools)) return o;
@@ -267,6 +278,10 @@ HeadlessCliOptions parse_headless_cli_options(const std::vector<std::string>& to
         return fail("invalid --output-format: " + o.output_format +
                     " (expected text|json|stream-json)");
     }
+    if (!o.allowed_tools.empty() && !o.deny_tools_by_default)
+        return fail("--allow-tool requires --tool-policy deny-by-default");
+    if (o.deny_tools_by_default && !o.disabled_system_tools.empty())
+        return fail("--disable-tools conflicts with --tool-policy deny-by-default");
     const bool discovery_mode =
         o.list_tools || o.list_skills || o.list_mcp_servers;
     const bool has_execution_input =
@@ -274,6 +289,7 @@ HeadlessCliOptions parse_headless_cli_options(const std::vector<std::string>& to
         o.continue_latest || !o.resume_session_id.empty() ||
         !o.session_id.empty() || !o.output_format.empty() ||
         !o.permission_mode.empty() || !o.model_name.empty() || !o.swarm_mode.empty() ||
+        o.deny_tools_by_default || !o.system_prompt_file.empty() ||
         o.max_turns != 0 || !o.disabled_system_tools.empty() ||
         !o.enabled_skills.empty() || !o.enabled_mcp_servers.empty();
     if (discovery_mode && has_execution_input) {
@@ -333,6 +349,10 @@ std::string print_mode_help() {
         "  --swarm <mode>           star | mesh | off: swarm mode for this session\n"
         "                           (new sessions: off; resume keeps the saved mode)\n"
         "  --max-turns <n>          Cap agent-loop iterations (default: unlimited)\n"
+        "  --tool-policy deny-by-default  Start with an empty tool registry\n"
+        "  --allow-tool <names>     Allow exact builtin or server:tool names in restricted mode\n"
+        "                           In auto mode, named MCP tools run unattended.\n"
+        "  --system-prompt-file <path>  Replace generated instructions with UTF-8 text\n"
         "  --disable-tools <names>  Disable exact system tool names (default: none)\n"
         "  --enable-skills <names>  Enable exact installed Skill names (default: none)\n"
         "  --enable-mcp <names>     Enable exact configured MCP server names (default: none)\n"

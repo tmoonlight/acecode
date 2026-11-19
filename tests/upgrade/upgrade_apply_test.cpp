@@ -2,7 +2,9 @@
 #include "upgrade/diagnostics.hpp"
 #include "upgrade/package.hpp"
 #include "upgrade/upgrade.hpp"
+#include "test_support/platform/inherited_file_probe.hpp"
 #include "utils/paths.hpp"
+#include "utils/utf8_path.hpp"
 
 #include <gtest/gtest.h>
 
@@ -389,6 +391,46 @@ TEST(UpgradeApply, LogsReplacementFailureAndRollbackErrors) {
     fs::remove_all(root, ec);
 }
 
+TEST(UpgradeApply, RollbackKeepsUntouchedFilesAfterTheFailurePoint) {
+    // 触发场景:安装目录里的 channels/locked.json 被别的进程占着(这里用不带
+    // FILE_SHARE_DELETE 的句柄模拟),升级备份它时失败。包里排在它后面的
+    // share/later.txt 在安装目录里本来就有,此刻既没备份也没被替换。
+    // 处理顺序按层级再按名字:README.md、acecode.exe、channels/locked.json、share/later.txt。
+    // 期望:回滚后 share/later.txt 还是原内容;已替换的 acecode.exe 还原成旧版;
+    // 本次新写进去的 README.md(原来没有)被清掉;被占用的文件原样留着。
+    // 回归:回滚原先按整份包清单删除目标,失败点之后的原有文件被删掉且无从还原,
+    // 表现为一次失败的升级之后安装目录里 share/ 下的资源整批消失。
+    const auto root = temp_root("acecode-apply-rollback-untouched");
+    const auto install = root / "install";
+    const auto staging = root / "staging";
+    const auto backup = root / "backup";
+    write_file(install / "acecode.exe", "old exe");
+    write_file(install / "channels" / "locked.json", "old locked");
+    write_file(install / "share" / "later.txt", "old later");
+    write_file(staging / "README.md", "new readme");
+    write_file(staging / "acecode.exe", "new exe");
+    write_file(staging / "channels" / "locked.json", "new locked");
+    write_file(staging / "share" / "later.txt", "new later");
+    {
+        struct FileHandle {
+            HANDLE value;
+            ~FileHandle() { if (value != INVALID_HANDLE_VALUE) ::CloseHandle(value); }
+        } handle{::CreateFileW((install / "channels" / "locked.json").c_str(), GENERIC_READ,
+            FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING,
+            FILE_ATTRIBUTE_NORMAL, nullptr)};
+        ASSERT_NE(handle.value, INVALID_HANDLE_VALUE);
+        std::string error;
+        EXPECT_FALSE(apply_staged_update(staging, install, backup, "windows-x64", &error));
+        EXPECT_NE(error.find("failed to move"), std::string::npos) << error;
+    }
+    EXPECT_EQ(read_file(install / "share" / "later.txt"), "old later");
+    EXPECT_EQ(read_file(install / "acecode.exe"), "old exe");
+    EXPECT_EQ(read_file(install / "channels" / "locked.json"), "old locked");
+    EXPECT_FALSE(fs::exists(install / "README.md"));
+    std::error_code ec;
+    fs::remove_all(root, ec);
+}
+
 TEST(UpgradeApply, ReplacesExecutableWhileItIsRunning) {
     fs::path root = temp_root("acecode-apply-running-exe");
     fs::path install = root / "install";
@@ -436,6 +478,46 @@ TEST(UpgradeApply, ReplacesExecutableWhileItIsRunning) {
 
     process.stop();
     fs::remove_all(root, ec);
+}
+
+TEST(UpgradeApply, UpdateRunnerDoesNotInheritUnrelatedOpenFiles) {
+    // 触发场景:升级把替换安装目录的活交给独立的 runner 进程(launch_update_runner),启动它的
+    // 那一刻别的线程正用 std::ifstream 读安装目录里的文件(MSVC 运行库打开的句柄默认
+    // 可继承,且不允许别人删除 / 改名)。
+    // 期望:runner 不带走父进程的任何文件句柄;父进程关掉文件后马上就能给它改名。runner
+    // 没有重定向标准流,也不靠句柄和父进程交接(父进程按 --parent-pid 重新打开),
+    // 所以它一个句柄都不该继承。
+    // 回归:CreateProcessA 以 bInheritHandles=TRUE 启动,runner 把那一刻所有可继承句柄都带走,
+    // 而 runner 正是要替换这些文件的进程:父进程退出后句柄还在 runner 自己手里,备份这个
+    // 文件时报「另一个程序正在使用此文件」(错误 32),重试多少次都一样。
+    //
+    // 用空转辅助进程顶替 runner(它忽略 --apply-update 这些参数)。launch_update_runner 不交出
+    // 进程句柄,收场靠停止文件:辅助进程看到环境变量指的那个文件出现就退出。
+    acecode_test::InheritedFileProbe probe("update-runner-inherit");
+    ASSERT_TRUE(probe.reading());
+    const fs::path stop_file = probe.root() / "stop";
+    struct StopFileEnvironment {
+        explicit StopFileEnvironment(const fs::path& file) {
+            ::SetEnvironmentVariableW(L"ACECODE_IDLE_CHILD_STOP_FILE", file.c_str());
+        }
+        ~StopFileEnvironment() {
+            ::SetEnvironmentVariableW(L"ACECODE_IDLE_CHILD_STOP_FILE", nullptr);
+        }
+    } stop_environment(stop_file);
+
+    ApplyOptions options;
+    options.parent_pid = ::GetCurrentProcessId();
+    options.staging_dir = probe.root() / "staging";
+    options.install_dir = probe.root() / "install";
+    options.backup_dir = probe.root() / "backup";
+    std::string error;
+    ASSERT_TRUE(launch_update_runner(acecode::path_from_utf8(acecode_test::idle_child_path()),
+                                     options, &error)) << error;
+
+    // 辅助进程刚起来,最多空转 30 秒:改名这一刻它一定还活着。
+    const int rename_error = probe.close_and_rename();
+    EXPECT_EQ(rename_error, 0);
+    write_file(stop_file, "stop");
 }
 #endif
 

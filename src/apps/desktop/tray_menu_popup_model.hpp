@@ -250,6 +250,7 @@ inline bool tray_popup_entry_is_header(TrayMenuEntryKind kind) {
 inline bool tray_popup_entry_is_fixed_action(TrayMenuEntryKind kind) {
     return kind == TrayMenuEntryKind::NewChat ||
            kind == TrayMenuEntryKind::OpenApp ||
+           kind == TrayMenuEntryKind::ReloadWindow ||
            kind == TrayMenuEntryKind::Quit;
 }
 

@@ -61,7 +61,23 @@ TEST(TrayMenuPopupModel, SelectabilityMatchesInteractiveRows) {
     EXPECT_TRUE(tray_popup_entry_is_selectable(TrayMenuEntryKind::MoreSubmenuItem));
     EXPECT_TRUE(tray_popup_entry_is_selectable(TrayMenuEntryKind::NewChat));
     EXPECT_TRUE(tray_popup_entry_is_selectable(TrayMenuEntryKind::OpenApp));
+    EXPECT_TRUE(tray_popup_entry_is_selectable(TrayMenuEntryKind::ReloadWindow));
     EXPECT_TRUE(tray_popup_entry_is_selectable(TrayMenuEntryKind::Quit));
+}
+
+// 场景:Windows 自绘托盘菜单带上「重新加载界面」。
+// 期望:它和其它固定操作一样可选中,并在「打开」与「退出」之间单独成块。
+TEST(TrayMenuPopupModel, ReloadWindowIsAFixedActionBlock) {
+    const auto rows = build_tray_popup_rows(
+        compute_menu_layout(TrayMenuPayload{}, "zh-CN", /*include_reload=*/true));
+    const auto kinds = popup_kinds(rows);
+    ASSERT_GE(kinds.size(), 5u);
+    EXPECT_EQ(kinds[kinds.size() - 5], TrayMenuEntryKind::OpenApp);
+    EXPECT_EQ(kinds[kinds.size() - 4], TrayMenuEntryKind::Separator);
+    EXPECT_EQ(kinds[kinds.size() - 3], TrayMenuEntryKind::ReloadWindow);
+    EXPECT_EQ(kinds[kinds.size() - 2], TrayMenuEntryKind::Separator);
+    EXPECT_EQ(kinds[kinds.size() - 1], TrayMenuEntryKind::Quit);
+    EXPECT_TRUE(tray_popup_entry_is_fixed_action(TrayMenuEntryKind::ReloadWindow));
 }
 
 TEST(TrayMenuPopupModel, PreservesFixedActionOrdering) {
