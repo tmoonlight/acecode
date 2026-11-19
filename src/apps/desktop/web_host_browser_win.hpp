@@ -3,6 +3,7 @@
 #ifdef _WIN32
 #include "microphone_permission.hpp"
 #include "renderer_recovery.hpp"
+#include "web_host_health.hpp"
 #include "utils/encoding.hpp"
 #include "utils/logger.hpp"
 #include "utils/lifetime_token.hpp"
@@ -66,18 +67,17 @@ inline RendererFailure classify_webview2_process_failure(
     }
 }
 
-// 主页面渲染进程退出(挂机后内存耗尽最常见)时自动 Reload,不再停在 WebView2
-// 自带的错误页等用户点刷新。判定与限次见 renderer_recovery.hpp。Reload 按
-// WebView2 官方示例投递到事件处理之后执行,不在 ProcessFailed 回调里重入。
+// 主页面进程故障的处置。渲染进程退出(挂机后内存耗尽最常见)时自动 Reload,
+// 不再停在 WebView2 自带的错误页等用户点刷新;判定与限次见 renderer_recovery.hpp,
+// Reload 按 WebView2 官方示例投递到事件处理之后执行,不在 ProcessFailed 回调里重入。
+// 渲染进程无响应时探一次页面,浏览器主进程退出时转入恢复流程,见 web_host_health.hpp。
 inline HRESULT install_renderer_recovery_handler(LifetimeRef<webview::webview> host_ref,
                                                  ICoreWebView2* core) {
-    // Shared by the WebView-owned handler across failures; it owns no host.
-    auto tracker = std::make_shared<RendererRecoveryTracker>();
     EventRegistrationToken token{};
     return core->add_ProcessFailed(
         Microsoft::WRL::Callback<ICoreWebView2ProcessFailedEventHandler>(
-            [tracker, host_ref](ICoreWebView2* sender,
-                                ICoreWebView2ProcessFailedEventArgs* args) -> HRESULT {
+            [host_ref](ICoreWebView2* sender,
+                       ICoreWebView2ProcessFailedEventArgs* args) -> HRESULT {
                 if (!sender || !args) return S_OK;
                 COREWEBVIEW2_PROCESS_FAILED_KIND kind =
                     COREWEBVIEW2_PROCESS_FAILED_KIND_UNKNOWN_PROCESS_EXITED;
@@ -90,10 +90,9 @@ inline HRESULT install_renderer_recovery_handler(LifetimeRef<webview::webview> h
                     details->get_Reason(&reason);
                     details->get_ExitCode(&exit_code);
                 }
-                const auto now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-                    std::chrono::steady_clock::now().time_since_epoch()).count();
                 const auto failure = classify_webview2_process_failure(kind);
-                const auto action = tracker->on_failure(failure, now_ms);
+                const auto action =
+                    main_webview_health().reloads.on_failure(failure, health_now_ms());
                 const std::string detail =
                     "kind=" + std::to_string(static_cast<int>(kind)) +
                     " reason=" + std::to_string(static_cast<int>(reason)) +
@@ -119,8 +118,15 @@ inline HRESULT install_renderer_recovery_handler(LifetimeRef<webview::webview> h
                     break;
                 case RendererRecoveryAction::Ignore:
                     if (failure == RendererFailure::BrowserProcessExited) {
+                        // 关机 / 注销时浏览器进程被系统结束也走到这里,把系统状态一并记下。
                         LOG_ERROR("[desktop] WebView browser process exited (" + detail +
-                                  "); restart ACECode Desktop to recover");
+                                  " shutting_down=" +
+                                  (::GetSystemMetrics(SM_SHUTTINGDOWN) != 0 ? "1" : "0") + ")");
+                        note_webview_lost();
+                    } else if (failure == RendererFailure::RenderProcessUnresponsive) {
+                        // 约每 15 秒重复上报一次;页面可能只是忙,先探活,没回音才重载。
+                        LOG_WARN("[desktop] WebView render process unresponsive (" + detail + ")");
+                        request_page_probe(HostWakeEvent::RendererUnresponsive);
                     } else {
                         LOG_WARN("[desktop] WebView process failed (" + detail + ")");
                     }
@@ -223,6 +229,7 @@ inline void configure_browser_defaults(webview::webview& host,
     if (FAILED(hr)) log_webview_setting_failure("add_PermissionRequested for microphone", hr);
     hr = install_renderer_recovery_handler(host_ref, core);
     if (FAILED(hr)) log_webview_setting_failure("add_ProcessFailed for renderer recovery", hr);
+    install_main_webview_health(host, host_ref, core);
 
     ICoreWebView2Settings* settings = nullptr;
     hr = core->get_Settings(&settings);

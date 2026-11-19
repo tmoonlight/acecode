@@ -24,7 +24,7 @@ import { CLEAR_PREVIEW_SELECTION_EVENT } from '../lib/inactiveSelection.js';
 import { copyTextToSystemClipboard } from '../lib/systemClipboard.js';
 import { clsx, formatBytes } from '../lib/format.js';
 import { filePreviewKind, isBlobFilePreview } from '../lib/filePreviewKind.js';
-import { htmlPreviewFileUrl } from '../lib/htmlPreview.js';
+import { htmlPreviewFileUrl, isHtmlPreviewPath } from '../lib/htmlPreview.js';
 import {
   editableFileConflict,
   editableFileError,
@@ -37,6 +37,7 @@ import {
 } from '../lib/filePreviewScroll.js';
 import { createPortal } from 'react-dom';
 import { FilePreviewMenu } from './FilePreviewMenu.jsx';
+import { VsIcon } from './Icon.jsx';
 import { ImageLightbox } from './ImageLightbox.jsx';
 import {
   officeZoomActions,
@@ -49,6 +50,8 @@ import { toast } from './Toast.jsx';
 // 源码、xlsx、x-data-spreadsheet、docx-preview、mdast/micromark),只在打开对应
 // 类型的文件时才需要;全部按需加载,首屏包里不带。
 const MarkdownWysiwygEditor = lazy(() => import('./MarkdownWysiwygEditor.jsx'));
+// HTML 页面预览与可视化编辑带着 parse5,同样只在打开 .html 时加载(docs/html-preview.md)。
+const HtmlPagePreview = lazy(() => import('./HtmlPagePreview.jsx'));
 const PresentationPreview = lazy(() => import('./PresentationPreview.jsx')
   .then((module) => ({ default: module.PresentationPreview })));
 const loadDocxRenderer = () => import('docx-preview').then((module) => module.renderAsync);
@@ -190,6 +193,8 @@ export function FilePreviewContent({
   onToggleWrapPreview,
   onRefresh,
   onOpenBrowser,
+  onOpenFile,
+  onAddContext,
 }) {
   const [state, setState] = useState({
     status: 'idle',
@@ -203,6 +208,10 @@ export function FilePreviewContent({
     blob: null,
   });
   const [markdownSource, setMarkdownSource] = useWorkbenchState(owner, `markdownSource:${cwd}:${path}`, false);
+  // HTML:默认浏览渲染后的页面;htmlSource 切到源代码,htmlEditing 是页面上的可视化编辑。
+  const isHtmlFile = isHtmlPreviewPath(path);
+  const [htmlSource, setHtmlSource] = useWorkbenchState(owner, `htmlSource:${cwd}:${path}`, false);
+  const [htmlEditing, setHtmlEditing] = useWorkbenchState(owner, `htmlEditing:${cwd}:${path}`, false);
   const [imagePreview, setImagePreview] = useState(null);
   const [inactiveSourceSelection, setInactiveSourceSelection] = useState(null);
   const previewScrollRef = useRef(null);
@@ -246,6 +255,13 @@ export function FilePreviewContent({
           return;
         }
         copyWithToast(state.text, '已复制预览内容');
+      } else if (action === DESKTOP_CONTEXT_ACTIONS.SHOW_HTML_SOURCE
+          || action === DESKTOP_CONTEXT_ACTIONS.SHOW_HTML_PAGE) {
+        detail.handled = true;
+        const showSource = action === DESKTOP_CONTEXT_ACTIONS.SHOW_HTML_SOURCE;
+        setInactiveSourceSelection(null);
+        setHtmlSource(showSource);
+        if (showSource) setHtmlEditing(false);
       } else if (action === DESKTOP_CONTEXT_ACTIONS.COPY_PREVIEW_METADATA) {
         detail.handled = true;
         const metadata = [
@@ -260,7 +276,7 @@ export function FilePreviewContent({
     };
     window.addEventListener(DESKTOP_CONTEXT_ACTION_EVENT, handler);
     return () => window.removeEventListener(DESKTOP_CONTEXT_ACTION_EVENT, handler);
-  }, [onRefresh, path, state.contentType, state.kind, state.lang, state.size, state.text]);
+  }, [onRefresh, path, setHtmlEditing, setHtmlSource, state.contentType, state.kind, state.lang, state.size, state.text]);
 
   useEffect(() => {
     const identity = `${cwd || ''}\u0000${path || ''}`;
@@ -494,6 +510,11 @@ export function FilePreviewContent({
     if (focusLine != null && filePreviewKind(path) === 'markdown') {
       setMarkdownSource(true);
     }
+    // HTML 同理:页面视图也没有行的概念,foo.html:42 切到源代码视图再定位。
+    if (focusLine != null && isHtmlPreviewPath(path)) {
+      setHtmlSource(true);
+      setHtmlEditing(false);
+    }
   }, [focusLine, focusLineRevision, path]);
 
   // 滚动到 focusLine(高亮由渲染时的 .ace-line-focus class 承担)。依赖说明:
@@ -527,9 +548,11 @@ export function FilePreviewContent({
     'data-desktop-preview-content-type': state.contentType || undefined,
     'data-desktop-preview-copy-image-url': state.kind === 'image' ? state.previewUrl || undefined : undefined,
     'data-selection-source-revision': sourceContentRevision || undefined,
+    'data-desktop-preview-html-view': isHtmlFile && state.kind === 'text'
+      ? (htmlSource ? 'source' : 'page') : undefined,
   };
-  const renderMenu = (actions = []) => actionsHost && createPortal(
-    <FilePreviewMenu cwd={cwd} path={path} actions={actions} />, actionsHost,
+  const renderMenu = (actions = [], leading = null) => actionsHost && createPortal(
+    <FilePreviewMenu cwd={cwd} path={path} actions={actions} leading={leading} />, actionsHost,
   );
   if (state.status === 'loading') {
     return <div className="ace-empty-state" {...previewAttrs}>{renderMenu()}加载中...</div>;
@@ -637,7 +660,17 @@ export function FilePreviewContent({
   }</tbody></table>`;
   const htmlBrowserUrl = onOpenBrowser ? htmlPreviewFileUrl({ cwd, path }) : '';
   const showMarkdownRendered = isMarkdown && !markdownSource;
+  const showHtmlPage = isHtmlFile && state.kind === 'text' && !htmlSource;
   const actions = [];
+  if (isHtmlFile && state.kind === 'text') actions.push({
+    label: htmlSource ? '浏览页面' : '查看源代码',
+    icon: htmlSource ? 'eye' : 'code',
+    onSelect: () => {
+      setInactiveSourceSelection(null);
+      if (!htmlSource) setHtmlEditing(false);
+      setHtmlSource((prev) => !prev);
+    },
+  });
   if (htmlBrowserUrl) actions.push({
     label: '在内置浏览器中打开', icon: 'globe', onSelect: () => onOpenBrowser(htmlBrowserUrl),
   });
@@ -649,10 +682,46 @@ export function FilePreviewContent({
       setMarkdownSource((prev) => !prev);
     },
   });
-  if (!showMarkdownRendered) actions.push({
+  if (!showMarkdownRendered && !showHtmlPage) actions.push({
     label: wrapPreview ? '关闭自动换行' : '开启自动换行', icon: 'wordWrap', onSelect: onToggleWrapPreview,
   });
   actions.push({ label: '复制代码', icon: 'copy', onSelect: () => copyWithToast(previewText, '已复制代码') });
+  if (showHtmlPage) {
+    // 可视化编辑只在桌面版、文件可编辑时开放(/api/files/editable 只在桌面版托管的 daemon 上可用)。
+    const htmlEditable = !!activeEdit?.editing;
+    const editButton = htmlEditable ? (
+      <button type="button" className="ace-preview-details-action" aria-label="编辑页面"
+        aria-pressed={htmlEditing} onClick={() => setHtmlEditing((value) => !value)}>
+        <VsIcon name="PageEdit" size={16} />
+      </button>
+    ) : null;
+    return (
+      <div className="flex-1 flex flex-col overflow-hidden" {...previewAttrs}>
+        {renderMenu(actions, editButton)}
+        <Suspense fallback={<div className="ace-empty-state">加载中...</div>}>
+          <HtmlPagePreview
+            api={api}
+            cwd={cwd}
+            path={path}
+            sourcePath={sourcePath}
+            text={previewText}
+            contentRevision={sourceContentRevision}
+            editable={htmlEditable}
+            disabled={!!activeEdit?.saving}
+            editing={htmlEditable && htmlEditing}
+            onEditingChange={setHtmlEditing}
+            onChange={(text) => {
+              setState((previous) => ({ ...previous, text, size: text.length }));
+              onEditStateChangeRef.current?.({ text, error: '' });
+            }}
+            onSave={saveEditing}
+            onOpenFile={onOpenFile}
+            onAddContext={onAddContext}
+          />
+        </Suspense>
+      </div>
+    );
+  }
   return (
     <div className="flex-1 flex flex-col overflow-hidden" {...previewAttrs}>
       {renderMenu(actions)}

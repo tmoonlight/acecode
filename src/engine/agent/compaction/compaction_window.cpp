@@ -89,8 +89,9 @@ bool CompactionController::apply_result(
     const int pre_tokens = estimate_message_tokens(pre_request);
     std::vector<ChatMessage> replacement_history =
         recovered_provider_messages(result.compacted_messages, "compact-output");
-    replacement_history.insert(replacement_history.begin(),
-        requests_.fresh_window_snapshot(inputs.request, replacement_history));
+    if (auto snapshot = requests_.fresh_window_snapshot(inputs.request, replacement_history)) {
+        replacement_history.insert(replacement_history.begin(), std::move(*snapshot));
+    }
     const auto post_request = requests_.compaction_request(
         inputs.request, replacement_history).messages_with_system;
     const int post_tokens = estimate_message_tokens(post_request);

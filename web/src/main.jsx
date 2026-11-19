@@ -5,6 +5,7 @@ import { App } from './App.jsx';
 import { MermaidPreviewHost } from './components/MermaidPreviewHost.jsx';
 import { FullscreenHeatWave } from './components/FullscreenHeatWave.jsx';
 import { DesktopZoomIndicator } from './components/DesktopZoomIndicator.jsx';
+import { RootErrorBoundary } from './components/RootErrorBoundary.jsx';
 import { installBrowserDefaultGuards } from './lib/browserDefaults.js';
 import { installDesktopZoom } from './lib/desktopZoom.js';
 import { installMermaidRenderer } from './lib/mermaidRenderer.js';
@@ -36,11 +37,13 @@ if (installWebappCompatFlag()) {
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>
-    <ThemeProvider>
-      <App />
-      <MermaidPreviewHost />
-      <FullscreenHeatWave />
-      <DesktopZoomIndicator />
-    </ThemeProvider>
+    <RootErrorBoundary>
+      <ThemeProvider>
+        <App />
+        <MermaidPreviewHost />
+        <FullscreenHeatWave />
+        <DesktopZoomIndicator />
+      </ThemeProvider>
+    </RootErrorBoundary>
   </StrictMode>,
 );

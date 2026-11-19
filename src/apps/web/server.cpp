@@ -152,6 +152,7 @@ void WebServer::Impl::register_routes() {
     register_image_generation();
     register_image_compression();
     register_inline_visuals();
+    register_html_site();
     register_speech_recognition();
     register_computer_use();
     register_ios_simulator();

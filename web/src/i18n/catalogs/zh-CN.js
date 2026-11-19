@@ -77,6 +77,8 @@ export const zhCN = {
     pendingReply: '待回复',
     transcriptLoading: '正在读取会话内容…',
     transcriptError: '会话内容加载失败，请切换后重试',
+    sessionCreating: '正在新建会话…',
+    worktreeCreating: '正在创建 worktree…',
   },
   counts: {
     filesChanged_one: '{{formattedCount}} 个文件已更改',

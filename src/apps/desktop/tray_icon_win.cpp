@@ -81,6 +81,7 @@ TrayMenuPayload g_payload;
 TraySessionClickHandler g_session_click_handler;
 TrayClickHandler g_new_chat_handler;
 TrayClickHandler g_open_app_handler;
+TrayClickHandler g_reload_handler;
 TrayClickHandler g_on_show;
 TrayClickHandler g_on_quit;
 
@@ -102,6 +103,11 @@ TrayClickHandler get_new_chat_handler() {
 TrayClickHandler get_open_app_handler() {
     std::lock_guard<std::mutex> lk(g_payload_mu);
     return g_open_app_handler;
+}
+
+TrayClickHandler get_reload_handler() {
+    std::lock_guard<std::mutex> lk(g_payload_mu);
+    return g_reload_handler;
 }
 
 bool dispatch_session_click(const TrayMenuLayout& layout, unsigned cmd) {
@@ -128,6 +134,9 @@ void dispatch_menu_command(const TrayMenuLayout& layout, unsigned cmd) {
     } else if (cmd == kMenuIdNewChat) {
         auto h = get_new_chat_handler();
         if (h) h();
+    } else if (cmd == kMenuIdReloadWindow) {
+        auto h = get_reload_handler();
+        if (h) h();
     } else {
         dispatch_session_click(layout, cmd);
     }
@@ -141,6 +150,7 @@ void reset_tray_state() {
     g_session_click_handler = nullptr;
     g_new_chat_handler = nullptr;
     g_open_app_handler = nullptr;
+    g_reload_handler = nullptr;
 }
 
 } // namespace
@@ -1560,6 +1570,7 @@ void append_layout_to_native_fallback(HMENU menu, const TrayMenuLayout& layout) 
             case TrayMenuEntryKind::RecentItem:
             case TrayMenuEntryKind::NewChat:
             case TrayMenuEntryKind::OpenApp:
+            case TrayMenuEntryKind::ReloadWindow:
             case TrayMenuEntryKind::Quit: {
                 std::wstring w = utf8_to_wide(e.label);
                 ::AppendMenuW(menu, MF_STRING, e.id, w.c_str());
@@ -1607,7 +1618,7 @@ void show_native_fallback_menu(HWND hwnd,
 void show_context_menu(HWND hwnd) {
     close_tray_popup();
     ScopedTrayPopupDpiContext dpi_context;
-    TrayMenuLayout layout = compute_menu_layout(snapshot_payload(), native_locale());
+    TrayMenuLayout layout = compute_menu_layout(snapshot_payload(), native_locale(), !!get_reload_handler());
     POINT pt{};
     ::GetCursorPos(&pt);
     LOG_INFO(
@@ -1950,7 +1961,7 @@ void show_linux_context_menu() {
         g_context_menu = nullptr;
     }
     TrayMenuPayload payload = snapshot_payload();
-    g_context_layout = compute_menu_layout(payload, native_locale());
+    g_context_layout = compute_menu_layout(payload, native_locale(), !!get_reload_handler());
     g_context_menu = g_gtk.menu_new();
     if (!g_context_menu) return;
     append_linux_layout_to_menu(g_context_menu, g_context_layout);
@@ -2111,7 +2122,7 @@ void mac_tray_menu_needs_update(NSMenu* menu) {
     if (!menu) return;
     [menu removeAllItems];
     TrayMenuPayload payload = snapshot_payload();
-    g_mac_context_layout = compute_menu_layout(payload, native_locale());
+    g_mac_context_layout = compute_menu_layout(payload, native_locale(), !!get_reload_handler());
     append_mac_layout_to_menu(menu, g_mac_context_layout);
 }
 
@@ -2226,6 +2237,11 @@ void set_tray_new_chat_handler(TrayClickHandler handler) {
 void set_tray_open_app_handler(TrayClickHandler handler) {
     std::lock_guard<std::mutex> lk(g_payload_mu);
     g_open_app_handler = std::move(handler);
+}
+
+void set_tray_reload_handler(TrayClickHandler handler) {
+    std::lock_guard<std::mutex> lk(g_payload_mu);
+    g_reload_handler = std::move(handler);
 }
 
 } // namespace acecode::desktop

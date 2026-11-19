@@ -210,6 +210,19 @@ if(WIN32 AND ACECODE_BUILD_DESKTOP)
             MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
     endif()
 
+    # Opt-in: tests/desktop/webview_health_smoke.py drives it through the page
+    # probe, the reload of a hung page and the loss of the browser process.
+    add_executable(webview_health_smoke EXCLUDE_FROM_ALL
+        ${ACECODE_WEBVIEW_HEALTH_SMOKE_SOURCES})
+    target_link_libraries(webview_health_smoke PRIVATE
+        acecode_include_roots acecode_desktop_support acecode_base_core
+        webview::core nlohmann_json::nlohmann_json
+        ole32 shell32 user32 gdi32 dwmapi)
+    if(MSVC)
+        set_target_properties(webview_health_smoke PROPERTIES
+            MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+    endif()
+
     add_executable(agent_browser_host_smoke EXCLUDE_FROM_ALL
         ${ACECODE_AGENT_BROWSER_HOST_SMOKE_SOURCES}
     )
@@ -422,6 +435,13 @@ target_link_libraries(headless_jsonl_process_driver PRIVATE
 )
 add_dependencies(acecode_unit_tests headless_jsonl_process_driver)
 
+# 空转子进程:只负责活着,给「子进程有没有带走父进程无关句柄」这类启动点测试用。
+# 不链接任何项目库;参数一律忽略,能顶替命令行由被测代码写死的可执行文件。
+add_executable(idle_test_child
+    ${CMAKE_CURRENT_SOURCE_DIR}/platform/helpers/idle_child.cpp
+)
+add_dependencies(acecode_unit_tests idle_test_child)
+
 # 注入 helper 绝对路径给测试代码(避免 ctest cwd 不确定问题)
 target_compile_definitions(acecode_unit_tests PRIVATE
     ACECODE_CONCURRENT_SESSION_WRITER_PATH="$<TARGET_FILE:concurrent_session_writer>"
@@ -431,6 +451,7 @@ target_compile_definitions(acecode_unit_tests PRIVATE
     ACECODE_FAKE_LSP_SERVER_PATH="$<TARGET_FILE:fake_lsp_server>"
     ACECODE_FAKE_CHANNEL_PLUGIN_PATH="$<TARGET_FILE:fake_channel_plugin>"
     ACECODE_HEADLESS_JSONL_DRIVER_PATH="$<TARGET_FILE:headless_jsonl_process_driver>"
+    ACECODE_IDLE_TEST_CHILD_PATH="$<TARGET_FILE:idle_test_child>"
 )
 
 # winpty spike/冒烟测试需要 winpty-agent.exe 在单测 exe 同目录

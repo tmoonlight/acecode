@@ -78,3 +78,4 @@ daemon WebSocket / history API
 
 - [transcript-state.md](transcript-state.md)：实时状态所有权、单写者提交契约和流式前缀不变量。
 - [transcript-window.md](transcript-window.md)：大会话尾部窗口、替换协调和测试契约。
+- [session-start-mask.md](session-start-mask.md)：新建会话 / 建 worktree 迟迟没完成时的等待遮罩。

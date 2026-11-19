@@ -127,6 +127,7 @@ std::set<std::string> ApiRequestBuilder::hidden_index_skills(const RequestContex
 }
 
 std::string ApiRequestBuilder::static_system_prompt(const RequestContextOptions& options) const {
+    if (options.system_prompt_override) return *options.system_prompt_override;
     SystemPromptSandboxState stable_sandbox;
     stable_sandbox.description = "see the latest execution context; tool permission checks are authoritative";
     std::string system_prompt = build_system_prompt(
@@ -178,6 +179,7 @@ std::vector<ChatMessage> ApiRequestBuilder::initial_context(const RequestContext
         context.push_back(std::move(system));
     }
 
+    if (options.system_prompt_override) return context;
     const std::string git_snapshot =
         cache_.cached_git();
     const bool skill_view_available =
@@ -298,10 +300,12 @@ RequestBuildInputs ApiRequestBuilder::capture(
     LOG_DEBUG("Registered tools: " + std::to_string(inputs.tool_defs.size()));
 
 
-    cache_.prepare_git(options.cwd, ptr(options.git_config), emergency_profile);
+    inputs.replace_generated_context = options.system_prompt_override.has_value();
     inputs.builtin_tool_defs = std::move(builtin_tool_defs);
     inputs.mcp_tool_defs = std::move(mcp_tool_defs);
     inputs.history = std::move(history);
+    if (inputs.replace_generated_context) return inputs;
+    cache_.prepare_git(options.cwd, ptr(options.git_config), emergency_profile);
     if (!emergency_profile) {
         const bool skill_view_available = tools_.is_allowed("skill_view", &options.tool_policy);
         const bool skills_list_available = tools_.is_allowed("skills_list", &options.tool_policy);
@@ -349,7 +353,14 @@ ApiRequestBundle ApiRequestBuilder::build(RequestBuildInputs inputs) {
     std::string skill_context;
     std::vector<ChatMessage> api_history;
     std::vector<ChatMessage> context_messages;
-    if (inputs.emergency_profile) {
+    if (inputs.replace_generated_context) {
+        for (const auto& message : inputs.history) {
+            if (is_request_context_record(message) || message.role == "system" ||
+                message.role == "developer" || (message.metadata.is_object() && message.metadata.value("compact_initial_context", false)))
+                continue;
+            api_history.push_back(message);
+        }
+    } else if (inputs.emergency_profile) {
         for (const auto& message : inputs.history) {
             if (!is_request_context_record(message)) api_history.push_back(message);
         }
@@ -492,8 +503,9 @@ ApiRequestBundle ApiRequestBuilder::compaction_request(
     return build(std::move(inputs));
 }
 
-ChatMessage ApiRequestBuilder::fresh_window_snapshot(
+std::optional<ChatMessage> ApiRequestBuilder::fresh_window_snapshot(
     const RequestContextOptions& options, const std::vector<ChatMessage>& replacement_history) {
+    if (options.system_prompt_override) return std::nullopt;
     // Prepare off to the side: a failed checkpoint must not refresh the live
     // window's memory/git pins before the replacement is committed.
     PromptContextCache window_cache;

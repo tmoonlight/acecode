@@ -264,7 +264,9 @@ TEST(ApiRequestBuilder, FreshWindowRestoresChecklistBeforeFinalSummary) {
     auto summary = message("user", "summary");
     summary.is_compact_summary = true;
     std::vector<acecode::ChatMessage> replacement{summary};
-    replacement.insert(replacement.begin(), builder.fresh_window_snapshot(options, replacement));
+    const auto snapshot = builder.fresh_window_snapshot(options, replacement);
+    ASSERT_TRUE(snapshot);
+    replacement.insert(replacement.begin(), *snapshot);
     const auto first = builder.compaction_request(options, replacement);
     ASSERT_FALSE(first.messages_with_system.empty());
     EXPECT_TRUE(first.context_records.empty());
@@ -307,4 +309,31 @@ TEST(ApiRequestBuilder, SessionCacheKeySurvivesRebuildAndRemainsPerRequest) {
     options.memory_session_key = "saved-session-a";
     const auto resumed = next_builder.compaction_request(options, first.context_records);
     EXPECT_EQ(first.request_options.prompt_cache_key, resumed.request_options.prompt_cache_key);
+}
+
+TEST(ApiRequestBuilder, OperatorPromptReplacesOldSystemAndLocalContext) {
+    acecode::ToolExecutor tools;
+    acecode::agent::PromptContextCache cache;
+    acecode::agent::ApiRequestBuilder builder(tools, cache);
+    acecode::agent::RequestContextOptions options;
+    options.system_prompt_override = "Answer briefly";
+    options.loop_active = true;
+    options.loop_context = "UNRELATED LOOP";
+    options.cwd = "UNRELATED WORKSPACE";
+    acecode::ChatMessage old_system, question;
+    old_system.role = "system";
+    old_system.content = "OLD ROLE";
+    question.role = "user";
+    question.content = "Hello";
+    for (const bool emergency : {true, false}) {
+        auto built = builder.build(builder.capture(options, {old_system, question}, emergency));
+        ASSERT_EQ(built.messages_with_system.size(), 2u);
+        EXPECT_EQ(built.messages_with_system[0].content, "Answer briefly");
+        EXPECT_EQ(built.messages_with_system[1].content, "Hello");
+    }
+    EXPECT_EQ(builder.initial_context(options).size(), 1u);
+    EXPECT_FALSE(builder.fresh_window_snapshot(options, {question}));
+    auto compact = builder.compaction_request(options, {old_system, question});
+    ASSERT_EQ(compact.messages_with_system.size(), 2u);
+    EXPECT_EQ(compact.messages_with_system[0].content, "Answer briefly");
 }

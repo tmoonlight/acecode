@@ -5,7 +5,7 @@ import { AnchoredMenu } from './AnchoredMenu.jsx';
 import { VsIcon } from './Icon.jsx';
 import { openTargetInExplorer } from './openTargetInExplorer.js';
 
-export function FilePreviewMenu({ cwd, path, actions }) {
+export function FilePreviewMenu({ cwd, path, actions, leading = null }) {
   const anchorRef = useRef(null);
   const [open, setOpen] = useState(false);
   const items = [...actions];
@@ -16,9 +16,10 @@ export function FilePreviewMenu({ cwd, path, actions }) {
       onSelect: () => openTargetInExplorer({ path: absolutePath, kind: 'file' }),
     });
   }
-  if (!items.length) return null;
+  if (!items.length) return leading;
   return (
     <>
+      {leading}
       <button ref={anchorRef} type="button" className="ace-preview-details-action"
         aria-label="文件操作" aria-haspopup="menu" aria-expanded={open}
         onClick={() => setOpen((value) => !value)}

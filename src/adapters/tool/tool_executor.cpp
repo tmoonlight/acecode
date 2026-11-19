@@ -238,6 +238,15 @@ void mark_workspace_scratch_change(ToolResult& result, const ToolContext& ctx) {
 }
 
 bool ToolExecutor::register_tool(const ToolImpl& tool) {
+    if (registration_allowlist_) {
+        const bool mcp = tool.source == ToolSource::Mcp;
+        // A colon separates the server identity from its original advertised tool name.
+        if (mcp && (tool.source_owner.empty() || tool.source_owner.find(':') != std::string::npos ||
+                    tool.source_tool_name.empty())) return false;
+        if (!mcp && tool.definition.name.find(':') != std::string::npos) return false;
+        const auto identity = mcp ? tool.source_owner + ":" + tool.source_tool_name : tool.definition.name;
+        if (!registration_allowlist_->count(identity)) return false;
+    }
     std::lock_guard<std::mutex> lk(tools_mu_);
     std::string mapping_error;
     if (!validate_model_tool_name_mappings(&mapping_error)) {

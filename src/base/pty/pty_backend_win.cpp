@@ -19,6 +19,7 @@
 #include "winpty_agent_embedded.hpp"
 #include "winpty_agent_location.hpp"
 
+#include "platform/process/inherited_handles.hpp"
 #include "utils/encoding.hpp"
 #include "utils/logger.hpp"
 #include "utils/paths.hpp"
@@ -482,19 +483,32 @@ public:
         SetHandleInformation(input_write_, HANDLE_FLAG_INHERIT, 0);
         SetHandleInformation(output_read_, HANDLE_FLAG_INHERIT, 0);
 
-        STARTUPINFOW si{};
-        si.cb = sizeof(si);
-        si.dwFlags = STARTF_USESTDHANDLES;
-        si.hStdInput = input_read;
-        si.hStdOutput = output_write;
-        si.hStdError = output_write;  // stderr 合流
+        // shell 只继承自己的两根管道。控制台会话是常驻的:不限定的话,别的线程此刻
+        // 正开着的文件(运行库打开的句柄默认可继承)会被它一直占到会话结束。
+        acecode::platform::InheritedHandleList inherited({input_read, output_write});
+        if (!inherited.ready()) {
+            CloseHandle(input_read);
+            CloseHandle(output_write);
+            error = "cannot restrict inherited handles (error " +
+                    std::to_string(inherited.error_code()) + ")";
+            return false;
+        }
+
+        STARTUPINFOEXW si{};
+        si.StartupInfo.cb = sizeof(si);
+        si.StartupInfo.dwFlags = STARTF_USESTDHANDLES;
+        si.StartupInfo.hStdInput = input_read;
+        si.StartupInfo.hStdOutput = output_write;
+        si.StartupInfo.hStdError = output_write;  // stderr 合流
+        si.lpAttributeList = inherited.attribute_list();
 
         std::wstring cmdline = utf8_to_wide(spec.shell);
         std::wstring cwd = utf8_to_wide(spec.cwd);
         PROCESS_INFORMATION pi{};
         BOOL ok = CreateProcessW(nullptr, cmdline.data(), nullptr, nullptr,
-                                 TRUE, CREATE_NO_WINDOW, nullptr,
-                                 cwd.empty() ? nullptr : cwd.c_str(), &si, &pi);
+                                 TRUE, CREATE_NO_WINDOW | EXTENDED_STARTUPINFO_PRESENT,
+                                 nullptr, cwd.empty() ? nullptr : cwd.c_str(),
+                                 &si.StartupInfo, &pi);
         // 子进程已持有副本(或创建失败),父进程侧立即关闭。
         CloseHandle(input_read);
         CloseHandle(output_write);

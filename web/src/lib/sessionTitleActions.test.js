@@ -75,6 +75,20 @@ test('浏览器 / iOS 模拟器 / 摘要开关只按宿主能力显隐', () => {
   }
 });
 
+// 场景:新建会话 / 建 worktree 的等待遮罩正盖着工作区,顶栏在遮罩外面。
+// 期望:标题照常显示,这排按钮全部不可用(位置和数量不变);首页的浏览器按钮同样不可用。
+// 回归:遮罩显示期间还能从会话菜单归档一个正在建 worktree 的会话。
+test('等待遮罩显示期间顶栏按钮不可用,标题仍显示', () => {
+  const states = sessionTitleActionStates({ sessionId: 's1', starting: true, ...HOST });
+  assert.equal(states.session, true);
+  for (const key of ['share', 'summary', 'trajectory', 'sideChat', 'browser', 'iosSimulator', 'sessionMenu']) {
+    assert.equal(states[key].visible, true, key);
+    assert.equal(states[key].enabled, false, key);
+  }
+  assert.equal(sessionTitleActionStates({ sessionId: '', starting: true, ...HOST }).browser.enabled, false);
+  assert.match(source('components/ChatView.jsx'), /starting: sessionStartMaskShown,/);
+});
+
 // 场景:维护者给顶栏加新按钮。期望:按钮只在 SessionTitleActions 定义一次,ChatView
 // 在首页 / 辅助页那一栏和会话面板里渲染的是同一个 sessionTitleBar,不各写一份。
 test('顶栏按钮组只有一份,首页与会话页渲染同一个元素', () => {

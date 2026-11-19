@@ -365,6 +365,8 @@ download when nothing changed.
 | GET | `/api/files/blob` | read previewable binary file |
 | POST | `/api/files/export` | save a file through the native Save as dialog |
 | GET / PUT | `/api/files/editable` | read or safely save a Desktop workspace text file |
+| POST | `/api/files/html-site` | register the resource site for an HTML file preview |
+| GET | `/api/html-site/<id>/<path>` | serve a page resource for the HTML preview iframe |
 | GET | `/api/fs/roots` | browsable roots for the Web path picker |
 | GET | `/api/fs/list` | list any absolute directory for the Web path picker |
 | POST | `/api/fs/mkdir` | create one folder from the Web path picker |
@@ -2931,6 +2933,45 @@ encoding, BOM, and dominant line-ending style, uses the common safe-write
 path, invalidates Git snapshots, and clears the Agent file-read baseline so a
 later Agent edit must read the human-authored version first. This route is not
 registered on standalone Web daemons.
+
+### `POST /api/files/html-site`
+
+Authenticated. Registers a page-resource site for rendering an `.html` / `.htm`
+file in the file detail view (see [html-preview.md](html-preview.md)). Body:
+`{"cwd":"<abs>","path":"<rel-or-abs>"}`; the path resolves like
+`/api/files/content`. When the file is inside a registered workspace the site
+root is that workspace, otherwise it is the file's own directory.
+
+```json
+{ "id": "<32 hex>", "prefix": "/api/html-site/<id>/", "entry": "docs/report.html" }
+```
+
+`entry` is the file's path relative to the site root, percent-encoded per
+segment. Registering the same root again returns the same id; the daemon keeps
+the 64 most recently used roots in memory. Errors: 400 bad body or path, 404
+missing file, 415 not an HTML file.
+
+### `GET /api/html-site/<id>/<relative-path>`
+
+Not token-authenticated: the preview iframe's subresource requests cannot send
+`X-ACECode-Token`, so the random site id is the credential. Requests from
+non-local clients are refused with 403 unless remote Web access is enabled.
+The route is dispatched from the static catch-all (Crow's `<path>` template
+breaks binding), and serves only regular files inside the registered root:
+
+- path segments are percent-decoded; empty, `.`, `..`, backslash and `:`
+  segments are rejected, and the resolved target must stay inside the root;
+- only web resource extensions are served (`html`, `css`, `js`/`mjs`, `json`,
+  `svg`, raster images, fonts, common audio/video, `wasm`, `txt`, `csv`,
+  `xml`, `map`); anything else (`.env`, keys, extensionless files) is 404;
+- files are capped at 64 MiB and sent with `X-Content-Type-Options: nosniff`
+  and `Cache-Control: no-cache`; HTML/SVG/XML responses also carry
+  `Content-Security-Policy: sandbox allow-scripts allow-modals`;
+- `Access-Control-Allow-Origin: *` is added only when `Sec-Fetch-Dest` is a
+  subresource destination (`script`, `style`, `font`, `image`, `audio`,
+  `video`, `track`, `worker`, `sharedworker`), so module scripts and fonts load
+  from the opaque-origin preview while page `fetch()`/XHR (`empty`) cannot read
+  file contents.
 
 ### `GET /api/fs/roots`
 

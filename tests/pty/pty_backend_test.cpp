@@ -10,6 +10,7 @@
 #include <gtest/gtest.h>
 
 #include "pty/pty_backend.hpp"
+#include "test_support/platform/inherited_file_probe.hpp"
 #include "utils/encoding.hpp"
 
 #include <atomic>
@@ -317,6 +318,34 @@ TEST(PtyBackendSpawnTest, PipeFallbackEchoRoundTripAndExit) {
 
     pty->write("exit\r\n");
     EXPECT_TRUE(collector.wait_for_exit(10000));
+    pty->kill();
+}
+
+// 触发场景:Pipe 兜底后端起控制台 shell 的那一刻,别的线程正用 std::ifstream 读文件
+// (MSVC 运行库打开的句柄默认可继承,且不允许别人删除 / 改名)。控制台会话是常驻的,
+// 用户不关它就一直在。
+// 期望:shell 进程只拿到自己的输入 / 输出管道;父进程关掉文件后马上就能给它改名。
+// 回归:CreateProcessW 以 bInheritHandles=TRUE 启动且没有限定句柄清单,shell 把那一刻
+// 所有可继承句柄都带走。实际表现:这个文件在控制台会话结束之前一直改不了名、删不掉,
+// 报「另一个程序正在使用此文件」(错误 32)。
+TEST(PtyBackendSpawnTest, PipeChildDoesNotInheritUnrelatedOpenFiles) {
+    acecode_test::InheritedFileProbe probe("pty-pipe-inherit");
+    ASSERT_TRUE(probe.reading());
+
+    PtyCollector collector;
+    acecode::PtySpawnSpec spec;
+    // 读 stdin 到 EOF 才退出:会话存续期间它一直活着。
+    spec.shell = "\"" + acecode_test::idle_child_path() + "\" --until-stdin-eof";
+    spec.cwd = ".";
+    std::string error;
+    auto pty = acecode::spawn_pty(acecode::PtyBackendKind::Pipe, spec,
+                                  collector.callbacks(), error);
+    ASSERT_NE(pty, nullptr) << error;
+
+    const int rename_error = probe.close_and_rename();
+    // 子进程还在跑,改名的结果才说明问题:它要是已经退出,带走的句柄也跟着放了。
+    EXPECT_FALSE(collector.exited.load());
+    EXPECT_EQ(rename_error, 0);
     pty->kill();
 }
 

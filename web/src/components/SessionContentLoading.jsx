@@ -7,8 +7,15 @@ const DEFAULT_REVEAL_DELAY_MS = 160;
 export function SessionContentLoading({
   phase = '',
   title = '',
+  // 调用方自带文案时用它,不再由 phase 推出(新建会话 / 建 worktree 的等待)。
+  label: customLabel = '',
   revealDelayMs = DEFAULT_REVEAL_DELAY_MS,
   anchorSelector = '',
+  // 遮罩还开着、对齐目标却换了节点时(首页切进新会话),换个值让它重新找一次。
+  anchorKey = '',
+  // 遮罩显示期间把焦点留在自己身上:被盖住的区域里有代码把焦点挪走(比如切进
+  // 新会话后自动聚焦输入框)就拿回来,否则用户看着遮罩还能往输入框里打字。
+  trapFocus = false,
 }) {
   const { t } = useTranslation();
   const overlayRef = useRef(null);
@@ -52,7 +59,7 @@ export function SessionContentLoading({
       resizeObserver?.disconnect();
       window.removeEventListener('resize', update);
     };
-  }, [anchorSelector, phase]);
+  }, [anchorKey, anchorSelector, phase]);
 
   useEffect(() => {
     if (!phase) {
@@ -69,19 +76,45 @@ export function SessionContentLoading({
     return () => window.clearTimeout(timer);
   }, [phase, revealDelayMs]);
 
+  useEffect(() => {
+    const overlay = overlayRef.current;
+    const scope = overlay?.parentElement;
+    if (!phase || !trapFocus || !overlay || !scope) return undefined;
+    let timer = 0;
+    const reclaim = () => {
+      timer = 0;
+      const active = document.activeElement;
+      if (!active || active === overlay || !scope.contains(active)) return;
+      // 对话框盖在遮罩上面,焦点属于它。
+      if (active.closest?.('[role="dialog"], [aria-modal="true"]')) return;
+      overlay.focus({ preventScroll: true });
+    };
+    const onFocusIn = (event) => {
+      if (timer || overlay.contains(event.target)) return;
+      // 不在这次焦点事件里直接拿回:输入框(Slate)要先把「获得焦点」处理完,
+      // 否则它会一直以为自己还有焦点,遮罩散掉后再也聚焦不上。
+      timer = window.setTimeout(reclaim, 0);
+    };
+    scope.addEventListener('focusin', onFocusIn);
+    return () => {
+      scope.removeEventListener('focusin', onFocusIn);
+      if (timer) window.clearTimeout(timer);
+    };
+  }, [phase, trapFocus]);
+
   if (!phase) return null;
 
   const displayTitle = title || t('sessionNavigation.conversation');
   const loadingLabel = title
     ? t('sessionNavigation.sidebarLoading', { title })
     : t('sessionNavigation.sidebarLoadingFallback');
-  const label = phase === 'queued'
+  const label = customLabel || (phase === 'queued'
     ? t('sessionNavigation.sidebarQueued', { title: displayTitle })
     : phase === 'error'
       ? t('sessionNavigation.transcriptError')
         : phase === 'transcript'
           ? t('sessionNavigation.transcriptLoading')
-          : loadingLabel;
+          : loadingLabel);
   const noticeStyle = anchorFrame
     ? {
         position: 'absolute',

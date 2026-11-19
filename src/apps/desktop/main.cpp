@@ -669,7 +669,7 @@ int main(int argc, char** argv) {
     // MessageBox 给用户提示)。
     auto run = [
         force_webapp,
-        relaunched = acecode::desktop::desktop_relaunched_after_update(process_arguments),
+        relaunched = acecode::desktop::desktop_was_relaunched(process_arguments),
         startup_open_request = startup_open_parse.request,
         startup_open_request_error = startup_open_parse.error
     ]() -> int {
@@ -1083,7 +1083,10 @@ int main(int argc, char** argv) {
         [&host](std::function<void()> task) { host.dispatch(std::move(task)); });
     acecode::desktop::install_agent_browser_cookie_bridge(host, agent_browser);
     const auto ios_simulator_view = install_ios_simulator_view(host);
-    std::atomic<bool> restart_requested{false};
+    DesktopRestartRequest restart_request;
+    // 主 WebView 失效后无法就地修复:保留 daemon、重启桌面壳(web_host_health.hpp)。
+    host.set_webview_recovery_handler(make_webview_recovery_handler(
+        restart_request, desktop_restart_target, [&host]() { host.request_quit(); }));
     const bool reveal_in_foreground = note_desktop_version_launch(ACECODE_VERSION) || relaunched;
     host.set_title("ACECode");
     host.set_size(kDefaultDesktopWindowWidth, kDefaultDesktopWindowHeight);
@@ -1316,6 +1319,13 @@ int main(int argc, char** argv) {
         set_tray_open_app_handler([&bring_window_foreground]() {
             bring_window_foreground();
         });
+#ifdef _WIN32
+        // tray 菜单 "重新加载界面":不依赖页面,页面坏掉时也能用。
+        set_tray_reload_handler([&host, &bring_window_foreground]() {
+            bring_window_foreground();
+            host.reload_page();
+        });
+#endif
     } else {
         LOG_WARN("[desktop] tray icon unavailable");
     }
@@ -1527,7 +1537,7 @@ int main(int argc, char** argv) {
     // process launch happens only after host.run() returns and all owned runtime
     // resources have been torn down.
     host.bind("aceDesktop_restartApp", [&](const std::string& /*req*/) -> std::string {
-        if (restart_requested.load()) {
+        if (restart_request.pending()) {
             return nlohmann::json{{"ok", true}}.dump();
         }
         LOG_INFO("[desktop] post-upgrade restart preflight started");
@@ -1536,7 +1546,7 @@ int main(int argc, char** argv) {
             LOG_ERROR("[desktop] restart preflight failed: " + preflight.error);
             return nlohmann::json{{"ok", false}, {"error", preflight.error}}.dump();
         }
-        restart_requested.store(true);
+        restart_request.request(DesktopRestartReason::Upgrade);
         LOG_INFO("[desktop] post-upgrade restart requested");
         host.request_quit();
         return nlohmann::json{{"ok", true}}.dump();
@@ -2790,32 +2800,9 @@ int main(int argc, char** argv) {
     notification_shutdown_guard.dismiss();
     shutdown_tray_icon();
 
-    if (restart_requested.load()) LOG_INFO("[desktop] post-upgrade daemon shutdown started");
-    auto failures = pool.shutdown_all(restart_requested.load()
-        ? DaemonShutdownReason::UpgradeRestart
-        : DaemonShutdownReason::ApplicationExit);
-    if (restart_requested.load()) {
-        LOG_INFO("[desktop] post-upgrade daemon shutdown finished; failures=" +
-                 std::to_string(failures.size()));
-        if (!failures.empty()) {
-            for (const auto& failure : failures) {
-                LOG_ERROR("[desktop] upgrade restart aborted: " + failure.first + ": " + failure.second);
-            }
-            return 100;
-        }
-        // The replacement must not see the dying process's singleton guard and
-        // focus it instead of starting. At this point the WebView loop, tray,
-        // notifications, and managed daemons have all completed teardown.
-        singleton.release();
-        LOG_INFO("[desktop] post-upgrade replacement launch started");
-        std::string restart_error;
-        if (!launch_desktop_replacement(desktop_restart_target, {kRelaunchedAfterUpdateArgument}, &restart_error)) {
-            LOG_ERROR("[desktop] failed to launch replacement after upgrade: " + restart_error);
-            return 101;
-        }
-        LOG_INFO("[desktop] launched replacement after upgrade");
-    }
-    return failures.empty() ? 0 : 100; // 部分失败返回非零便于诊断
+    // daemon 关停、(需要时)释放单实例守卫并拉起替身,见 desktop_restart.cpp。
+    return finish_desktop_exit(pool, restart_request.reason(), desktop_restart_target,
+                               shared_run_dir, [&singleton]() { singleton.release(); });
     }; // end of run lambda
 
     try {

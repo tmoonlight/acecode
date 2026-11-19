@@ -17,6 +17,7 @@ namespace acecode::agent {
 RequestContextOptions RequestContextFactory::options(
     const std::shared_ptr<LlmProvider>& provider) const {
     agent::RequestContextOptions options;
+    options.system_prompt_override = source_.prompt_config.system_prompt_override;
     options.cwd = boundary_.cwd();
     options.skills = source_.skills;
     options.memory = source_.memory.get();

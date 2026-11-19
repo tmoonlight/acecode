@@ -13,6 +13,7 @@ enum class DesktopStringId {
     TrayNewSession,
     TrayOpenApp,
     TrayQuit,
+    TrayReloadWindow,
     NewSessionFallback,
     AboutTitle,
     AboutAceCodeVersion,

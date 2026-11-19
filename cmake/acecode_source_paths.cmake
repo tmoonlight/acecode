@@ -105,6 +105,9 @@ set(ACECODE_MINI_PET_INPUT_SMOKE_SOURCES
 set(ACECODE_RENDERER_RECOVERY_SMOKE_SOURCES
     ${CMAKE_SOURCE_DIR}/tests/desktop/helpers/renderer_recovery_smoke.cpp
     ${ACECODE_DESKTOP_WEB_HOST_SOURCE})
+set(ACECODE_WEBVIEW_HEALTH_SMOKE_SOURCES
+    ${CMAKE_SOURCE_DIR}/tests/desktop/helpers/webview_health_smoke.cpp
+    ${ACECODE_DESKTOP_WEB_HOST_SOURCE})
 set(ACECODE_WINDOWS_FILE_DROP_SMOKE_SOURCES
     ${CMAKE_SOURCE_DIR}/tests/desktop/helpers/windows_file_drop_smoke.cpp)
 set(ACECODE_AGENT_BROWSER_POINTER_DEMO_SOURCES

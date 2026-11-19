@@ -19,6 +19,7 @@ class PromptContextCache;
 // The skill snapshot is retained for this capture/initial_context operation.
 // MemoryService is a nullable borrowed service that outlives this call.
 struct RequestContextOptions {
+    std::optional<std::string> system_prompt_override;
     std::string cwd;
     std::shared_ptr<const SkillRegistry> skills;
     MemoryService* memory = nullptr;
@@ -55,6 +56,7 @@ struct RequestContextOptions {
 // Every mutable request input is a value. Hook draining and session queries
 // happen before build; the builder cannot consume a loop-owned queue.
 struct RequestBuildInputs {
+    bool replace_generated_context = false;
     bool emergency_profile = false;
     std::string session_cache_key;
     bool memory_active = false;
@@ -84,7 +86,7 @@ public:
     ApiRequestBundle compaction_request(const RequestContextOptions& options,
                                        const std::vector<ChatMessage>& history);
     // Called only when installing a successful replacement history.
-    ChatMessage fresh_window_snapshot(const RequestContextOptions& options,
+    std::optional<ChatMessage> fresh_window_snapshot(const RequestContextOptions& options,
                                       const std::vector<ChatMessage>& replacement_history);
     const std::string& fallback_session_key() const { return fallback_session_key_; }
     std::vector<ChatMessage> initial_context(const RequestContextOptions& options) const;

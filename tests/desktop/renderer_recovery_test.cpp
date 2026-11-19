@@ -81,4 +81,19 @@ TEST(RendererRecovery, GiveUpDoesNotConsumeQuota) {
               RendererRecoveryAction::Reload);
 }
 
+// 场景:探活发现页面卡死或一片空白时也要重载,和渲染进程退出的重载走同一份限次。
+// 期望:两种来源合计 10 分钟内最多 3 次;名额用完后两边都被拒绝,窗口滑过后恢复。
+// 回归点:若各记各的,一个反复出问题的页面可以被重载 6 次。
+TEST(RendererRecovery, ProbeReloadsShareTheSameBudget) {
+    RendererRecoveryTracker tracker;
+    EXPECT_TRUE(tracker.admit_reload(0));
+    EXPECT_EQ(tracker.on_failure(RendererFailure::RenderProcessExited, 1 * kMinute),
+              RendererRecoveryAction::Reload);
+    EXPECT_TRUE(tracker.admit_reload(2 * kMinute));
+    EXPECT_FALSE(tracker.admit_reload(3 * kMinute));
+    EXPECT_EQ(tracker.on_failure(RendererFailure::RenderProcessExited, 4 * kMinute),
+              RendererRecoveryAction::GiveUp);
+    EXPECT_TRUE(tracker.admit_reload(10 * kMinute));  // 第一次已滑出时间窗
+}
+
 } // namespace

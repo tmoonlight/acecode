@@ -456,8 +456,11 @@ bool launch_update_runner(const fs::path& runner_path,
     PROCESS_INFORMATION pi{};
     std::vector<char> mutable_cmd(cmd.begin(), cmd.end());
     mutable_cmd.push_back('\0');
+    // runner 不继承任何句柄。它没有重定向标准流(不继承时系统照样把父进程的三个标准流
+    // 单独复制给控制台子进程),和父进程也只靠 --parent-pid 交接。全量继承的话,父进程
+    // 此刻开着的文件句柄会落到 runner 手上,而 runner 正是要替换这些文件的进程。
     BOOL ok = ::CreateProcessA(
-        nullptr, mutable_cmd.data(), nullptr, nullptr, TRUE, 0,
+        nullptr, mutable_cmd.data(), nullptr, nullptr, FALSE, 0,
         nullptr, nullptr, &si, &pi);
     if (!ok) {
         if (error) {
