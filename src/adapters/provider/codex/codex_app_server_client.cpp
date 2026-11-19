@@ -2,6 +2,7 @@
 #include "codex_app_server_client.hpp"
 #include "codex_model_catalog.hpp"
 
+#include "platform/process/inherited_handles.hpp"
 #include "utils/logger.hpp"
 
 #include <algorithm>
@@ -518,12 +519,23 @@ bool AppServerClient::start_process(std::string* error) {
                                FILE_ATTRIBUTE_NORMAL,
                                nullptr));
 
-    STARTUPINFOA si{};
-    si.cb = sizeof(si);
-    si.dwFlags = STARTF_USESTDHANDLES;
-    si.hStdInput = child_stdin_read.get();
-    si.hStdOutput = child_stdout_write.get();
-    si.hStdError = child_stderr ? child_stderr.get() : child_stdout_write.get();
+    // app-server 与客户端同寿命:只让它继承自己的三个标准流。不限定的话,别的线程此刻
+    // 正开着的文件(运行库打开的句柄默认可继承)会被它一直占到退出。
+    platform::InheritedHandleList inherited(
+        {child_stdin_read.get(), child_stdout_write.get(), child_stderr.get()});
+    if (!inherited.ready()) {
+        if (error) *error = "Cannot restrict inherited handles: " +
+            windows_error_message(inherited.error_code());
+        return false;
+    }
+
+    STARTUPINFOEXA si{};
+    si.StartupInfo.cb = sizeof(si);
+    si.StartupInfo.dwFlags = STARTF_USESTDHANDLES;
+    si.StartupInfo.hStdInput = child_stdin_read.get();
+    si.StartupInfo.hStdOutput = child_stdout_write.get();
+    si.StartupInfo.hStdError = child_stderr ? child_stderr.get() : child_stdout_write.get();
+    si.lpAttributeList = inherited.attribute_list();
 
     PROCESS_INFORMATION pi{};
     std::string command = "cmd.exe /d /c codex app-server --listen stdio://";
@@ -535,10 +547,10 @@ bool AppServerClient::start_process(std::string* error) {
                              nullptr,
                              nullptr,
                              TRUE,
-                             CREATE_NO_WINDOW,
+                             CREATE_NO_WINDOW | EXTENDED_STARTUPINFO_PRESENT,
                              nullptr,
                              nullptr,
-                             &si,
+                             &si.StartupInfo,
                              &pi);
     if (!ok) {
         if (error) *error = "Failed to start `codex app-server`: " +

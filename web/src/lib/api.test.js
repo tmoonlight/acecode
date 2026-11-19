@@ -17,6 +17,7 @@ import {
   workspaceDraftAttachmentBlobPath,
   sessionTrajectoryPath,
   sessionTodosPath,
+  WORKTREE_CREATE_TIMEOUT_MS,
 } from './api.js';
 
 await run('archive aggregation scopes its compatibility request to no-workspace metadata', async () => {
@@ -245,6 +246,33 @@ await run('pasted text attachment endpoints use workspace draft paths and paste 
       PASTED_TEXT_UPLOAD_TIMEOUT_MS, DEFAULT_REQUEST_TIMEOUT_MS, PASTED_TEXT_UPLOAD_TIMEOUT_MS,
     ]);
     assert.equal(workspaceDraftAttachmentBlobPath('', 'a/b'), '/api/workspaces/__no_workspace__/draft/attachments/a%2Fb/blob');
+  } finally {
+    globalThis.fetch = originalFetch;
+    globalThis.setTimeout = originalSetTimeout;
+    globalThis.clearTimeout = originalClearTimeout;
+  }
+});
+
+// 触发场景:首条消息带着建 worktree 的意图,daemon 在这次请求里同步建好 worktree 才返回。
+// 期望:这种请求用 5 分钟超时,普通消息仍是默认 30 秒。
+// 回归:大仓库建 worktree 超过 30 秒时界面报「发送失败」,daemon 却照常建完并开始回合。
+await run('first message that creates a worktree waits longer than an ordinary send', async () => {
+  const originalFetch = globalThis.fetch;
+  const originalSetTimeout = globalThis.setTimeout;
+  const originalClearTimeout = globalThis.clearTimeout;
+  const delays = [];
+  globalThis.setTimeout = (_callback, delay) => { delays.push(delay); return delays.length; };
+  globalThis.clearTimeout = () => {};
+  globalThis.fetch = async () => ({
+    ok: true, status: 200, headers: { get: () => 'application/json' }, json: async () => ({ ok: true }),
+  });
+  try {
+    const api = createApi({ origin: 'http://acecode.test', token: '' });
+    await api.sendInput('s1', { text: 'hi', worktree: { create: true, base: 'master' } });
+    await api.sendInput('s1', { text: 'hi' });
+    await api.sendInput('s1', 'plain text');
+    assert.deepEqual(delays, [WORKTREE_CREATE_TIMEOUT_MS, DEFAULT_REQUEST_TIMEOUT_MS, DEFAULT_REQUEST_TIMEOUT_MS]);
+    assert.equal(WORKTREE_CREATE_TIMEOUT_MS, 5 * 60 * 1000);
   } finally {
     globalThis.fetch = originalFetch;
     globalThis.setTimeout = originalSetTimeout;

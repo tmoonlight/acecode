@@ -788,6 +788,11 @@ void WebServer::Impl::register_static() {
         // 不走 require_auth(index.html / 资源必须无 token 加载,否则
         // 前端 token-prompt 自身都进不去)。
         auto serve_path = [this](const crow::request& req, const std::string& full_url) -> crow::response {
+            // HTML 预览的页面资源路径深度不定,<path> 模板用不了,只能在这里分流。
+            if (req.method == crow::HTTPMethod::GET &&
+                std::string_view(req.url).rfind("/api/html-site/", 0) == 0) {
+                return serve_html_site(req);
+            }
             // /api/*、/ws/* 没匹配到 explicit route 时直接 404,不 fallback 到 SPA。
             if (full_url.rfind("/api/", 0) == 0 || full_url == "/api"
              || full_url.rfind("/ws/",  0) == 0 || full_url == "/ws") {

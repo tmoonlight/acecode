@@ -5,6 +5,7 @@
 
 #include "os_process.hpp"
 
+#include "inherited_handles.hpp"
 #include "utils/logger.hpp"
 
 #include <chrono>
@@ -81,27 +82,35 @@ pid_t_compat spawn_detached(const std::vector<std::string>& argv) {
                                OPEN_EXISTING, 0, nullptr);
     if (nul == INVALID_HANDLE_VALUE) nul = nullptr;
 
-    STARTUPINFOA si{};
-    si.cb = sizeof(si);
-    if (nul) {
-        si.dwFlags |= STARTF_USESTDHANDLES;
-        si.hStdInput  = nul;
-        si.hStdOutput = nul;
-        si.hStdError  = nul;
+    // 被拉起的进程比调用方活得久:只让它继承 NUL。不限定的话,调用方此刻别的线程正开着
+    // 的文件(运行库打开的句柄默认可继承)会被它一直占到退出。清单建不出来(含 NUL
+    // 没打开)就不重定向、也不继承任何句柄。
+    acecode::platform::InheritedHandleList inherited({nul});
+    const bool redirect = inherited.ready();
+
+    STARTUPINFOEXA si{};
+    si.StartupInfo.cb = redirect ? sizeof(si) : sizeof(si.StartupInfo);
+    if (redirect) {
+        si.StartupInfo.dwFlags |= STARTF_USESTDHANDLES;
+        si.StartupInfo.hStdInput  = nul;
+        si.StartupInfo.hStdOutput = nul;
+        si.StartupInfo.hStdError  = nul;
+        si.lpAttributeList = inherited.attribute_list();
     }
     PROCESS_INFORMATION pi{};
 
-    DWORD flags = DETACHED_PROCESS | CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP;
+    DWORD flags = DETACHED_PROCESS | CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP |
+                  (redirect ? EXTENDED_STARTUPINFO_PRESENT : 0);
     BOOL ok = ::CreateProcessA(
         argv[0].c_str(),  // application name (absolute path)
         cmd_buf.data(),   // mutable command line
         nullptr,          // process security
         nullptr,          // thread security
-        nul ? TRUE : FALSE, // inherit NUL std handles when available
+        redirect ? TRUE : FALSE, // inherit only the NUL std handle listed above
         flags,
         nullptr,          // inherit environment
         nullptr,          // inherit cwd
-        &si,
+        &si.StartupInfo,
         &pi);
     if (nul) ::CloseHandle(nul);
     if (!ok) {

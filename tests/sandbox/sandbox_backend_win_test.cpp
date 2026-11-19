@@ -4,10 +4,12 @@
 #include "sandbox/sandbox_backend.hpp"
 #include "sandbox/sandbox_runtime.hpp"
 #include "tool/bash_tool.hpp"
+#include "tool/shell_process.hpp"
 #include "llm/tool_protocol_names.hpp"
 #include "environment/terminal_runtime.hpp"
 #include "agent/agent_loop.hpp"
 #include "test_support/agent/stub_provider.hpp"
+#include "test_support/platform/inherited_file_probe.hpp"
 #include "test_support/sandbox/test_support.hpp"
 #include <windows.h>
 #include <aclapi.h>
@@ -542,6 +544,53 @@ TEST(SandboxBackendWin, JobRaiiKeepsExistingLifetimeFlags) {
         &limits, sizeof(limits), nullptr));
     EXPECT_EQ(limits.BasicLimitInformation.LimitFlags &
         (JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE | JOB_OBJECT_LIMIT_SILENT_BREAKAWAY_OK), 0u);
+}
+
+TEST(SandboxBackendWin, RestrictedChildDoesNotInheritUnrelatedOpenFiles) {
+    // 触发场景:auto 模式下 bash 命令走受限令牌分支(CreateProcessAsUserW)。起一条长命令的
+    // 那一刻,别的线程正用 std::ifstream 读文件(MSVC 运行库打开的句柄默认可继承,且不允许
+    // 别人删除 / 改名)。
+    // 期望:受限子进程照常起得来、挂得进 Job,并且只拿到自己的输出管道;父进程关掉文件后
+    // 马上就能给它改名。
+    // 回归:受限分支同样以 bInheritHandles=TRUE 启动且没有限定句柄清单。除了文件在命令结束
+    // 之前改不了名(错误 32),宿主进程此刻开着的可继承句柄还会全数落到沙盒里的进程手上,
+    // 那些句柄的访问权是宿主的,不受受限令牌约束。
+    if (!probe_backend().available) GTEST_SKIP() << "restricted tokens unavailable";
+    test::TempTree tree;
+    ASSERT_TRUE(make_private_test_root(tree.root));
+    const auto workspace = tree.dir("workspace");
+    SandboxRuntime runtime;
+    SandboxRuntimeConfig config;
+    config.exclude_tmpdir = true;
+    runtime.configure(config);
+    auto request = runtime.request_for(SandboxMode::WorkspaceWrite, path_to_utf8(workspace));
+    ASSERT_NE(request.policy.mode, SandboxMode::FullAccess);
+    ASSERT_TRUE(runtime.prepare_request(request).empty());
+    auto previous = environment::terminal().last();
+    struct RestoreTerminal {
+        decltype(previous) snapshot;
+        ~RestoreTerminal() {
+            if (snapshot) environment::terminal().publish(*snapshot);
+            else environment::terminal().reset_for_test();
+        }
+    } restore{previous};
+    environment::terminal().reset_for_test();
+
+    acecode_test::InheritedFileProbe file_probe("sandbox-inherit");
+    ASSERT_TRUE(file_probe.reading());
+    ShellLaunchSpec spec;
+    spec.command = "\"" + acecode_test::idle_child_path() + "\"";
+    spec.cwd = path_to_utf8(workspace);
+    spec.sandbox = request;
+    ShellLaunchFailure failure;
+    auto process = ShellProcess::launch(spec, failure);
+    ASSERT_NE(process, nullptr) << failure.message;
+
+    const int rename_error = file_probe.close_and_rename();
+    // 命令还在跑,改名的结果才说明问题:它要是已经退出,带走的句柄也跟着放了。
+    EXPECT_FALSE(process->poll_exited());
+    EXPECT_EQ(rename_error, 0);
+    process->kill_tree();
 }
 
 #endif

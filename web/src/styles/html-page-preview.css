@@ -1,0 +1,339 @@
+/* 文件详情里的 HTML 页面预览与可视化编辑(HtmlPagePreview.jsx / HtmlEditToolbar.jsx)。 */
+.ace-html-page {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  /* 页面没写背景时按浏览器默认的白底显示,深色主题下也不会变成黑底黑字。 */
+  background: #ffffff;
+}
+.ace-html-page-frame {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: #ffffff;
+  color-scheme: light;
+}
+.ace-html-page[data-html-page-editing="true"] {
+  box-shadow: inset 0 0 0 1px var(--ace-accent);
+}
+
+.ace-html-toolbar {
+  position: absolute;
+  z-index: 6;
+  display: flex;
+  /* 预览区窄的时候换到第二行,不让后面的按钮(颜色、删除)跑到预览区外面。 */
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px;
+  max-width: calc(100% - 12px);
+  padding: 4px 6px;
+  border: 1px solid var(--ace-border);
+  border-radius: 12px;
+  background: var(--ace-surface);
+  color: var(--ace-fg);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.14);
+  font-size: 13px;
+  line-height: 1;
+  user-select: none;
+}
+.ace-html-toolbar-btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-width: 30px;
+  height: 30px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+  flex: 0 0 auto;
+}
+.ace-html-toolbar-btn:hover,
+.ace-html-toolbar-btn:focus-visible,
+.ace-html-toolbar-btn[aria-expanded="true"] {
+  outline: none;
+  background: var(--ace-surface-hi);
+}
+.ace-html-toolbar-btn[aria-pressed="true"] {
+  background: var(--ace-accent-bg);
+  color: var(--ace-accent);
+}
+.ace-html-toolbar-btn.is-danger:hover {
+  color: var(--ace-danger);
+}
+.ace-html-toolbar-ai {
+  padding: 0 8px;
+  font-size: 14px;
+  white-space: nowrap;
+}
+.ace-html-toolbar-sep {
+  width: 1px;
+  height: 18px;
+  margin: 0 5px;
+  background: var(--ace-border);
+  flex: 0 0 auto;
+}
+
+/* 下拉:按钮右侧一个小箭头,弹层贴在按钮正下方。 */
+.ace-html-toolbar-dropdown {
+  position: relative;
+  display: inline-flex;
+  flex: 0 0 auto;
+}
+.ace-html-toolbar-trigger {
+  gap: 2px;
+  padding: 0 4px 0 6px;
+}
+.ace-html-toolbar-chevron {
+  color: var(--ace-fg-mute);
+}
+.ace-html-toolbar-colored {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+}
+.ace-html-toolbar-colored .ace-icon {
+  margin-bottom: -4px;
+}
+.ace-html-toolbar-swatch {
+  width: 14px;
+  height: 3px;
+  border-radius: 2px;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.16);
+}
+.ace-html-toolbar-swatch.is-empty {
+  background: repeating-linear-gradient(135deg, transparent 0 2px, var(--ace-fg-mute) 2px 3px);
+  opacity: 0.6;
+}
+.ace-html-toolbar-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 7;
+  display: flex;
+  flex-direction: column;
+  min-width: 100%;
+  padding: 6px;
+  overflow-y: auto;
+  border: 1px solid var(--ace-border);
+  border-radius: 12px;
+  background: var(--ace-surface);
+  color: var(--ace-fg);
+  box-shadow: 0 10px 32px rgba(0, 0, 0, 0.16);
+  white-space: nowrap;
+}
+.ace-html-toolbar-menu.is-align-right {
+  left: auto;
+  right: 0;
+}
+.ace-html-toolbar-menu.is-above {
+  top: auto;
+  bottom: calc(100% + 6px);
+}
+.ace-html-toolbar-menu-heading {
+  padding: 8px 12px 6px;
+  color: var(--ace-fg-mute);
+  font-size: 12px;
+}
+.ace-html-toolbar-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 132px;
+  min-height: 34px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+}
+.ace-html-toolbar-menu-item:hover,
+.ace-html-toolbar-menu-item:focus-visible {
+  outline: none;
+  background: var(--ace-surface-hi);
+}
+.ace-html-toolbar-menu-item[aria-checked="true"] {
+  color: var(--ace-accent);
+}
+.ace-html-toolbar-menu-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 6px 2px;
+  border-top: 1px solid var(--ace-border);
+  margin-top: 6px;
+}
+.ace-html-toolbar-menu-row > .ace-icon {
+  margin-right: 4px;
+  color: var(--ace-fg-mute);
+}
+
+/* 字号:输入框和箭头连成一个框,弹层对齐整个框。 */
+.ace-html-toolbar-combo {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  height: 28px;
+  margin: 0 2px;
+  border: 1px solid var(--ace-border);
+  border-radius: 7px;
+  flex: 0 0 auto;
+}
+.ace-html-toolbar-combo:focus-within {
+  border-color: var(--ace-accent);
+}
+.ace-html-toolbar-combo .ace-html-toolbar-dropdown {
+  position: static;
+}
+.ace-html-toolbar-combo input {
+  width: 34px;
+  height: 26px;
+  padding: 0 0 0 8px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+.ace-html-toolbar-combo input::-webkit-outer-spin-button,
+.ace-html-toolbar-combo input::-webkit-inner-spin-button {
+  margin: 0;
+  -webkit-appearance: none;
+}
+.ace-html-toolbar-combo input:focus {
+  outline: none;
+}
+.ace-html-toolbar-combo .ace-html-toolbar-trigger {
+  min-width: 22px;
+  height: 26px;
+  padding: 0 4px;
+  border-radius: 0 6px 6px 0;
+}
+
+/* 色板 */
+.ace-html-toolbar-palette {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 4px;
+}
+.ace-html-toolbar-swatches {
+  display: grid;
+  grid-template-columns: repeat(8, 20px);
+  gap: 6px;
+}
+.ace-html-toolbar-swatch-btn {
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.14);
+  cursor: pointer;
+}
+.ace-html-toolbar-swatch-btn:hover,
+.ace-html-toolbar-swatch-btn:focus-visible {
+  outline: 2px solid var(--ace-border);
+  outline-offset: 1px;
+}
+.ace-html-toolbar-swatch-btn[aria-checked="true"] {
+  outline: 2px solid var(--ace-accent);
+  outline-offset: 1px;
+}
+.ace-html-toolbar-chip {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 30px;
+  height: 26px;
+  padding: 0 8px;
+  border: 1px solid var(--ace-border);
+  border-radius: 6px;
+  background: var(--ace-surface);
+  color: inherit;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.ace-html-toolbar-chip:hover {
+  background: var(--ace-surface-hi);
+}
+.ace-html-toolbar-chip[aria-checked="true"] {
+  border-color: var(--ace-accent);
+  color: var(--ace-accent);
+}
+.ace-html-toolbar-custom-color {
+  align-self: flex-start;
+  overflow: hidden;
+}
+.ace-html-toolbar-custom-color input[type="color"] {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+  border: 0;
+  padding: 0;
+}
+
+/* 链接 / 图片地址 */
+.ace-html-toolbar-url {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px;
+}
+.ace-html-toolbar-url input[type="text"] {
+  width: 240px;
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--ace-border);
+  border-radius: 6px;
+  background: var(--ace-surface);
+  color: inherit;
+  font: inherit;
+  font-size: 12px;
+}
+.ace-html-toolbar-url input[type="text"]:focus {
+  outline: none;
+  border-color: var(--ace-accent);
+}
+.ace-html-toolbar-text-btn {
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--ace-border);
+  border-radius: 6px;
+  background: var(--ace-surface);
+  color: inherit;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.ace-html-toolbar-text-btn:hover {
+  background: var(--ace-surface-hi);
+}
+.ace-html-toolbar-text-btn.is-primary {
+  border-color: var(--ace-accent);
+  background: var(--ace-accent);
+  color: #ffffff;
+}

@@ -1997,6 +1997,7 @@ export function reduceTranscriptEvent(state, msg) {
 
 export const HISTORY_PAGE_SIZE = 200;
 const ORPHAN_TOOL_REPAIR_DELAY_MS = 600;
+const TURN_TIMING_CATCHUP_LIMIT = 8;
 
 // Prepending keeps every existing item ID (and therefore the DOM/window anchor).
 // Runtime events remain owned by the live store while disk pages arrive.
@@ -2081,6 +2082,39 @@ export function repairOrphanToolRequests(state, messages = []) {
     items.push(item);
   });
   next.items = items;
+  return next;
+}
+
+// daemon 只把 turn_timing 写进 JSONL,不经 WebSocket 推送:实时结束的回合在前端
+// 拿不到完成记录,followUpCompletionKey 算不出 key,输入框的预测消息只在重新
+// 打开会话后才出现。这里判定是否要为最后一条 user 消息补拉一次 turn_timing:
+// 只看实时观察到的正常收尾(lastTurnOutcome 由 busy→idle 跃迁写入),已有记录、
+// 中止 / 出错 / 仍在忙时都不拉。user id 的取法与 followUpCompletionKey 保持一致。
+export function pendingTurnTimingUserId(state) {
+  if (!state || state.loadState !== 'loaded' || state.busy || state.abortPending
+      || state.status === 'error' || state.lastTurnOutcome !== 'completed') return '';
+  const items = Array.isArray(state.items) ? state.items : [];
+  for (let index = items.length - 1; index >= 0; index -= 1) {
+    const item = items[index];
+    if (item?.kind !== 'msg' || item.role !== 'user') continue;
+    const userId = String(item.messageId || item.metadata?.user_message_uuid || '');
+    if (!userId) return '';
+    return cloneTurnTimings(state.turnTimings).has(userId) ? '' : userId;
+  }
+  return '';
+}
+
+// 只并入 REST 页里的 turn_timing,条目、游标、净变更都不动:那一页的消息已经由
+// WebSocket 实时送达,按 'after' 合并会再追加一遍。没有新记录时返回原 state。
+export function mergeTurnTimingsFromMessages(state, messages = []) {
+  const current = state || createTranscriptState();
+  const known = cloneTurnTimings(current.turnTimings);
+  const { turnTimings } = splitTranscriptMessages(Array.isArray(messages) ? messages : []);
+  const added = [...turnTimings].filter(([userId]) => !known.has(userId));
+  if (added.length === 0) return current;
+  const next = cloneState(current);
+  for (const [userId, timing] of added) next.turnTimings.set(userId, timing);
+  next.items = applyTurnTimingsToItems(next.items, next.turnTimings);
   return next;
 }
 
@@ -2368,6 +2402,8 @@ export function useSessionTranscript(sessionRef, options = {}) {
   const pendingHistoryEventsRef = useRef([]);
   const orphanRepairRef = useRef({ sid, attempted: new Set(), timer: null });
   if (orphanRepairRef.current.sid !== sid) orphanRepairRef.current = { sid, attempted: new Set(), timer: null };
+  const timingCatchupRef = useRef({ sid, attempted: new Set() });
+  if (timingCatchupRef.current.sid !== sid) timingCatchupRef.current = { sid, attempted: new Set() };
   sessionRefRef.current = ref;
   const refreshSignatureRef = useRef('');
   // 卡住检测(transcriptLiveWatchdog.js)的可变现场:最近一次收到本会话事件的时间、
@@ -2731,6 +2767,24 @@ export function useSessionTranscript(sessionRef, options = {}) {
       }).catch(() => {});
     }, ORPHAN_TOOL_REPAIR_DELAY_MS);
   }, [api, isLive, sid, state.items, state.loadState, store]);
+
+  // 回合实时正常结束后补拉这一回合的 turn_timing(daemon 不推送,见
+  // pendingTurnTimingUserId)。turn_timing 是正常收尾时最后落盘的可见记录;服务端
+  // 倒着收尾页,收满 limit 条后遇到 user 就停,收到 4×limit 条仍没遇到 user(带工具
+  // 调用的长回合)就只留最新 limit 条。取 8 给收尾后偶尔多落的记录留余量,仍远小于
+  // 回合结束自愈那次 200 条。每条 user 消息只试一次。
+  const timingCatchupUserId = isLive ? pendingTurnTimingUserId(state) : '';
+  useEffect(() => {
+    if (!sid || !timingCatchupUserId || stateSessionIdRef.current !== sid) return;
+    const catchup = timingCatchupRef.current;
+    if (catchup.attempted.has(timingCatchupUserId)) return;
+    catchup.attempted.add(timingCatchupUserId);
+    const scope = historyScopeRef.current;
+    api.getMessages(sid, { limit: TURN_TIMING_CATCHUP_LIMIT }).then((data) => {
+      if (timingCatchupRef.current !== catchup || historyScopeRef.current !== scope) return;
+      store.commit((current) => mergeTurnTimingsFromMessages(current, data?.messages));
+    }).catch(() => {});
+  }, [api, sid, store, timingCatchupUserId]);
 
   useEffect(() => {
     if (!sid || stateSessionIdRef.current !== sid || state.loadState !== 'loaded') return undefined;

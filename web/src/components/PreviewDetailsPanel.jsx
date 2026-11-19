@@ -513,6 +513,8 @@ export function PreviewDetailsPanel({
         onEditStateChange={(patch) => onEditFileTab?.(active.key, patch)}
         onToggleWrapPreview={() => setWrapPreview((prev) => !prev)}
         onOpenBrowser={onOpenBrowser}
+        onOpenFile={onOpenFilePreview}
+        onAddContext={onAddBrowserContext}
         onRefresh={() => onRefreshTab?.(active.key)}
       />
     );

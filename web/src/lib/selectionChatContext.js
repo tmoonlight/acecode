@@ -501,6 +501,17 @@ export function contextPresentation(ctx = {}, annotationPresentations = null) {
       removeLabel: '移除引用上下文',
     };
   }
+  if (ctx.kind === 'region') {
+    // HTML 预览里拖出的选区(htmlRegionContext.js):标签只写「选区」,悬停显示是哪个文件。
+    const label = ctx.label || '选区';
+    return {
+      icon: 'RegionSelect',
+      label,
+      note: ctx.note || '',
+      title: [label, ctx.note].filter(Boolean).join('\n'),
+      removeLabel: '移除选区引用',
+    };
+  }
   return {
     icon: ctx.kind === 'console' ? 'terminal' : (ctx.kind === 'element' ? 'Inspect' : 'search'),
     label: ctx.label || '浏览器',

@@ -49,6 +49,8 @@ export const DESKTOP_CONTEXT_ACTIONS = Object.freeze({
   COLLAPSE_DIRECTORY: 'collapse_directory',
   COPY_PREVIEW_TEXT: 'copy_preview_text',
   COPY_PREVIEW_METADATA: 'copy_preview_metadata',
+  SHOW_HTML_SOURCE: 'show_html_source',
+  SHOW_HTML_PAGE: 'show_html_page',
   COPY_PREVIEW_IMAGE: 'copy_preview_image',
   EXPORT_MERMAID_PNG: 'export_mermaid_png',
   EXPORT_MERMAID_SVG: 'export_mermaid_svg',
@@ -398,6 +400,17 @@ export function buildDesktopContextMenuItems({
   if (previewPresentationTarget) {
     addAction(items, DESKTOP_CONTEXT_ACTIONS.TOGGLE_PREVIEW_PRESENTATION, previewPresentationTarget, { group: GROUPS.SELECTION });
   }
+  // HTML 文件:页面视图与源代码视图互切(源代码视图在桌面版是可编辑的文本框,也要给)。
+  if (previewTarget?.htmlView) {
+    addAction(
+      items,
+      previewTarget.htmlView === 'page'
+        ? DESKTOP_CONTEXT_ACTIONS.SHOW_HTML_SOURCE
+        : DESKTOP_CONTEXT_ACTIONS.SHOW_HTML_PAGE,
+      previewTarget,
+      { group: GROUPS.SELECTION },
+    );
+  }
 
   // File navigation remains available while editing the displayed file.
   addPreviewNavigationItems(items, previewTarget);
@@ -680,7 +693,9 @@ export function previewTargetFromElement(target) {
   if (!el) return null;
   const path = getAttr(el, 'data-desktop-preview-path', 'desktopPreviewPath');
   if (!path) return null;
+  const htmlView = getAttr(el, 'data-desktop-preview-html-view', 'desktopPreviewHtmlView');
   return {
+    ...(htmlView ? { htmlView } : {}),
     type: 'preview',
     element: el,
     cwd: getAttr(el, 'data-desktop-preview-cwd', 'desktopPreviewCwd'),
