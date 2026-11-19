@@ -198,3 +198,121 @@ TEST(DesktopWindowForeground, InvalidWindowStillRunsShowOnce) {
     EXPECT_TRUE(front);
 #endif
 }
+
+// 触发场景:主 WebView 失效后程序自己重启,新进程带 --relaunched-after-webview-failure。
+// 期望行为:两种自动拉起都被认出来(新进程要自己把窗口放到最前),普通启动不误判。
+TEST(DesktopRestart, RecognisesBothRelaunchSwitches) {
+    using acecode::desktop::desktop_was_relaunched;
+    using acecode::desktop::kRelaunchedAfterWebviewFailureArgument;
+    EXPECT_TRUE(desktop_was_relaunched({"acecode-desktop.exe", kRelaunchedAfterUpdateArgument}));
+    EXPECT_TRUE(desktop_was_relaunched(
+        {"acecode-desktop.exe", kRelaunchedAfterWebviewFailureArgument}));
+    EXPECT_FALSE(desktop_was_relaunched({"acecode-desktop.exe"}));
+    EXPECT_FALSE(desktop_was_relaunched({kRelaunchedAfterWebviewFailureArgument}));
+    // 新开关也必须是不需要转义的纯开关,否则拉起替身时会被拒绝。
+    EXPECT_TRUE(valid_desktop_replacement_arguments({kRelaunchedAfterWebviewFailureArgument}));
+}
+
+// 触发场景:升级重启与 WebView 恢复重启几乎同时被请求。
+// 期望行为:先到的原因生效,后到的被拒绝;None 不是一个可以请求的原因。
+TEST(DesktopRestart, FirstRestartReasonWins) {
+    using acecode::desktop::DesktopRestartReason;
+    acecode::desktop::DesktopRestartRequest request;
+    EXPECT_FALSE(request.pending());
+    EXPECT_FALSE(request.request(DesktopRestartReason::None));
+    EXPECT_TRUE(request.request(DesktopRestartReason::WebviewRecovery));
+    EXPECT_FALSE(request.request(DesktopRestartReason::Upgrade));
+    EXPECT_TRUE(request.pending());
+    EXPECT_EQ(request.reason(), DesktopRestartReason::WebviewRecovery);
+}
+
+// 触发场景:GUI 循环结束后按重启原因收尾。
+// 期望行为:普通退出不拉起替身;升级必须先停掉全部 daemon(它们跑的是旧版本);
+// WebView 恢复保留 daemon 让替身接管,正在跑的回合不中断,并带上自己的开关。
+// 回归点:若恢复重启也停 daemon,无人值守时跑到一半的任务会被自动重启打断。
+TEST(DesktopRestart, ExitPlanKeepsDaemonsForWebviewRecovery) {
+    using acecode::desktop::DesktopRestartReason;
+    using acecode::desktop::plan_desktop_exit;
+
+    const auto none = plan_desktop_exit(DesktopRestartReason::None);
+    EXPECT_FALSE(none.relaunch);
+    EXPECT_FALSE(none.keep_daemons_running);
+    EXPECT_FALSE(none.stop_daemons_for_upgrade);
+
+    const auto upgrade = plan_desktop_exit(DesktopRestartReason::Upgrade);
+    EXPECT_TRUE(upgrade.relaunch);
+    EXPECT_TRUE(upgrade.stop_daemons_for_upgrade);
+    EXPECT_FALSE(upgrade.keep_daemons_running);
+    EXPECT_STREQ(upgrade.relaunch_argument, kRelaunchedAfterUpdateArgument);
+
+    const auto recovery = plan_desktop_exit(DesktopRestartReason::WebviewRecovery);
+    EXPECT_TRUE(recovery.relaunch);
+    EXPECT_TRUE(recovery.keep_daemons_running);
+    EXPECT_FALSE(recovery.stop_daemons_for_upgrade);
+    EXPECT_STREQ(recovery.relaunch_argument,
+                 acecode::desktop::kRelaunchedAfterWebviewFailureArgument);
+}
+
+// 触发场景:浏览器进程一启动就退出,每个新进程都想再自动重启一次。
+// 期望行为:限次记在 state.json 里跨进程生效,10 分钟内第 3 次被拒绝;
+// 字段被写坏时按没有记录处理并修正。
+TEST_F(StateFileTest, WebviewRecoveryRestartsAreLimitedInStateFile) {
+    using acecode::desktop::note_webview_recovery_restart;
+    const std::int64_t minute = 60 * 1000;
+    EXPECT_TRUE(note_webview_recovery_restart(1000 * minute));
+    EXPECT_TRUE(note_webview_recovery_restart(1001 * minute));
+    EXPECT_FALSE(note_webview_recovery_restart(1002 * minute));
+    EXPECT_TRUE(note_webview_recovery_restart(1011 * minute));  // 最早一次已过期
+
+    write_raw(path_, R"({"desktop_webview_recovery_restarts": "broken"})");
+    EXPECT_TRUE(note_webview_recovery_restart(2000 * minute));
+}
+
+// 触发场景:WebHost 报告主 WebView 已失效,回调决定要不要重启。
+// 期望行为:自动触发受限次约束,超限后不再退出程序;用户从托盘主动要求时不受限;
+// 重启目标不存在时什么都不做(否则程序退出后起不来)。
+TEST_F(StateFileTest, WebviewRecoveryHandlerRespectsTheLimitUnlessTheUserAsks) {
+    using acecode::desktop::DesktopRestartReason;
+    using acecode::desktop::make_webview_recovery_handler;
+    TempDir temp;
+#ifdef _WIN32
+    const fs::path executable = temp.path() / "acecode-desktop.exe";
+#else
+    const fs::path executable = temp.path() / "acecode-desktop";
+#endif
+    std::ofstream(executable, std::ios::binary) << "stub";
+#ifndef _WIN32
+    fs::permissions(executable,
+                    fs::perms::owner_read | fs::perms::owner_write | fs::perms::owner_exec,
+                    fs::perm_options::replace);
+#endif
+
+    int quits = 0;
+    {
+        acecode::desktop::DesktopRestartRequest request;
+        const auto handler = make_webview_recovery_handler(
+            request, temp.path() / "missing.exe", [&quits] { ++quits; });
+        handler(/*user_initiated=*/true);
+        EXPECT_EQ(quits, 0);
+        EXPECT_FALSE(request.pending());
+    }
+    for (int round = 0; round < 2; ++round) {
+        acecode::desktop::DesktopRestartRequest request;
+        const auto handler =
+            make_webview_recovery_handler(request, executable, [&quits] { ++quits; });
+        handler(/*user_initiated=*/false);
+        EXPECT_EQ(request.reason(), DesktopRestartReason::WebviewRecovery);
+        handler(/*user_initiated=*/false);  // 已经在重启,不重复退出
+    }
+    EXPECT_EQ(quits, 2);
+
+    acecode::desktop::DesktopRestartRequest request;
+    const auto handler =
+        make_webview_recovery_handler(request, executable, [&quits] { ++quits; });
+    handler(/*user_initiated=*/false);  // 第 3 次自动重启:超限
+    EXPECT_EQ(quits, 2);
+    EXPECT_FALSE(request.pending());
+    handler(/*user_initiated=*/true);   // 用户明确要求:放行
+    EXPECT_EQ(quits, 3);
+    EXPECT_EQ(request.reason(), DesktopRestartReason::WebviewRecovery);
+}

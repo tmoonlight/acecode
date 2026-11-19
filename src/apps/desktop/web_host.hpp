@@ -178,6 +178,18 @@ public:
     using OpenInviteHandler = std::function<void(const std::string&)>;
     void set_open_invite_handler(OpenInviteHandler handler);
 
+    // 主 WebView 已失效(浏览器主进程退出)且用户回到了窗口前,或用户从原生入口
+    // 主动要求时调用,GUI 线程。失效的控件无法就地修复,回调负责重启程序;
+    // user_initiated 为 true 表示用户明确要求,不受自动重启的限次约束。
+    // 探活、会话事件日志与页面级自动重载由 WebHost 自己完成(web_host_health.hpp)。
+    // 只实现了 Windows,其它平台不会调用。
+    using WebviewRecoveryHandler = std::function<void(bool user_initiated)>;
+    void set_webview_recovery_handler(WebviewRecoveryHandler handler);
+
+    // 不依赖页面的「重新加载界面」:控件还在就重新加载页面,已失效就走上面的恢复
+    // 回调。返回是否已发起。GUI 线程;只实现了 Windows,其它平台返回 false。
+    bool reload_page();
+
     // Invoked when a second Desktop process asks this singleton instance to
     // foreground itself. The callback runs on the GUI thread after the native
     // focus signal is received.

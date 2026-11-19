@@ -27,6 +27,7 @@ inline constexpr unsigned kMenuIdShow        = 1;  // 历史保留:行为等价 
 inline constexpr unsigned kMenuIdQuit        = 2;
 inline constexpr unsigned kMenuIdNewChat     = 3;
 inline constexpr unsigned kMenuIdOpenApp     = 4;
+inline constexpr unsigned kMenuIdReloadWindow = 5;
 inline constexpr unsigned kMenuIdSessionBase = 100;
 
 // 顶层每段最多显示 3 条;超过的条目进入本段自己的 More 子菜单。payload 不做
@@ -44,12 +45,13 @@ enum class TrayMenuEntryKind {
     Separator,
     NewChat,
     OpenApp,
+    ReloadWindow,    // 重新加载界面;只在注册了处理函数的平台出现
     Quit,
 };
 
 struct TrayMenuEntry {
     TrayMenuEntryKind kind;
-    unsigned id = 0;        // 仅 session item / NewChat / OpenApp / Quit 有意义
+    unsigned id = 0;        // 仅 session item / NewChat / OpenApp / ReloadWindow / Quit 有意义
     std::string label;      // 普通菜单后端使用的渲染文本
     // session item 的两列显示文本。Win32 owner-draw 用 title/subtitle 分列绘制,
     // 其它后端继续用 label 退化为单行 "<title>  <subtitle>"。
@@ -171,8 +173,12 @@ inline void append_section(std::vector<TrayMenuEntry>& out,
 
 // 纯函数:把 payload 翻译为 layout。空状态(pinned + recent 都空)直接产出
 // "新建会话 / 打开 / 退出" 极简菜单,没有空 header。
+//
+// include_reload:在「打开」后面加一项「重新加载界面」。它不依赖页面(菜单数据由
+// 页面推送,页面坏掉时推不了),所以是固定项;目前只有 Windows 注册了处理函数。
 inline TrayMenuLayout compute_menu_layout(const TrayMenuPayload& payload,
-                                          const std::string& locale = "zh-CN") {
+                                          const std::string& locale = "zh-CN",
+                                          bool include_reload = false) {
     TrayMenuLayout layout;
     auto& out = layout.entries;
     unsigned next_session_id = kMenuIdSessionBase;
@@ -214,6 +220,10 @@ inline TrayMenuLayout compute_menu_layout(const TrayMenuPayload& payload,
                    std::string(desktop_string(DesktopStringId::TrayNewSession, locale)), {}, {}});
     out.push_back({TrayMenuEntryKind::OpenApp, kMenuIdOpenApp,
                    std::string(desktop_string(DesktopStringId::TrayOpenApp, locale)), {}, {}});
+    if (include_reload) {
+        out.push_back({TrayMenuEntryKind::ReloadWindow, kMenuIdReloadWindow,
+                       std::string(desktop_string(DesktopStringId::TrayReloadWindow, locale)), {}, {}});
+    }
     out.push_back({TrayMenuEntryKind::Separator, 0, {}, {}, {}});
     out.push_back({TrayMenuEntryKind::Quit, kMenuIdQuit,
                    std::string(desktop_string(DesktopStringId::TrayQuit, locale)), {}, {}});

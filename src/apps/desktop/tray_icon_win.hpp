@@ -83,10 +83,13 @@ void set_tray_menu_payload(TrayMenuPayload payload);
 // 清空缓存,菜单退化为 "新建会话 / 打开 ACECode / 退出"(用于切换 workspace 时)。
 void clear_tray_menu_payload();
 
-// 注册三类菜单项的 click handler。任一为 nullptr 则该菜单项点击 no-op(不崩)。
+// 注册各类菜单项的 click handler。任一为 nullptr 则该菜单项点击 no-op(不崩)。
 void set_tray_session_click_handler(TraySessionClickHandler handler);
 void set_tray_new_chat_handler(TrayClickHandler handler);
 void set_tray_open_app_handler(TrayClickHandler handler);
+// 注册后菜单里多一项「重新加载界面」;传 nullptr 撤掉这一项。它不依赖页面,
+// 页面出问题时仍然可用。目前只有 Windows 注册。
+void set_tray_reload_handler(TrayClickHandler handler);
 
 #ifdef __APPLE__
 // 激活 App 并把 NSWindow 拉前(取消最小化 + makeKeyAndOrderFront)。

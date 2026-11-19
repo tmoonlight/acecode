@@ -210,6 +210,19 @@ if(WIN32 AND ACECODE_BUILD_DESKTOP)
             MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
     endif()
 
+    # Opt-in: tests/desktop/webview_health_smoke.py drives it through the page
+    # probe, the reload of a hung page and the loss of the browser process.
+    add_executable(webview_health_smoke EXCLUDE_FROM_ALL
+        ${ACECODE_WEBVIEW_HEALTH_SMOKE_SOURCES})
+    target_link_libraries(webview_health_smoke PRIVATE
+        acecode_include_roots acecode_desktop_support acecode_base_core
+        webview::core nlohmann_json::nlohmann_json
+        ole32 shell32 user32 gdi32 dwmapi)
+    if(MSVC)
+        set_target_properties(webview_health_smoke PROPERTIES
+            MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+    endif()
+
     add_executable(agent_browser_host_smoke EXCLUDE_FROM_ALL
         ${ACECODE_AGENT_BROWSER_HOST_SMOKE_SOURCES}
     )

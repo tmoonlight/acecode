@@ -8,6 +8,7 @@
 #include "platform/process/os_process.hpp"
 #include "ipc/runtime_files.hpp"
 #include "desktop/daemon_pool.hpp"
+#include "desktop/desktop_restart.hpp"
 #include "desktop/daemon_supervisor.hpp"
 
 #include <atomic>
@@ -683,4 +684,74 @@ TEST(DaemonPool, ManagedSpawnCarriesProtocolAndOwnerIdentity) {
     EXPECT_GT(spawn.desktop_protocol_version, 0);
     EXPECT_EQ(spawn.desktop_owner_pid, 1234);
     EXPECT_EQ(spawn.desktop_owner_instance, "desktop-instance");
+}
+
+// 触发场景:主 WebView 失效后的恢复性重启,GUI 循环已经结束,开始收尾。
+// 期望行为:daemon 被「释放」(保持运行,交给替身接管)而不是「停止」,正在跑的回合
+// 不被打断;释放单实例守卫后尝试拉起替身。这里故意给一个不存在的可执行文件:
+// 拉起失败返回 101,不会真的起进程。
+// 回归点:若恢复性重启也走停止 daemon 的路径,自动重启会中断后台任务。
+TEST(DaemonPool, WebviewRecoveryExitReleasesDaemonsInsteadOfStopping) {
+    using acecode::desktop::DesktopRestartReason;
+    using acecode::desktop::finish_desktop_exit;
+    auto state = std::make_shared<MockSupervisor::SharedState>();
+    DaemonPool pool;
+    pool.set_supervisor_factory_for_test([&] {
+        return std::unique_ptr<IDaemonSupervisor>(new MockSupervisor(state));
+    });
+    ASSERT_TRUE(pool.activate(make_request("h1")).ok);
+
+    int released_guard = 0;
+    const int code = finish_desktop_exit(
+        pool, DesktopRestartReason::WebviewRecovery, "/no/such/acecode-desktop", "",
+        [&released_guard] { ++released_guard; });
+    EXPECT_EQ(code, 101);
+    EXPECT_EQ(state->release_calls.load(), 1);
+    EXPECT_EQ(state->stop_calls.load(), 0);
+    EXPECT_TRUE(state->last_keep_alive.load());
+    EXPECT_EQ(released_guard, 1);
+}
+
+// 触发场景:升级重启与普通退出走同一个收尾函数。
+// 期望行为:升级必须停掉 daemon(它们跑的是旧版本)再拉起替身;普通退出按用户的
+// 「退出后继续运行」设置处理(这里是关),既不拉起替身也不释放单实例守卫。
+TEST(DaemonPool, UpgradeAndPlainExitStillStopDaemons) {
+    using acecode::desktop::DesktopRestartReason;
+    using acecode::desktop::finish_desktop_exit;
+    for (const auto reason : {DesktopRestartReason::Upgrade, DesktopRestartReason::None}) {
+        auto state = std::make_shared<MockSupervisor::SharedState>();
+        DaemonPool pool;
+        pool.set_supervisor_factory_for_test([&] {
+            return std::unique_ptr<IDaemonSupervisor>(new MockSupervisor(state));
+        });
+        ASSERT_TRUE(pool.activate(make_request("h1")).ok);
+
+        int released_guard = 0;
+        const int code = finish_desktop_exit(pool, reason, "/no/such/acecode-desktop", "",
+                                             [&released_guard] { ++released_guard; });
+        const bool upgrade = reason == DesktopRestartReason::Upgrade;
+        EXPECT_EQ(code, upgrade ? 101 : 0);
+        EXPECT_EQ(state->stop_calls.load(), 1);
+        EXPECT_EQ(state->release_calls.load(), 0);
+        EXPECT_EQ(released_guard, upgrade ? 1 : 0);
+    }
+}
+
+// 触发场景:恢复性重启拉起替身后,旧进程要等替身发布自己的属主记录再退出。
+// daemon 发现属主进程消失后只等不到一秒,等不到新属主就会自行停止。
+// 期望行为:记录缺失、或记录里还是自己时一直等到超时;记录换成另一个活着的进程时
+// 立刻返回 true。
+TEST(DaemonPool, WaitsForTheReplacementToOwnTheDaemons) {
+    using acecode::desktop::wait_for_replacement_desktop_owner;
+    TempRunDir run_dir("acecode_recovery_owner_handover");
+    const std::string dir = run_dir.path().string();
+    EXPECT_FALSE(wait_for_replacement_desktop_owner(dir, 120));  // 没有记录
+
+    const auto self = acecode::daemon::current_pid();
+    ASSERT_TRUE(acecode::daemon::write_desktop_owner_record(
+        dir, acecode::daemon::DesktopOwnerRecord{self, "old-instance", 1}));
+    EXPECT_FALSE(wait_for_replacement_desktop_owner(dir, 120));  // 记录里还是自己
+
+    // 把「自己」说成另一个进程号:记录里那个活着的进程就成了替身。
+    EXPECT_TRUE(wait_for_replacement_desktop_owner(dir, 5000, self + 1));
 }

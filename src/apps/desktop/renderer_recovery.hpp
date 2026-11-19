@@ -43,6 +43,10 @@ public:
     // 记录一次故障并给出处置。只有返回 Reload 时才计入时间窗。
     RendererRecoveryAction on_failure(RendererFailure failure, std::int64_t now_ms);
 
+    // 其它来源的自动重载(探活发现页面卡死或一片空白)共用同一份限次:
+    // 时间窗内还有名额就记一次并返回 true。
+    bool admit_reload(std::int64_t now_ms);
+
 private:
     RendererRecoveryLimits limits_;
     std::deque<std::int64_t> reloads_ms_;
