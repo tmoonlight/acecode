@@ -1601,6 +1601,7 @@ export const ENGLISH_SOURCE_OVERRIDES = Object.freeze({
   '无法连接到服务器，请检查地址或网络后重试': 'Unable to connect. Check the address or network and retry',
   '无法解析主机名，请检查地址、网络或重试': 'Host name could not be resolved. Check the address or network and retry',
   '网页加载失败': 'Page load failed',
+  '界面出错了': 'Something went wrong',
   '{{p0}}（WebView2 状态 {{p1}}）': '{{p0}} (WebView2 status {{p1}})',
   '仅 Windows Desktop': 'Desktop for Windows only',
   '默认附带最近的 desktop 与 daemon 日志。关联某个具体的会话记录将更有助于我们帮您排查问题。':

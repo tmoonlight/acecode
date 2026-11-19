@@ -286,6 +286,7 @@ import './shortcutBindings.test.js';
 import './searchPaletteShortcut.test.js';
 import './browserCompatibility.test.js';
 import './browserDefaults.test.js';
+import './rootErrorRecovery.test.js';
 import './desktopZoom.test.js';
 import './fullscreenHeatWave.test.js';
 import './hooksSettings.test.js';
