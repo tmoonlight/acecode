@@ -465,6 +465,9 @@ void OpenAiResponsesProvider::stream_impl(const std::vector<ChatMessage>& messag
         if (!emitted_provisional_output && completion_events.empty() &&
             remove_rejected_prompt_cache_key(body, url,
             failure.status_code, failure.raw_body)) continue;
+        failure.retry_max_attempts = -1;
+        apply_acemodel_limit_policy(failure, is_acemodel_request_endpoint("/responses") ||
+            !header_value(upstream.header, "x-acemodel-limit").empty(), retry_number);
         if (!failure.retryable) {
             failure.retry_attempt = saturating_retry_attempt(retry_number);
             emit_error(callback, failure);
@@ -476,7 +479,6 @@ void OpenAiResponsesProvider::stream_impl(const std::vector<ChatMessage>& messag
         const auto delay = provider_retry_delay_ms(retry_number, server_delay,
             provider_retry_max_delay_ms(failure.status_code, failure.raw_body));
         failure.retry_attempt = saturating_retry_attempt(retry_number);
-        failure.retry_max_attempts = -1;
         failure.retry_delay_ms = static_cast<int>(delay);
         emit_error(callback, failure, StreamEventType::Retry);
         if (wait_for_retry(std::chrono::milliseconds(delay), abort_flag)) {

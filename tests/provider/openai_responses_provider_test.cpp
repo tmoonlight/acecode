@@ -529,6 +529,34 @@ TEST(OpenAiResponsesProviderTest, TruncatedStreamResetsProvisionalOutputAndCalls
     EXPECT_EQ(count_events(events, StreamEventType::Error), 0);
 }
 
+TEST(OpenAiResponsesProviderTest, AceModelThrottleStopsWithCodeAndHonorsLongWait) {
+    for (const auto& hint : {std::string("0"), std::string("120")}) {
+        std::atomic<int> requests{0};
+        LocalHttpServer server([&](httplib::Server& http) {
+            http.Post("/v1/responses", [&](const httplib::Request&, httplib::Response& r) {
+                // A fourth request must end the test even if the budget regresses.
+                r.status = ++requests > 3 ? 400 : 429;
+                r.set_header("X-ACEModel-Limit", "rate_limit_reached");
+                r.set_header("Retry-After", hint);
+                r.set_content(R"({"error":{"code":"rate_limit_reached"}})", "application/json");
+            });
+        });
+        OpenAiResponsesProvider provider(server.url(), "", "test-model", 3000);
+        std::atomic<bool> abort{false};
+        std::vector<StreamEvent> events;
+        provider.chat_stream({user_message()}, {}, [&](const StreamEvent& event) {
+            events.push_back(event);
+            if (hint == "120" && event.type == StreamEventType::Retry) abort.store(true);
+        }, &abort);
+        const auto* error = last_event(events, StreamEventType::Error);
+        ASSERT_NE(error, nullptr);
+        EXPECT_EQ(requests.load(), hint == "0" ? 3 : 1);
+        EXPECT_FALSE(error->provider_error.retryable);
+        EXPECT_NE(error->error.find("rate_limit_reached"), std::string::npos);
+        EXPECT_EQ(error->provider_error.status_code, 429);
+    }
+}
+
 TEST(OpenAiResponsesProviderTest, HardQuotaAndMalformedJsonAreTerminalWithDiagnostics) {
     const std::vector<std::pair<int, std::string>> failures{
         {429, R"({"error":{"code":"insufficient_quota","message":"buy credits"}})"},
