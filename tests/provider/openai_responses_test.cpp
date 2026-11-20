@@ -451,7 +451,10 @@ TEST(OpenAiResponsesTest, StructuredErrorsPreserveQuotaClassificationAndDiagnost
         EXPECT_EQ(result.finish_reason, "error");
         EXPECT_EQ(result.provider_error.provider, "openai");
         EXPECT_EQ(result.provider_error.raw_body, wire.dump());
-        EXPECT_EQ(result.provider_error.display_message, "upstream failed");
+        const bool limit = std::string(code) == "rate_limit_exceeded" ||
+                           std::string(code) == "insufficient_quota";
+        EXPECT_EQ(result.provider_error.display_message,
+                  limit ? "upstream failed [" + std::string(code) + "]" : "upstream failed");
         EXPECT_EQ(result.provider_error.retryable,
                   std::string(code) == "server_error" || std::string(code) == "rate_limit_exceeded");
     }
