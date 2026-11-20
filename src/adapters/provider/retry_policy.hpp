@@ -26,6 +26,12 @@ constexpr std::int64_t kProviderRateLimitRetryMaxDelayMs = 60 * 1000;
 // Exact billing/quota codes make an otherwise retryable 429 terminal.
 bool provider_error_body_has_hard_quota(const std::string& body);
 
+struct ProviderErrorInfo;
+// Apply the ACEModel throttle budget before emitting Retry or a terminal Error.
+// Other transient failures retain their existing recovery policy.
+void apply_acemodel_limit_policy(ProviderErrorInfo& error, bool acemodel,
+                                 std::uint64_t retries_sent);
+
 // Shared allowlist for streaming and non-streaming provider requests.
 // 状态码不可信的网关(src/adapters/pa)按报文文案兜底:写明上下文超限的一律
 // 不重试(要走压缩 / 兜底链,重发同一个超大请求没有意义),写明限流的一律

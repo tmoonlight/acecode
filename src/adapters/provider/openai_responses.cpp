@@ -77,9 +77,16 @@ ProviderErrorInfo response_error(const Json& event, ProviderErrorKind kind,
     if (result.request_id.empty()) result.request_id = text_field(payload, "request_id");
     if (kind == ProviderErrorKind::Unknown) {
         result.status_code = nonnegative_int(payload, "status_code");
-        const auto code = text_field(payload, "code");
+        auto code = text_field(payload, "code");
+        if (code.empty()) code = text_field(payload, "type");
+        const bool quota = provider_error_body_has_hard_quota(result.raw_body);
+        const bool throttle = code == "rate_limit_exceeded" || code == "rate_limit_reached" ||
+                              code == "rate_limit_error";
+        if ((quota || throttle) && !code.empty()) {
+            result.display_message += " [" + code + "]";
+        }
         if (result.status_code == 0) {
-            if (code == "rate_limit_exceeded" || code == "rate_limit_reached") {
+            if (throttle) {
                 result.status_code = 429;
             } else if (code == "server_error" || code == "internal_server_error") {
                 result.status_code = 500;
@@ -87,7 +94,7 @@ ProviderErrorInfo response_error(const Json& event, ProviderErrorKind kind,
                 result.status_code = 503;
             }
         }
-        result.retryable = !provider_error_body_has_hard_quota(result.raw_body) &&
+        result.retryable = !quota &&
             provider_http_error_is_retryable(result.status_code, result.raw_body);
     }
     return result;
