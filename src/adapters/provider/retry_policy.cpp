@@ -1,6 +1,7 @@
 #include "retry_policy.hpp"
 
 #include "pa/pa_quirks.hpp"
+#include "llm/llm_provider.hpp"
 
 #include <curl/curl.h>
 #include <nlohmann/json.hpp>
@@ -51,7 +52,8 @@ bool is_hard_quota_code(const std::string& value) {
            code == "billing_hard_limit_reached" ||
            code == "billing_not_active" ||
            code == "credit_balance_too_low" ||
-           code == "hard_limit_reached";
+           code == "hard_limit_reached" || code == "upstream_quota_exhausted" ||
+           code == "usage_limit_reached" || code == "quota_exhausted";
 }
 
 // 429 报文的 message 明确说「额度 / 余额用完」时也算硬配额。起因(yubo2 反馈):
@@ -112,7 +114,7 @@ bool provider_error_body_has_hard_quota(const std::string& body) {
 bool provider_http_error_is_retryable(int status_code,
                                       const std::string& body) {
     const bool hard_quota = provider_error_body_has_hard_quota(body);
-    if (status_code == 429 && hard_quota) {
+    if (hard_quota) {
         return false;
     }
 
@@ -240,6 +242,28 @@ std::int64_t provider_retry_delay_ms(
         delay *= 2;
     }
     return (std::min)(delay, cap);
+}
+
+void apply_acemodel_limit_policy(ProviderErrorInfo& error, bool acemodel,
+                                 std::uint64_t retries_sent) {
+    if (!acemodel || !error.retryable ||
+        !provider_error_is_rate_limited(error.status_code, error.raw_body)) return;
+
+    constexpr int max_retries = 2;
+    error.retry_max_attempts = max_retries;
+    if (retries_sent < max_retries &&
+        error.server_retry_after_ms <= kProviderRateLimitRetryMaxDelayMs) return;
+
+    error.retryable = false;
+    std::string message = u8"请求受限（HTTP 429）。";
+    if (error.server_retry_after_ms > 0) {
+        const auto ms = error.server_retry_after_ms;
+        message += u8"请在 " + std::to_string(ms / 1000 + (ms % 1000 != 0)) +
+                   u8" 秒后重试。";
+    } else {
+        message += u8"请稍后重试。";
+    }
+    error.display_message = message + "\n" + error.display_message;
 }
 
 int saturating_retry_attempt(std::uint64_t retry_number) {
