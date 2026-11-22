@@ -384,7 +384,7 @@ renderer failure 时显示对应 ACECode 状态并隐藏 controller。
 
 ## 网页描述批注（#194）
 
-已加载网页的工具栏提供“批注”。开启后点击一个元素，再点选框旁的 Annotate
+已加载网页的地址栏提供仅图标的批注入口。开启后点击一个元素，再点选框旁的 Annotate
 按钮，在覆盖原生浏览器的宿主浮窗中填写描述并保存。关闭浮窗取消当前草稿；退出模式
 隐藏选框和控制按钮，但保留已保存的编号图钉。底部显示待发送数量。保存记录不可编辑或
 删除，编号持续递增；没有会话也可保存。此步骤只在当前 Desktop 运行期保留数据，
@@ -413,8 +413,23 @@ renderer failure 时显示对应 ACECode 状态并隐藏 controller。
   bridge，绑定入队时的文档/目标身份，丢弃旧 revision 和卸载后的结果。
   `web/src/components/PageAnnotations.jsx` 的 `PageAnnotationPopup` 使用现有
   `data-ace-native-overlay="overlap"` 局部遮挡协议，在 Windows window region / macOS
-  layer mask 与 hit-test 路径上露出可信表单，不是聊天栏替代。选择状态通过宿主发起的
+  layer mask 与 hit-test 路径上露出可信表单，不是聊天栏替代。遮挡孔按浮窗圆角挖出，
+  但被 Browser 边界裁掉的那一侧角落必须保持直角（`occlusion_rects[].square_corners`）：
+  给裁切边补圆角会在浮窗与网页交界处画出一段四分之一圆的接缝。选择状态通过宿主发起的
   read 读取，不接受网页主动发来的特权请求。
+
+遮挡孔按浮窗自己的像素网格对齐：`CreateRoundRectRgn` 这类 native region 只能到整设备
+像素，用 `Math.round` 取整会把浮窗边缘那一条（正好带 1px 外框线）整条丢掉，表现为右下
+两边没有框线。所以孔的近边（左/上）取包住浮窗的像素，远边（右/下）再多留 1 个设备像素
+（`HOLE_FAR_EDGE_GUARD`）。孔不再向外扩宽：多出来的每一像素都会把 WebUI 的底色漏在浮窗
+外面，网页不是白底时就是一圈发白的锯齿。只有 `role="menu" | "listbox" | "tooltip"` 这类
+隐式浮窗还保留 1px（`NATIVE_SURFACE_IMPLICIT_OVERLAY_BLEED`）给自己的投影；注解卡片不自
+己外扩，靠对齐已经足够。需要显式控制的浮窗可写 `data-ace-native-overlay-bleed`，`"0"`
+表示完全对齐 border box。
+
+代价要说清楚：window region 是 1 bit 的，浮窗圆角在网页上永远是一条 1 设备像素的硬边，
+做不到 CSS 那样的抗锯齿。要真正消除这条硬边，只能换掉"原生 WebView 挖洞"这套结构
+（例如 per-pixel alpha 的合成层），不属于本次范围。
 
 后续样式、文本、多目标/区域功能分别扩展上述运行时、原生草稿模型及可信浮窗，不要改走
 `selected_element`（它仍会创建聊天上下文）。截图、批量发送及完整导航确认由其他票负责；
@@ -458,11 +473,33 @@ Windows 翻译单元编译通过，`openspec validate add-html-page-annotations 
 取消仅撤当前草稿，模式退出保留已保存层。原始页面比较临时停用两层，保留图钉；
 恢复时草稿与已保存预览重现。原页面长过渡在取消/比较时即时结算后恢复原声明。
 
-**尚存限制，不视为完整关闭 #195：** 原始 inline `!important` 无法被独立 author
-stylesheet 覆盖且同时保持原声明不变。界面显示冲突，差异只保留实际生效的变化；
-author cascade layer 内的 important 也可能优先于未分层预览规则。任务 2.1 因此
-保持未完成，不能把未生效请求记录为成功。全部批准字段在普通 CSS 下已由真实
-Chromium CSS 引擎验证；这一结果不等于任意站点的完整层叠覆盖。
+**已批准的层叠行为：** 按 Codex 处理。预览写在未分层的作者样式表里，声明带
+`!important`，不改原内联样式。内联 `!important` 或更具体的分层作者 `!important`
+胜出时，不报错、不记录未生效差异、不上用户层扩展；`style_preview.errors` 保持空数组。
+任务 2.1 仍未完成：这不是任意页面的完整层叠覆盖，Windows / macOS 桌面人工验收也未完成。
+
+**批注卡片与工具栏：** 外观对齐 Codex 桌面控件，不拷贝其源码。开启批注后，悬停页面
+元素会显示外框和包含标签、渲染尺寸、颜色、字体的信息卡；单击元素会立即打开批注卡片。
+卡片收起 294px、打开最多 380px。左上 `调整` 使用 `aria-expanded`，没有 `aria-pressed`。
+卡片头部和底部操作区固定，属性编辑区最多滚动 230px；卡片内不再重复目标元素标签。
+属性标签按文字内容左对齐，数值与单位分开，字体和字重提供下拉选择，已修改值提供恢复
+按钮，任何有效修改都会实时预览。不透明度使用 `0..100%` 输入并夹取越界值。宽高及
+上下/左右内、外边距的锁定按钮显示在上下两条 T 形连线之间；按钮有默认、悬停和锁定
+状态，同组锁定会同步各自的成对值。折叠的内边距、外边距保留四个可编辑值。
+属性值列保持 176px 宽，两个间隙值的 `px` 在未编辑与编辑后都留在输入框内；四联
+内、外边距的每个输入框至少保留 45px，可用宽度不足时自动换行。比例锁使用清晰居中的
+链形图标，并以加粗中段区分锁定状态。
+
+工具栏是深色圆角条：可拖动握把、`正在批注 · {count}`、截图并复制、隐藏标记、按住
+查看原页面、丢弃全部、蓝色 `发送`、退出。计数列宽度固定。丢弃前询问
+`丢弃所有待处理标注?`，正文为 `页面上的所有编辑都将被移除` 和
+`放弃后所有标记和修改都被清空`，操作为 `取消` / `放弃。`。卡片或选区模式打开时
+工具栏隐藏，退出批注后也不保留孤立发送按钮。点击卡片外会取消当前草稿但保留批注模式。
+`调整` 和提交按钮都有气泡说明，提交气泡同时显示 `Enter 发送 · Ctrl+Enter`。
+
+送给模型的正文仍是 `Page annotations` 加结构化 JSON，并附整页截图。会话里不铺开
+JSON：只显示卡片，顶部是整页图裁切，下面是页面标题和有内容的描述；多条才显示编号。
+地址栏按钮固定 30×30，开启后不追加“批注”文字，避免工具栏宽度变化。
 
 新增验证：`pnpm --dir web test:annotations:browser` 启动独立临时 headless Chromium
 profile，覆盖全部属性、简写展开、真实差异、比例锁、同目标保存/取消、原始比较、
@@ -481,6 +518,22 @@ profile，覆盖全部属性、简写展开、真实差异、比例锁、同目�
 
 未执行真实 Windows/macOS Desktop 浮窗、焦点、遮挡和全部属性交互验收，未执行
 macOS 编译、完整原生链接或 CTest；这些检查不能由 headless CSS 测试代替。
+
+2026-11-19 交互对齐收尾：重新生成 i18n source catalog 后，完整
+`pnpm --dir web test`、`pnpm --dir web build`（含 regex compatibility）、
+`openspec validate add-html-page-annotations --strict` 与 `git diff --check`
+通过。真实 Chrome headless 生命周期 smoke 报告
+`PASS: exact DOM/shadow identity, queued removal, multi-target previews, regions
+and root replacement`；重新链接独立 native driver 后，dedicated annotation
+integration 全部通过，覆盖 trusted 输入、目标/区域保存、HTTP 序列化、队列回执、
+租约释放、拒绝后重试和最终 DOM 差异。Windows 开发桌面人工检查确认 hover
+外框与信息卡、单击开卡、卡片外取消、固定头尾、230px 滚动属性区、折叠四值、
+展开锁定控件、工具栏隐藏和圆角卡片。完整 Windows 工作流与 macOS
+原生/人工验收仍未完成。
+
+2026-11-20 样式编辑现场复核：开发桌面中的两个间隙值在 `0px` 与编辑后出现恢复按钮的
+两种状态下均完整显示单位；宽高比例锁在解锁与锁定状态的图标均居中可辨。浮窗 JSX
+回归测试同时约束恢复区的默认/编辑态布局。
 
 ## 常见故障
 

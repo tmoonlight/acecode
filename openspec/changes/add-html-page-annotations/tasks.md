@@ -1,3 +1,6 @@
+> **Superseded（2026-11-22）**：本文档描述的路线（预览为主 / 整页截图 / 不可变记录 / 收据去重 / 导航确认）已被 `openspec/changes/redesign-html-page-annotations/` 取代，不再维护。
+> 现行方案见 `docs/specs/2026-11-21-html-page-annotations-technical-design.md`，WIP 现状见 `docs/specs/2026-11-22-html-page-annotations-wip-alignment.md`。
+
 # Tasks
 
 ## 1. Element annotation closed loop (#194)
@@ -10,7 +13,7 @@
 
 - [ ] 2.1 Implement all approved style fields through independent stylesheet layers and actual-difference filtering; verify every property and untouched original inline styles.
 - [x] 2.2 Add default-off current-ratio lock and draft-only cancellation over saved layers; verify repeated edits of the same target.
-- [x] 2.3 Add original-view comparison retaining pins and restoring previews; verify round trips and mode exit.
+- [x] 2.3 Add original-view comparison hiding numbered pins and restoring previews; verify round trips and mode exit.
 
 ## 3. Visible text previews (#196)
 
@@ -203,3 +206,68 @@ Acceptance records exact TEMP logs and historical failures, including Linux CI
 44369114282 (one receipt failure among 7,058 tests) and the earlier broader native
 11-failure run. Neither is replaced by a passing focused Windows run or a claimed
 Linux rerun. Tasks 2.1, 5.2, 8.3 and 8.4 remain open; keep the pull request draft.
+
+Codex chrome follow-up: the comment card and toolbar now match the observed Codex
+controls, and the approved cascade behavior is Codex's unlayered `!important`
+author preview. Ineffective inline or layered `!important` winners produce no
+error and no difference. Tasks 2.1, 5.2, 8.3 and 8.4 stay open; the pull request
+stays draft. Windows manual acceptance and macOS native/manual acceptance are
+not claimed.
+
+Interaction parity follow-up, 2026-11-19: element and region picking can start
+from the floating toolbar before a draft popup exists; the toolbar hides while
+the user is picking, while a card is open, and after leaving annotation mode.
+Native occlusion holes carry the overlay border radius, so rounded cards and the
+toolbar no longer expose the WebUI background at their corners. The card keeps a
+fixed header/footer with a 230px scrolling editor, omits the target tag row,
+left-aligns labels, splits values from units, exposes font/weight menus, restore
+actions and live previews, and uses a clamped 0-100% opacity control. Width,
+height and paired padding/margin locks use centered circular buttons between
+T-shaped guides with hover and locked states; collapsed spacing rows retain four
+editable values. Hover shows the native outline and compact element information
+card, one click opens the card, and an outside click cancels its draft. Toolbar
+screenshot, hide-marker, hold-original, discard-all, send, and exit behavior,
+the exact discard confirmation, stable count width, tooltips and empty-input
+disabled submit state are covered by frontend tests. Windows development desktop
+manual inspection confirmed hover, one-click open, outside dismissal, fixed
+header/footer, 230px scrolling, collapsed four-value spacing, expanded pair
+locks and rounded card rendering. The expanded editor is 380px wide; its value
+column is 176px, and each collapsed spacing input keeps at least 45px of usable
+width before wrapping. Tasks 2.1, 5.2, 8.3 and 8.4 remain open; the
+pull request stays draft, and Windows complete-workflow plus macOS
+native/manual acceptance are not claimed.
+
+Final interaction verification, 2026-11-19: the source catalog was regenerated
+after the new annotation copy, and full `pnpm test` plus `pnpm build` (including
+the regex compatibility scan) pass. Browser regression helpers now reflect the
+one-click open behavior instead of the removed select-then-Annotate sequence.
+Real Chrome headless lifecycle smoke passes exact DOM/shadow identity, queued
+removal, multi-target previews, regions and root replacement. A freshly linked
+standalone native driver passes dedicated annotation integration, including
+trusted input, multi-target/region save, HTTP serialization, receipt handling,
+lease release, refused-retry behavior and final-DOM differences. OpenSpec strict
+validation and `git diff --check` pass. Windows development desktop manual
+inspection is recorded above; tasks 2.1, 5.2, 8.3 and 8.4 remain open, Windows
+complete-workflow and macOS native/manual acceptance are not claimed, and the
+pull request stays draft.
+
+Style-control follow-up, 2026-11-20: paired numeric cells no longer reserve reset
+space when no reset is visible, and the two-column gap pair uses a smaller reset
+reservation after editing. The ratio-lock link icon is 14px with a centered,
+stronger locked stroke. Windows development-desktop inspection confirmed both
+gap units remain inside their controls in the default and edited states and the
+lock icon is legible in both states. Tasks 2.1, 5.2, 8.3 and 8.4 remain open.
+
+Specification alignment, 2026-11-21: the spec/design documents were brought in line
+with features already implemented in the worktree but not yet described there —
+native occlusion geometry (`square_corners`, radius clamp, far-edge guard, implicit
+bleed), modal chrome suspension and native input blocking, hover-card lifecycle,
+send-error and i18n localisation, the screenshot bridge, annotation message parsing
+and card presentation, the expanded editor field/lock set, target-tag row, 2px
+editor gap and discard numbering reset. This is documentation only; no product code
+or task checkboxes changed. The original-view pin discrepancy previously flagged
+here was confirmed by the owner: hiding numbered pins in `original` view
+(`markersVisible = !markersHidden && !original`) is intended. The spec scenario,
+the three design statements and task 2.3 were aligned accordingly; pin records
+remain intact and pins reappear when toggling back. No product code changed.
+Tasks 2.1, 5.2, 8.3 and 8.4 and the draft PR state are unchanged.
