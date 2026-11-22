@@ -16,6 +16,7 @@ import {
   htmlSiteRootUrl,
   isBoldWeight,
   isWindowsRedoKey,
+  normalizeTextCaret,
   normalizeTextRange,
   splitRangeStyles,
   toggledDecoration,
@@ -253,4 +254,55 @@ function withoutComments(text) {
   const escape = component.slice(component.indexOf("if (key === 'escape') {"));
   assert.ok(escape.indexOf("post({ type: 'clearRegion' })") < escape.indexOf("post({ type: 'select', sid: 0 })"));
   console.log('[pass] HTML edit mode draws a region by dragging anywhere');
+}
+
+// 触发场景(回归):先给段落加粗,再双击进去改字,连续按 Ctrl+Z 只能撤回打的字,加粗撤不掉 ——
+// 改字期间 Ctrl+Z 走的是浏览器自己的撤销栈,只认这次改字里的输入,撤到头就停,外层那条栈收不到。
+// 期望行为:只有一条撤销栈。改字时框里边打边交回外层;改字里的 Ctrl+Z / Ctrl+Y 先把打到一半的字交回,
+// 再转给外层;浏览器自己的撤销被拦下;撤到改字里的一步时框内原地换内容、不结束改字;外层收到交回的文字、
+// 撤销 / 重做时都不作废这次改字(只有框报 textEditEnded 才作废)。
+{
+  const runtime = source('./htmlPageRuntime.js');
+  const keyBranch = runtime.slice(runtime.indexOf("} else if (mod && !event.altKey && (key === 'z' || key === 'y')) {"));
+  assert.ok(keyBranch.length > 0 && keyBranch.indexOf('flushTextCommit(true)') < keyBranch.indexOf('post(keyPayload(event))'));
+  assert.ok(runtime.includes("event.inputType === 'historyUndo' || event.inputType === 'historyRedo'"));
+  const setInner = runtime.slice(runtime.indexOf("case 'setInner':"), runtime.indexOf("case 'beginTextEdit':"));
+  assert.equal(setInner.includes('stopTextEditing'), false);
+  assert.equal(setInner.includes("type: 'textEditEnded'"), false);
+  assert.ok(setInner.includes('restoreCaret(element, data.caret)'));
+  const finish = runtime.slice(runtime.indexOf('function finishTextEdit()'), runtime.indexOf('function finishTextEdit()') + 400);
+  assert.ok(finish.indexOf('flushTextCommit(true)') < finish.indexOf('stopTextEditing(element)'));
+  const component = source('../components/HtmlPagePreview.jsx');
+  const commitText = component.slice(component.indexOf('const commitText = useCallback'), component.indexOf('const removeSelected = useCallback'));
+  assert.equal(commitText.includes('pendingTextEditRef.current = 0'), false);
+  assert.ok(commitText.includes("mergeKey: merge ? `text:${sid}` : ''"));
+  const replay = component.slice(component.indexOf('const replay = useCallback'), component.indexOf('const undo = useCallback'));
+  assert.equal(replay.includes('pendingTextEditRef.current = 0'), false);
+  console.log('[pass] HTML text editing shares one undo stack with earlier style changes');
+}
+
+// 场景:框里交回的光标位置被页面脚本伪造。期望:只认非负整数;结束早于开始或不是整数时按开始算;
+// 不是对象、开始为负或超大时作废。
+{
+  assert.deepEqual(normalizeTextCaret({ start: 3, end: 7 }), { start: 3, end: 7 });
+  assert.deepEqual(normalizeTextCaret({ start: 5, end: 2 }), { start: 5, end: 5 });
+  assert.deepEqual(normalizeTextCaret({ start: 4 }), { start: 4, end: 4 });
+  assert.equal(normalizeTextCaret({ start: -1, end: 2 }), null);
+  assert.equal(normalizeTextCaret({ start: 1.5, end: 2 }), null);
+  assert.equal(normalizeTextCaret({ start: 1e9 }), null);
+  assert.equal(normalizeTextCaret('3'), null);
+  console.log('[pass] HTML text caret offsets from the frame are sanitized');
+}
+
+// 触发场景:改字时用中文输入法,拼音还没选字就停顿超过 250 毫秒,拼音串被当成正文交回、进了撤销栈,
+// 撤销一次段落里留下一串拼音字母。期望行为:组字期间(compositionstart 到 compositionend)不交回,
+// 到点的定时器也不交;选完字(compositionend)再排一次交回。
+{
+  const runtime = source('./htmlPageRuntime.js');
+  assert.ok(runtime.includes("document.addEventListener('compositionstart'"));
+  const end = runtime.slice(runtime.indexOf("document.addEventListener('compositionend'"));
+  assert.ok(end.indexOf('composing = false') >= 0 && end.indexOf('composing = false') < end.indexOf('scheduleTextCommit()'));
+  const timer = runtime.slice(runtime.indexOf('function scheduleTextCommit()'), runtime.indexOf('function scheduleTextCommit()') + 300);
+  assert.ok(timer.includes('if (!composing) flushTextCommit(true)'));
+  console.log('[pass] HTML text editing does not commit unfinished IME composition');
 }

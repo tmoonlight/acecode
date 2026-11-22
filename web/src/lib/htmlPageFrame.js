@@ -218,6 +218,17 @@ export function normalizeTextRange(value) {
   };
 }
 
+// 改字交回时带的光标(按字符数算的起止位置,框里报来的不可信输入):只认非负整数,结束不早于开始。
+const MAX_CARET_OFFSET = 10000000;
+export function normalizeTextCaret(value) {
+  if (!value || typeof value !== 'object') return null;
+  const start = Number(value.start);
+  const end = Number(value.end);
+  if (!Number.isInteger(start) || start < 0 || start > MAX_CARET_OFFSET) return null;
+  const safeEnd = Number.isInteger(end) && end >= start && end <= MAX_CARET_OFFSET ? end : start;
+  return { start, end: safeEnd };
+}
+
 // 选中元素能做哪些直接修改:有源码编号且编号唯一(没被脚本克隆)才能改;
 // 改字还要求源码里是有结束标签的文字叶子。
 export function htmlElementCapabilities(info, record) {
