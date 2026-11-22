@@ -36,7 +36,7 @@ ACECode is a repository-aware AI coding agent with two first-class interfaces: a
 
 Choose a workspace, start or revisit tasks, select a model and permission mode, attach context, and follow the agent's work from one window.
 
-![ACECode Desktop home screen showing workspaces, tasks, model selection, and permission controls](assets/readme/acecode-desktop.png)
+![ACECode Desktop showing a conversation and the results of a background task and a subagent](assets/readme/acecode-desktop.png)
 
 ### Terminal TUI
 
