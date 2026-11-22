@@ -86,9 +86,6 @@ TEST_F(PageAnnotationSessionTest, PassivePollIsBoundedAndNeverAdvancesCommandSeq
     EXPECT_FALSE(session.finish_poll(replaced));
     EXPECT_FALSE(session.pollable());
     EXPECT_TRUE(session.finish_poll(current));
-    EXPECT_TRUE(session.navigation.acquire("batch"));
-    EXPECT_EQ(session.begin_poll(), 0);
-    EXPECT_TRUE(session.navigation.release("batch"));
     EXPECT_TRUE(session.navigation.reserve());
     EXPECT_EQ(session.begin_poll(), 0);
 }
@@ -102,147 +99,6 @@ TEST_F(PageAnnotationSessionTest, SnapshotRetainsPageBackgroundForOverlayCorners
 
     session.replace_document();
     EXPECT_EQ(session.snapshot()["page_background"], "");
-}
-
-TEST_F(PageAnnotationSessionTest, HeldCaptureCancelsOnReplacementAndDeadlineExactlyOnce) {
-    for (const bool replace : {true, false}) {
-        start();
-        select();
-        save("Held capture");
-        auto request = command("capture");
-        request["record_ids"] = Json::array({session.snapshot()["records"].back()["id"]});
-        int completions = 0;
-        Json response;
-        std::shared_ptr<PendingProxyCall> held;
-        ASSERT_TRUE(annotation_host_submission(session, "page-1", request,
-            [&](std::string value) { ++completions; response = Json::parse(value); },
-            [](const auto&, auto) {}, [](const auto&) {},
-            [&](const auto& pending, const auto&) { held = pending; }));
-        ASSERT_TRUE(held);
-        EXPECT_EQ(completions, 0);
-        if (replace) session.replace_document();
-        else session.requests.expire(AnnotationRequests::Clock::now() + std::chrono::seconds(16));
-        EXPECT_EQ(completions, 1);
-        EXPECT_TRUE(held->completed());
-        EXPECT_EQ(response["ok"], false);
-        EXPECT_EQ(response["recoverable"], true);
-        held->finish({{"ok", true}});
-        EXPECT_EQ(completions, 1);
-    }
-}
-
-TEST_F(PageAnnotationSessionTest, FrozenCaptureValidationSurvivesFrontendReadsAndNextDraftCommands) {
-    start();
-    select();
-    save("Frozen member");
-    auto request = command("capture");
-    request["record_ids"] = Json::array({session.snapshot()["records"].back()["id"]});
-    const auto document = session.document_id();
-    const auto sequence = session.sequence();
-    std::vector<std::function<void(bool, Json)>> validations;
-    std::vector<std::string> expressions;
-    std::vector<std::string> failures;
-    int measurements = 0;
-    int completions = 0;
-    std::shared_ptr<PendingProxyCall> capture;
-    browser_capture::Measure measure;
-    ASSERT_TRUE(annotation_host_submission(session, "page-1", request,
-        [&completions](const auto&) { ++completions; }, [](const auto&, auto) {}, [](const auto&) {},
-        [this, &capture, &measure, &validations, &expressions, &measurements, document]
-        (const auto& pending, const auto& expression) {
-            capture = pending;
-            const auto current = [this, pending, document] {
-                return !pending->completed() && session.document_id() == document;
-            };
-            measure = browser_capture::validated_measure([&measurements](auto done) {
-                ++measurements;
-                done({}, {});
-            }, current, annotation_capture_validation(expression,
-                [&validations, &expressions](const auto& script, auto done) {
-                    expressions.push_back(script);
-                    validations.push_back(std::move(done));
-                }));
-        }));
-    const auto measured = [&failures](auto, auto error) { failures.push_back(error); };
-    measure(measured);
-    ASSERT_TRUE(prepare(command("read"))) << error;
-    ASSERT_TRUE(session.complete(session.sequence(), result(), error)) << error;
-    EXPECT_GT(session.sequence(), sequence);
-    validations.back()(true, {{"valid", true}});
-    EXPECT_EQ(measurements, 1);
-    measure(measured);
-    select();
-    save("Next batch");
-    validations.back()(true, {{"valid", true}});
-    EXPECT_EQ(measurements, 2);
-    EXPECT_EQ(expressions[0], expressions[1]);
-    EXPECT_EQ(session.snapshot()["records"].size(), 2u);
-    EXPECT_FALSE(session.navigation.sending());
-    measure(measured);
-    validations.back()(true, {{"valid", false}});
-    EXPECT_EQ(measurements, 2);
-    EXPECT_EQ(failures.back(), "annotation_target_or_document_changed");
-    measure(measured);
-    session.replace_document();
-    EXPECT_EQ(completions, 1);
-    EXPECT_TRUE(capture->completed());
-    validations.back()(true, {{"valid", true}});
-    EXPECT_EQ(measurements, 2);
-    EXPECT_EQ(failures.back(), "annotation_target_or_document_changed");
-    EXPECT_EQ(completions, 1);
-}
-
-TEST_F(PageAnnotationSessionTest, HeldValidationCancelsReleasesLeaseAndIgnoresLateSuccess) {
-    for (const auto& cause : {"timeout", "replacement", "navigation", "close"}) {
-        start();
-        select();
-        save("Held validation");
-        auto request = command("validate");
-        request["record_ids"] = Json::array({session.snapshot()["records"].back()["id"]});
-        request["lease_id"] = "batch";
-        int completions = 0;
-        Json response;
-        std::function<void(bool, Json)> held;
-        ASSERT_TRUE(annotation_host_submission(session, "page-1", request,
-            [&](std::string value) { ++completions; response = Json::parse(value); },
-            [&](const auto&, auto done) { held = done; }, [](const auto&) {},
-            [](const auto&, const auto&) {}, [&](const Json& value, const std::string& release) {
-                if (!release.empty()) session.navigation.release(release);
-                return session.observe_lifecycle(value);
-            }));
-        ASSERT_TRUE(held);
-        EXPECT_TRUE(session.navigation.sending());
-        if (std::string(cause) == "timeout")
-            session.requests.expire(AnnotationRequests::Clock::now() + std::chrono::seconds(16));
-        else if (std::string(cause) == "replacement") session.replace_document();
-        else if (std::string(cause) == "navigation") session.suspend();
-        else session.requests.stop();
-        EXPECT_EQ(completions, 1);
-        EXPECT_EQ(response["ok"], false);
-        EXPECT_FALSE(session.navigation.sending());
-        ASSERT_TRUE(session.navigation.acquire("new-batch"));
-        held(true, {{"valid", true}, {"document_id", request["document_id"]}});
-        EXPECT_EQ(completions, 1);
-        EXPECT_FALSE(session.navigation.release("batch"));
-        EXPECT_TRUE(session.navigation.release("new-batch"));
-        session.replace_document();
-    }
-}
-
-TEST_F(PageAnnotationSessionTest, ReceiptReconcilesRetainedInvalidRecordsButNewAdmissionCannot) {
-    start();
-    select();
-    save("Retained receipt");
-    auto request = command("validate");
-    request["record_ids"] = Json::array({session.snapshot()["records"][0]["id"]});
-    session.replace_document();
-    EXPECT_FALSE(session.submission(request, expression, error));
-    start();
-    EXPECT_FALSE(session.submission(request, expression, error));
-    request["action"] = "acknowledge";
-    EXPECT_TRUE(session.submission(request, expression, error)) << error;
-    EXPECT_EQ(session.snapshot()["records"][0]["status"], "sent");
-    EXPECT_EQ(session.snapshot()["records"][0]["valid"], false);
 }
 
 TEST(AnnotationRequests, DeadlineBoundShutdownAndReentrantCompletion) {
@@ -754,61 +610,54 @@ TEST_F(PageAnnotationSessionTest, OriginalToggleIsIndependentOfModeAndRetainsRec
     EXPECT_EQ(session.snapshot()["differences"], Json::array());
 }
 
-TEST_F(PageAnnotationSessionTest, SubmissionFreezesExactMembershipAndAcknowledgesOnlyAcceptedRecords) {
+TEST_F(PageAnnotationSessionTest, RemoveErasesExactlyTheNamedRecordsAndSurvivesDocumentReplacement) {
     start();
     select();
     save("First");
-    auto request = command("capture");
     const auto first = session.snapshot()["records"][0];
+    select();
+    save("Second");
+    auto request = command("remove");
     request["record_ids"] = Json::array({first["id"]});
-    ASSERT_TRUE(session.submission(request, expression, error)) << error;
-    EXPECT_NE(expression.find("validate_batch"), std::string::npos);
-    EXPECT_NE(expression.find("target-1"), std::string::npos);
-    EXPECT_EQ(expression.find("First"), std::string::npos);
-    select();
-    save("Next batch");
-    request["action"] = "acknowledge";
-    ASSERT_TRUE(session.submission(request, expression, error)) << error;
+    ASSERT_TRUE(session.submission(request, error)) << error;
     auto snapshot = session.snapshot();
-    EXPECT_EQ(snapshot["pending_count"], 1);
-    EXPECT_EQ(snapshot["records"].size(), 2);
-    EXPECT_EQ(snapshot["records"][0]["status"], "sent");
-    EXPECT_EQ(snapshot["records"][0]["targets"], first["targets"]);
-    EXPECT_EQ(snapshot["records"][1]["status"], "pending");
-    ASSERT_TRUE(session.submission(request, expression, error));
-    EXPECT_EQ(session.snapshot()["pending_count"], 1);
-    select();
-    save("Third");
-    EXPECT_EQ(session.snapshot()["records"][2]["number"], 3);
+    EXPECT_EQ(snapshot["records"].size(), 1);
+    EXPECT_EQ(snapshot["records"][0]["description"], "Second");
+    // 发送那一刻文档换了也不影响删除：已发出去的记录不能留在待发集合里复活。
+    session.replace_document();
+    auto late = command("remove");
+    late["record_ids"] = Json::array({snapshot["records"][0]["id"]});
+    ASSERT_TRUE(session.submission(late, error)) << error;
+    EXPECT_EQ(session.snapshot()["records"], Json::array());
+    EXPECT_EQ(session.snapshot()["pending_count"], 0);
 }
 
-TEST_F(PageAnnotationSessionTest, SubmissionRejectsInvalidDocumentMembershipAndCapabilitiesAtomically) {
+TEST_F(PageAnnotationSessionTest, SubmissionRejectsUnknownMembershipAndRetiredLeaseActions) {
     start();
     select();
     save("Retain me");
     const auto before = session.snapshot();
-    auto request = command("capture");
+    auto request = command("remove");
     const auto id = before["records"][0]["id"];
     for (const auto& ids : {Json::array(), Json::array({"absent"}), Json::array({id, id}), Json::array({id, "absent"})}) {
         request["record_ids"] = ids;
-        EXPECT_FALSE(session.submission(request, expression, error));
+        EXPECT_FALSE(session.submission(request, error));
         EXPECT_EQ(session.snapshot(), before);
     }
     request["record_ids"] = Json::array({id});
     request["text"] = "Untrusted model input";
-    EXPECT_FALSE(session.submission(request, expression, error));
+    EXPECT_FALSE(session.submission(request, error));
     request.erase("text");
+    // 发送链路只剩 remove / attach_screenshot：批次的 capture / validate /
+    // acknowledge / release 已删除，不再被接受。
+    for (const auto* retired : {"capture", "validate", "acknowledge", "release"}) {
+        auto stale = request;
+        stale["action"] = retired;
+        EXPECT_FALSE(session.submission(stale, error)) << retired;
+    }
     request["document_id"] = "other-document";
-    EXPECT_FALSE(session.submission(request, expression, error));
-    request["document_id"] = before["document_id"];
-    session.replace_document();
-    EXPECT_FALSE(session.submission(request, expression, error));
-    EXPECT_EQ(session.snapshot()["pending_count"], 1);
-    request["action"] = "acknowledge";
-    EXPECT_TRUE(session.submission(request, expression, error));
-    EXPECT_EQ(session.snapshot()["pending_count"], 0);
-    EXPECT_EQ(session.snapshot()["records"].size(), 1);
-    EXPECT_EQ(session.snapshot()["records"][0]["valid"], false);
+    EXPECT_TRUE(session.submission(request, error)) << error;
+    EXPECT_EQ(session.snapshot()["records"], Json::array());
 }
 
 TEST_F(PageAnnotationSessionTest, LifecycleReportsAreAtomicDocumentBoundAndSticky) {
@@ -824,33 +673,19 @@ TEST_F(PageAnnotationSessionTest, LifecycleReportsAreAtomicDocumentBoundAndStick
     EXPECT_EQ(session.snapshot()["records"][0]["invalid_reason"], "target_removed");
     EXPECT_TRUE(session.observe_lifecycle({{"document_id", session.document_id()}, {"invalid_numbers", Json::array()}}));
     EXPECT_EQ(session.snapshot()["records"][0]["valid"], false);
-    auto request = command("validate");
-    request["record_ids"] = Json::array({before["records"][0]["id"]});
-    EXPECT_FALSE(session.submission(request, expression, error));
-    EXPECT_EQ(session.snapshot()["pending_count"], 1);
 }
 
-TEST_F(PageAnnotationSessionTest, NavigationAndSendAreOrderedWhileLateReceiptsRemainReconcileable) {
+TEST_F(PageAnnotationSessionTest, NavigationReservationBlocksRemovalWhileRecordsOutliveTheDocument) {
     start(); select(); save("Retain");
-    auto request = command("validate");
+    auto request = command("remove");
     request["record_ids"] = Json::array({session.snapshot()["records"][0]["id"]});
-    request["lease_id"] = "batch";
-    ASSERT_TRUE(session.submission(request, expression, error));
-    EXPECT_FALSE(session.navigation.reserve());
+    ASSERT_TRUE(session.navigation.reserve());
     EXPECT_FALSE(prepare(command("start")));
+    EXPECT_FALSE(session.submission(request, error));
+    session.navigation.finish();
     session.replace_document();
-    EXPECT_TRUE(session.navigation.sending());
-    auto release = request;
-    release["action"] = "release";
-    release["lease_id"] = "other";
-    EXPECT_FALSE(session.submission(release, expression, error));
-    release["lease_id"] = "batch";
-    EXPECT_TRUE(session.submission(release, expression, error));
-    request.erase("lease_id");
-    request["action"] = "acknowledge";
-    EXPECT_TRUE(session.submission(request, expression, error));
-    EXPECT_EQ(session.snapshot()["records"][0]["status"], "sent");
-    EXPECT_EQ(session.snapshot()["records"][0]["valid"], false);
+    EXPECT_TRUE(session.submission(request, error)) << error;
+    EXPECT_EQ(session.snapshot()["records"], Json::array());
     EXPECT_EQ(session.snapshot()["pending_count"], 0);
 }
 

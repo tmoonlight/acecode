@@ -31,14 +31,6 @@ bool AgentLoop::submit(const UserInput& input) {
     return task_queue_->enqueue(std::move(task));
 }
 
-AnnotationSubmissionReceipt AgentLoop::submit_annotation(
-    const UserInput& input, const AnnotationSubmissionIdentity& identity) {
-    if (!identity.reconcile_only) clear_stale_abort_request();
-    WorkerTask task;
-    task.input = input;
-    return task_queue_->enqueue_annotation(std::move(task), identity);
-}
-
 std::optional<ChatMessage> AgentLoop::retryable_user_message(
     const std::string& expected_user_message_id) const {
     if (expected_user_message_id.empty() || history_->retry_blocked()) return std::nullopt;

@@ -164,27 +164,20 @@ TEST(PageAnnotationNavigation, RollbackNeverClearsASupersedingTransition) {
     EXPECT_TRUE(page->annotations.navigation.reserved());
 }
 
-TEST(PageAnnotationNavigation, ReservationRequiresExplicitArmingAndNeverReleasesSendLease) {
+TEST(PageAnnotationNavigation, ReservationRequiresExplicitArmingAndBlocksWhileHeld) {
     AnnotationNavigationGuard guard;
     EXPECT_TRUE(guard.reserve());
     EXPECT_FALSE(guard.start());
-    EXPECT_FALSE(guard.acquire("batch"));
     EXPECT_TRUE(guard.arm());
     EXPECT_TRUE(guard.start());
     EXPECT_FALSE(guard.start());
     EXPECT_TRUE(guard.start(true));
     EXPECT_FALSE(guard.reserve());
     guard.finish();
-    EXPECT_TRUE(guard.acquire("batch"));
-    EXPECT_TRUE(guard.acquire("batch"));
-    EXPECT_FALSE(guard.reserve());
-    EXPECT_FALSE(guard.acquire("other"));
-    guard.finish();
-    EXPECT_TRUE(guard.sending());
-    EXPECT_FALSE(guard.release("other"));
-    EXPECT_TRUE(guard.release("batch"));
-    EXPECT_TRUE(guard.release("batch"));
     EXPECT_TRUE(guard.reserve());
+    EXPECT_TRUE(guard.blocked());
+    guard.finish();
+    EXPECT_FALSE(guard.blocked());
 }
 
 TEST(PageAnnotationNavigation, AllEntryMethodsShareTheDestructiveTransitionFence) {
@@ -231,12 +224,12 @@ TEST(PageAnnotationNavigation, MultiplePagesAreReservedBeforeAnyConfirmationOrSi
     const auto first = std::make_shared<NavigationPage>();
     const auto second = std::make_shared<NavigationPage>();
     const auto current = [](const auto&) { return true; };
-    ASSERT_TRUE(second->annotations.navigation.acquire("sending"));
+    ASSERT_TRUE(second->annotations.navigation.reserve());
     int prompts = 0;
     EXPECT_FALSE(reserve_annotation_transition(std::vector{first, second}, current, [&] { ++prompts; return true; }));
     EXPECT_EQ(prompts, 0);
     EXPECT_FALSE(first->annotations.navigation.blocked());
-    EXPECT_TRUE(second->annotations.navigation.release("sending"));
+    second->annotations.navigation.finish();
     EXPECT_TRUE(reserve_annotation_transition(std::vector{first, second}, current, [&] { ++prompts; return true; }));
     EXPECT_EQ(prompts, 0);
     const auto ticket = first->annotations.navigation.ticket();

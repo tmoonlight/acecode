@@ -2,7 +2,6 @@
 
 #include "agent/control/control_receipt.hpp"
 #include "agent/turn/turn_types.hpp"
-#include "session/annotation_submission.hpp"
 #include <atomic>
 #include <condition_variable>
 #include <cstddef>
@@ -60,9 +59,6 @@ public:
     }
 
     bool enqueue(WorkerTask task);
-    static constexpr std::size_t kMaxAnnotationBatches = 1024;
-    AnnotationSubmissionReceipt enqueue_annotation(
-        WorkerTask task, const AnnotationSubmissionIdentity& identity);
     ControlEnqueueReceipt enqueue_control(std::function<bool()> control);
     bool enqueue_suggestion(const UserInput& input, const std::string& id, AbortSignal& abort);
     // Queues one mailbox-wake Chat task unless one is already waiting.
@@ -106,7 +102,6 @@ private:
     std::deque<WorkerTask> priority_;
     std::deque<WorkerTask> ordinary_;
     std::set<std::string> suggestion_ids_;
-    std::map<std::string, std::string> annotation_batches_;
     bool shutdown_requested_ = false;
     bool worker_task_active_ = false;
     WorkerTask::Kind worker_task_kind_ = WorkerTask::Kind::Control;

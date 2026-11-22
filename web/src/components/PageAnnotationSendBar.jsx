@@ -1,20 +1,20 @@
-import { useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { annotationIsSendable, pageAnnotationBatchSender } from '../lib/pageAnnotationBatches.js';
+import { localizedAnnotationSendError, requestAnnotationSubmit } from '../lib/annotationSubmission.js';
 import { setAnnotationChromeSuspended } from '../lib/annotationChromeSuspension.js';
-import { capturePageAnnotationScreenshot } from '../lib/pageAnnotations.js';
-import { copyImageToSystemClipboard } from '../lib/systemClipboard.js';
 import { Modal } from './Modal.jsx';
 
-export function PageAnnotationSendBar({ pageId, snapshot, sessionId, api, page, onAccepted, command, working }) {
-  const sender = useMemo(() => api ? pageAnnotationBatchSender(pageId, api) : null, [pageId, api]);
-  const state = useSyncExternalStore(sender?.subscribe || emptySubscribe,
-    sender?.getSnapshot || emptySnapshot);
+// 页内工具栏。发送按钮不自己拼载荷、不自己 POST——它触发输入框那一处的
+// submitWithAnnotations（Q35）。按钮上显示会话级待发总条数，否则用户会以为
+// 只发当前这一页。
+export function PageAnnotationSendBar({
+  pageId, snapshot, sessionId, pendingTotal, command, working,
+}) {
   const barRef = useRef(null);
   const dragRef = useRef(null);
   const [position, setPosition] = useState(null);
   const [tooltip, setTooltip] = useState(null);
-  const [captureState, setCaptureState] = useState({ working: false, error: '', message: '' });
+  const [sendState, setSendState] = useState({ working: false, error: '' });
   const [confirmDiscard, setConfirmDiscard] = useState(false);
   const pending = (snapshot.records || []).filter((record) => record.status !== 'sent');
   const suspendDialogChrome = (enabled) => {
@@ -27,15 +27,14 @@ export function PageAnnotationSendBar({ pageId, snapshot, sessionId, api, page, 
     suspendDialogChrome(false);
   };
   const active = !!snapshot.active;
-  // Codex keeps the floating toolbar inside annotation mode only. Element and
-  // region picking hides it so page hover outlines stay unobstructed, and
-  // leaving annotation mode must not strand a lone send button over the page.
+  // 浮动工具栏只在批注模式里存在：选区（元素/区域）时隐藏，避免挡住 hover 轮廓；
+  // 退出批注模式时也不能留下一个孤零零的发送按钮。
   if (!active || snapshot.selection_mode || snapshot.popup) return null;
-  const sendable = pending.filter(annotationIsSendable);
-  const count = Number.isFinite(snapshot.pending_count) ? snapshot.pending_count : pending.length;
-  const idle = !working;
+  const count = Number.isFinite(pendingTotal) ? pendingTotal
+    : (Number.isFinite(snapshot.pending_count) ? snapshot.pending_count : pending.length);
+  const idle = !working && !sendState.working;
   const run = (action, fields) => {
-    if (!idle) return;
+    if (working) return;
     void command?.(action, fields);
   };
   const showTooltip = (event, label) => {
@@ -90,41 +89,22 @@ export function PageAnnotationSendBar({ pageId, snapshot, sessionId, api, page, 
     dragRef.current = null;
     try { event.currentTarget.releasePointerCapture?.(event.pointerId); } catch {}
   };
-  const send = (
-    <button type="button" disabled={!sender || !sessionId || state.working || (!sendable.length && state.phase === 'idle')}
-      className="ace-annotation-send" aria-label="发送"
-      {...tooltipProps('发送')}
-      onClick={async () => {
-        const result = await sender.send({ snapshot, sessionId, api, page });
-        if (result?.ok) onAccepted?.(result.annotations);
-      }}>
-      {state.working ? '发送中' : state.phase === 'idle' ? '发送' : '重试'}
-    </button>
-  );
-  const capture = async () => {
-    if (!idle || captureState.working) return;
-    setCaptureState({ working: true, error: '', message: '' });
+  const send = async () => {
+    if (!idle || !sessionId) return;
+    setSendState({ working: true, error: '' });
     try {
-      const result = await capturePageAnnotationScreenshot(pageId);
-      if (result?.ok !== true) throw new Error(result?.error || '网页截图失败');
-      const binary = atob(result.data);
-      const bytes = new Uint8Array(binary.length);
-      for (let index = 0; index < binary.length; ++index) bytes[index] = binary.charCodeAt(index);
-      const blob = new Blob([bytes], { type: result.mimeType || 'image/png' });
-      const url = URL.createObjectURL(blob);
-      let copied;
-      try {
-        copied = await copyImageToSystemClipboard(url, { mimeType: blob.type });
-      } finally {
-        URL.revokeObjectURL(url);
+      const result = await requestAnnotationSubmit(sessionId);
+      if (result?.ok === false) {
+        setSendState({ working: false, error: localizedAnnotationSendError(result.error) });
+        return;
       }
-      if (copied?.ok !== true) throw new Error(copied?.error || '无法复制截图');
-      setCaptureState({ working: false, error: '', message: '已复制截图' });
-      setTimeout(() => setCaptureState(current => current.message ? { ...current, message: '' } : current), 1800);
+      setSendState({ working: false, error: '' });
     } catch (error) {
-      setCaptureState({ working: false, error: String(error?.message || error), message: '' });
+      setSendState({ working: false, error: localizedAnnotationSendError(String(error?.message || error)) });
     }
   };
+  // 「按住看原图」只有指针一种方式（Q2）：不注册 keydown/keyup，也不让 Enter
+  // 触发按钮的默认激活，否则键盘会变成第二条隐形容器。
   const holdOriginal = pressed => {
     if (!idle || !snapshot.document_id) return;
     void command?.('original', { enabled: pressed });
@@ -145,10 +125,6 @@ export function PageAnnotationSendBar({ pageId, snapshot, sessionId, api, page, 
         <i /><i /><i /><i /><i /><i />
       </span>
       <span className="ace-annotation-count" aria-live="polite">{`正在批注 · ${count}`}</span>
-      <button type="button" aria-label="截取屏幕截图" disabled={working || captureState.working}
-        {...tooltipProps('截取屏幕截图')} onClick={() => { void capture(); }}>
-        <ScreenshotIcon />
-      </button>
       <button type="button" aria-label="隐藏标记" aria-pressed={!!snapshot.markers_hidden}
         disabled={working} {...tooltipProps('隐藏标记')}
         onClick={() => run('hide_markers', { enabled: !snapshot.markers_hidden })}>
@@ -156,19 +132,11 @@ export function PageAnnotationSendBar({ pageId, snapshot, sessionId, api, page, 
       </button>
       <button type="button" aria-label="按住查看原始页面" aria-pressed={!!snapshot.original}
         disabled={!snapshot.document_id || working} {...tooltipProps('按住查看原始页面')}
+        onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') event.preventDefault(); }}
         onPointerDown={event => { event.preventDefault(); holdOriginal(true); }}
         onPointerUp={() => holdOriginal(false)}
         onPointerCancel={() => holdOriginal(false)}
-        onPointerLeave={() => { if (snapshot.original) holdOriginal(false); }}
-        onKeyDown={event => {
-          if ((event.key === ' ' || event.key === 'Enter') && !event.repeat) {
-            event.preventDefault();
-            holdOriginal(true);
-          }
-        }}
-        onKeyUp={event => {
-          if (event.key === ' ' || event.key === 'Enter') holdOriginal(false);
-        }}>
+        onPointerLeave={() => { if (snapshot.original) holdOriginal(false); }}>
         <OriginalIcon />
       </button>
       <button type="button" aria-label="丢弃批注" disabled={working || (!pending.length && !snapshot.popup)}
@@ -178,14 +146,15 @@ export function PageAnnotationSendBar({ pageId, snapshot, sessionId, api, page, 
         }}>
         <TrashIcon />
       </button>
-      {/* Annotations are delivered into the current conversation, so with no
-          conversation open the send button has nowhere to go. Say so up front
-          instead of failing the click with an error. */}
+      {/* 批注发送进当前会话：没有会话时按钮无处可去，先说明而不是点下去才报错。 */}
       {!sessionId && <span className="ace-annotation-toolbar-note">请先选择对话</span>}
-      {state.error && <span role="alert" className="ace-annotation-toolbar-error">{state.error}</span>}
-      {captureState.error && <span role="alert" className="ace-annotation-toolbar-error">{captureState.error}</span>}
-      {captureState.message && <span className="ace-annotation-toolbar-note" aria-live="polite">{captureState.message}</span>}
-      {send}
+      {sendState.error && <span role="alert" className="ace-annotation-toolbar-error">{sendState.error}</span>}
+      <button type="button" disabled={!sessionId || !idle || count === 0}
+        className="ace-annotation-send" aria-label={count ? `发送 ${count} 条批注` : '发送'}
+        {...tooltipProps(count ? `发送 ${count} 条批注` : '发送')}
+        onClick={() => { void send(); }}>
+        {sendState.working ? '发送中' : count ? `发送 ${count}` : '发送'}
+      </button>
       <button type="button" aria-label="退出批注模式" disabled={working} {...tooltipProps('退出批注模式')}
         onClick={() => { if (!working) void command?.('exit'); }}>
         <CloseIcon />
@@ -201,9 +170,9 @@ export function PageAnnotationSendBar({ pageId, snapshot, sessionId, api, page, 
         <Modal width={360} dismissOnBackdrop={false} nativeOverlayMode="overlap"
           nativeOverlayInteraction="disabled" onClose={closeDiscard}>
           <div className="p-5">
-            <h2 className="text-[15px] font-semibold text-fg">丢弃所有待处理标注?</h2>
-            <p className="mt-2 text-[13px] leading-5 text-fg-2">页面上的所有编辑都将被移除</p>
-            <p className="text-[13px] leading-5 text-fg-2">放弃后所有标记和修改都被清空</p>
+            <h2 className="text-[15px] font-semibold text-fg">丢弃当前页面的批注?</h2>
+            <p className="mt-2 text-[13px] leading-5 text-fg-2">这一页的所有编辑都将被移除</p>
+            <p className="text-[13px] leading-5 text-fg-2">其他页签的待发批注不受影响</p>
             <div className="mt-5 flex justify-end gap-2">
               <button type="button"
                 className="h-8 rounded-lg border border-border px-3 text-[13px] text-fg-2 hover:bg-surface-hi"
@@ -224,15 +193,6 @@ export function PageAnnotationSendBar({ pageId, snapshot, sessionId, api, page, 
         </Modal>
       )}
     </div>
-  );
-}
-
-function ScreenshotIcon() {
-  return (
-    <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
-      <circle cx="8" cy="8" r="2.7" fill="none" stroke="currentColor" strokeWidth="1.5" />
-      <path d="M8 1.4v2.1M8 12.5v2.1M1.4 8h2.1M12.5 8h2.1" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-    </svg>
   );
 }
 
@@ -271,7 +231,3 @@ function CloseIcon() {
     </svg>
   );
 }
-
-const emptyState = Object.freeze({ working: false, error: '', phase: 'idle' });
-const emptySnapshot = () => emptyState;
-const emptySubscribe = () => () => {};

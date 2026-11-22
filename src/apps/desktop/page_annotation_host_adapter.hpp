@@ -110,9 +110,10 @@ void annotation_dispatch(const std::shared_ptr<Host>& host, const std::string& p
                          const std::string& command_json, std::function<void(std::string)> completion) {
     const auto page = host ? host->find_page(page_id) : nullptr;
     const auto command = nlohmann::json::parse(command_json, nullptr, false);
-    const bool receipt = command.is_object() && (command.value("action", nlohmann::json()) == "acknowledge" ||
-        command.value("action", nlohmann::json()) == "release");
-    if (!page || page->closing || (!receipt && (!page->webview ||
+    // 发送成功后的 cleanup（remove）在页面已经关闭时也要能落地：记录归会话，
+    // 页签没了不影响删除。其余动作要求页面还活着。
+    const bool cleanup = command.is_object() && command.value("action", nlohmann::json()) == "remove";
+    if (!page || page->closing || (!cleanup && (!page->webview ||
         page->state.content_state != kAgentBrowserContentStateLive))) {
         completion(nlohmann::json{{"ok", false}, {"error", "Annotation page is unavailable"}}.dump());
         return;
@@ -144,19 +145,13 @@ void annotation_dispatch(const std::shared_ptr<Host>& host, const std::string& p
         }
         annotation_evaluate(current_host, current, current->annotations.sequence(), script, std::move(done));
     };
-    if (annotation_host_submission(page->annotations, page_id, command, completion, evaluate,
+    if (annotation_host_submission(page->annotations, page_id, command, completion,
         [weak, weak_page](const std::string& serialized) {
             const auto current_host = weak.lock();
             const auto current = weak_page.lock();
             if (current_host && current && !current->closing && current_host->find_page(current->id) == current)
                 current_host->update_page(current, [serialized](AgentBrowserState& state) { state.page_annotations_json = serialized; });
-        }, [weak, weak_page](const auto& pending, const std::string& script) {
-            const auto current_host = weak.lock();
-            const auto current = weak_page.lock();
-            if (current_host && current && !current->closing && current_host->find_page(current->id) == current)
-                current_host->capture_screenshot(current, {{"fullPage", true}}, pending, script);
-            else finish_proxy_call(pending, {{"ok", false}, {"error", "Annotation page is unavailable"}});
-        }, annotation_lifecycle(weak, weak_page))) return;
+        })) return;
     std::string expression;
     std::string error;
     if (!page->annotations.prepare(page_id, command, expression, error)) {

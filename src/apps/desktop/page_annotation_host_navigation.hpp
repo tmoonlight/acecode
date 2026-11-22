@@ -93,7 +93,7 @@ void poll_annotations(const std::weak_ptr<Host>& weak, Evaluate evaluate) {
                 const auto current = weak_page.lock();
                 if (!current || !current->annotations.finish_poll(poll) || !ok ||
                     current->annotations.sequence() != sequence) return;
-                annotation_lifecycle(weak, weak_page)(result, "");
+                annotation_lifecycle(weak, weak_page)(result);
             });
     }
 }

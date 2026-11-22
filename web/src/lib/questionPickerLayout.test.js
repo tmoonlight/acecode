@@ -31,7 +31,13 @@ const dockStart = chatView.indexOf('<div className="ace-composer-dock"');
 const dockEnd = chatView.indexOf('<SessionContentLoading', dockStart);
 const dock = chatView.slice(dockStart, dockEnd);
 assert.match(dock, /questionForView\s*\?\s*\(\s*<QuestionPicker/);
-assert.match(dock, /:\s*\(\s*<>\s*<InputBar/);
+// else 分支以片段开头、内含 InputBar：InputBar 之前允许挂待发批注卡片与编辑弹窗。
+assert.match(dock, /:\s*\(\s*<>[\s\S]*?<InputBar/);
+const dockElse = dock.slice(dock.indexOf(') : ('));
+assert.ok(
+  dockElse.indexOf('<PageAnnotationPendingCard') < dockElse.indexOf('<InputBar'),
+  '待发批注卡片必须在输入框上方',
+);
 assert.match(dock, /<QuestionPicker[\s\S]*?className="mx-2\.5"/);
 
 assert.match(picker, /selected\s*\?\s*'bg-accent-bg border border-transparent text-accent'/);

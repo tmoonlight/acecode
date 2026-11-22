@@ -12,7 +12,6 @@
 #include "agent/turn/turn_types.hpp"
 
 #include "llm/llm_provider.hpp"
-#include "session/annotation_submission.hpp"
 #include "tool/tool_executor.hpp"
 #include "permissions/permissions.hpp"
 #include "permissions/path_validator.hpp"
@@ -89,8 +88,6 @@ public:
     // Submit structured user input containing text plus optional attachment or
     // context parts. Existing text-only submit overloads delegate here.
     bool submit(const UserInput& input);
-    AnnotationSubmissionReceipt submit_annotation(
-        const UserInput& input, const AnnotationSubmissionIdentity& identity);
 
     // Retry the trailing user or the last user of an explicitly aborted turn
     // while idle. Reuses stored input without adding adjacent user messages.

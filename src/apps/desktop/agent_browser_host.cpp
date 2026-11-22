@@ -24,6 +24,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <functional>
+#include <map>
 #include <memory>
 #include <mutex>
 #include "utils/joining_thread.hpp"
@@ -73,6 +74,16 @@ struct AgentBrowserHost::Impl
     bool parent_surface_visible = true;
     // 「保留 Cookie」档位;启动时从状态文件读取,之后只在 UI 线程上改。
     AgentBrowserCookieMode cookie_mode = AgentBrowserCookieMode::Shared;
+    // 会话级批注记录（Q33）。页签销毁不带走记录：关页签只让记录降级为 orphan，
+    // 所以存储挂在宿主上、按 owner.session_id 分桶，由 UI 线程读写。
+    std::map<std::string, std::shared_ptr<SessionAnnotationStore>> annotation_stores;
+
+    std::shared_ptr<SessionAnnotationStore> annotation_store_for(const std::string& session_id) {
+        if (session_id.empty()) return std::make_shared<SessionAnnotationStore>();
+        auto& slot = annotation_stores[session_id];
+        if (!slot) slot = std::make_shared<SessionAnnotationStore>();
+        return slot;
+    }
 
 #ifdef _WIN32
     struct QueuedCdpCall {
@@ -531,6 +542,8 @@ struct AgentBrowserHost::Impl
         page->state.supported = true;
         page->state.shared_with_agent = shared_with_agent;
         page->state.owner = owner;
+        // 同会话所有页签共享一个记录容器；页签关掉后记录仍在，转 orphan 继续可发。
+        page->annotations.share_store(annotation_store_for(owner.session_id));
         std::vector<AgentBrowserState> changed;
         AgentBrowserState created;
         {

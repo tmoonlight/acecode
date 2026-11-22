@@ -155,13 +155,11 @@ TEST(MessagePayload, ExecutionContextIdentitySurvivesWebPayloadRoundTrip) {
         ChatMessage user;
         user.role = "user";
         user.content = context.content;
-        user.metadata = {{"annotation_batch_id", "batch-http-1"},
-                         {"client_message_id", "batch-client-1"}};
+        user.metadata = {{"client_message_id", "annotation-client-1"}};
         const auto accepted = acecode::deserialize_message_json(chat_message_to_payload_json(user));
         EXPECT_TRUE(acecode::is_real_user_message(accepted));
         EXPECT_EQ(accepted.content, context.content);
-        EXPECT_EQ(accepted.metadata["annotation_batch_id"], "batch-http-1");
-        EXPECT_EQ(accepted.metadata["client_message_id"], "batch-client-1");
+        EXPECT_EQ(accepted.metadata["client_message_id"], "annotation-client-1");
         user.metadata = nlohmann::json::object();
         EXPECT_TRUE(acecode::is_real_user_message(
             acecode::deserialize_message_json(chat_message_to_payload_json(user))));

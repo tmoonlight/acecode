@@ -8,18 +8,16 @@ namespace acecode::desktop {
 using AnnotationEvaluation = std::function<void(const std::string&,
     std::function<void(bool, nlohmann::json)>)>;
 using AnnotationUpdate = std::function<void(const std::string&)>;
-using AnnotationCapture = std::function<void(const std::shared_ptr<PendingProxyCall>&,
-    const std::string&)>;
-using AnnotationLifecycle = std::function<bool(const nlohmann::json&, const std::string&)>;
+// 页面状态回报（轮询 / 交互结果）→ 记录失效状态；返回 false 表示回报本身不可信。
+using AnnotationLifecycle = std::function<bool(const nlohmann::json&)>;
 
 template <typename Host, typename Page>
 AnnotationLifecycle annotation_lifecycle(std::weak_ptr<Host> weak, std::weak_ptr<Page> weak_page) {
-    return [weak, weak_page](const nlohmann::json& result, const std::string& release) {
+    return [weak, weak_page](const nlohmann::json& result) {
         const auto host = weak.lock();
         const auto page = weak_page.lock();
         if (!host || !page || page->closing || host->find_page(page->id) != page) return false;
         const auto revision = page->annotations.revision();
-        if (!release.empty()) page->annotations.navigation.release(release);
         bool valid = false;
         if (result.is_object() && result.contains("error") && result["error"] == "replaced_document") {
             page->annotations.replace_document();
@@ -58,44 +56,22 @@ void annotation_host_result(const std::weak_ptr<Host>& weak,
         {"annotations", snapshot}}.dump());
 }
 
+// 待发集合的两个写入动作：发送成功后删记录、保存后补图。发送本身走普通消息
+// 提交（Q35），原生侧不再有 capture / validate / acknowledge / release 租约。
 inline bool annotation_host_submission(PageAnnotationSession& session,
     const std::string& page_id, const nlohmann::json& command,
-    const std::function<void(std::string)>& completion, AnnotationEvaluation evaluate,
-    AnnotationUpdate update, AnnotationCapture capture, AnnotationLifecycle lifecycle = {}) {
+    const std::function<void(std::string)>& completion, AnnotationUpdate update) {
     if (!command.is_object() || !command.contains("action") ||
-        (command["action"] != "capture" && command["action"] != "validate" &&
-         command["action"] != "acknowledge" && command["action"] != "release")) return false;
-    std::string expression;
+        (command["action"] != "remove" && command["action"] != "attach_screenshot")) return false;
     std::string error;
-    if (!session.submission(command, expression, error)) {
+    if (!session.submission(command, error)) {
         completion(nlohmann::json{{"ok", false}, {"error", error}}.dump());
-    } else if (command["action"] == "acknowledge" || command["action"] == "release") {
-        const auto snapshot = session.snapshot();
-        update(snapshot.dump());
-        completion(nlohmann::json{{"ok", true}, {"page_id", page_id},
-            {"annotations", snapshot}}.dump());
-    } else if (command["action"] == "validate") {
-        const auto lease = command.value("lease_id", "");
-        const auto pending = session.requests.add([completion, lifecycle, lease](nlohmann::json response) {
-            if (!response.value("ok", false) && lifecycle) lifecycle(nlohmann::json(), lease);
-            completion(response.dump());
-        });
-        if (!pending) return true;
-        evaluate(expression, [pending, page_id, lifecycle](bool ok, nlohmann::json result) {
-            if (pending->completed()) return;
-            const bool valid = ok && result.is_object() && result.contains("valid") && result["valid"] == true;
-            const bool current = !lifecycle || lifecycle(result, "");
-            pending->finish(nlohmann::json{{"ok", valid && current},
-                {"page_id", page_id}, {"error", "Annotation target or document changed"}});
-        });
-    } else {
-        auto pending = session.requests.add(
-            [completion, document = command["document_id"]](nlohmann::json response) {
-                if (response.value("ok", false)) response["annotation_document_id"] = document;
-                completion(response.dump());
-            });
-        if (pending) capture(pending, expression);
+        return true;
     }
+    const auto snapshot = session.snapshot();
+    update(snapshot.dump());
+    completion(nlohmann::json{{"ok", true}, {"page_id", page_id},
+        {"annotations", snapshot}}.dump());
     return true;
 }
 

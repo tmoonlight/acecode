@@ -61,6 +61,12 @@ import {
 } from '../lib/composerAttachmentReservations.js';
 import { InputBar } from './InputBar.jsx';
 import { normalizeComposerPayload } from '../lib/composerSubmission.js';
+import { annotationOutboxFor } from '../lib/annotationOutbox.js';
+import { prepareAnnotationSubmission, registerAnnotationSubmitter, annotationSendOutcome } from '../lib/annotationSubmission.js';
+import { PageAnnotationPendingCard } from './PageAnnotationPendingCard.jsx';
+import { PageAnnotationEditDialog } from './PageAnnotationEditDialog.jsx';
+import { requestAnnotationEdit } from '../lib/annotationEdit.js';
+import { runPageAnnotationCommand } from '../lib/pageAnnotations.js';
 import { uploadComposerAttachment } from '../lib/composerAttachmentUpload.js';
 import InteractiveHomeLogo from './InteractiveHomeLogo.jsx';
 import { SelectionActionPopover } from './SelectionActionPopover.jsx';
@@ -659,6 +665,10 @@ function isRealWorkspaceHash(hash) {
 const EXPERT_SWITCH_CANONICAL_POLL_ATTEMPTS = 6;
 const EXPERT_SWITCH_CANONICAL_POLL_INTERVAL_MS = 160;
 const FORK_ACTION_KEY = 'fork-session';
+
+const EMPTY_ANNOTATION_STATE = Object.freeze({
+  revision: 0, records: Object.freeze([]), pages: Object.freeze([]), pendingCount: 0,
+});
 
 export function ChatView({ titleTarget, actionsTarget, children, sessionRef, sessionId, homeLogoEffectEnabled = true, homeIntentSuggestions = [], onHomeIntentPrompt, homeComposerDrafts = {}, homeComposerAttentionRequest = 0, onHomeComposerDraftLoad, onHomeComposerDraftChange, onHomeComposerDraftAccepted, onHomeComposerDraftPatch, modelProfileRevision = 0, onSessionPromoted, onSessionExpertChanged, onHomeWorkspaceChange, onCommandWorkspaceChange, onConsoleCwdChange, onFindInConversation, onOpenModelSettings, health, autoFocusOnDesktopWindowFocus = false, onPermissionRequest, onQuestionRequest, permissionRequests = [], onPermissionDecision, questionRequest, onQuestionResolve, onPermissionModeChanged, onSubagentTasksChange, recentExpertIds = [], onRememberExpert, onInitialDraftConsumed, showSidePanel = false, responsiveSidebars = null, rightPanelPopupWidth, onRightPanelPopupResize, sidePanelWidth = 280, onSidePanelResize, previewPanelWidth = 640, previewPanelAutoFit = false, onPreviewPanelResize, onPreviewPanelVisibleChange, onRegisterPreviewLeaveGuard, sidePanelCollapsed = false, sidePanelListCollapsed = false, onToggleSidePanel, onRevealPreviewPanel, onToggleSidePanelList, onRevealSidePanelList, sidePanelMaximized = false, onToggleSidePanelMaximized, previewPresenting = false, onTogglePreviewPresentation, showAceCodeAvatar = false, showSessionTime = true, messageAutoCollapse = true, followUpPrompts = true, busySendMode = 'steer', summaryPanelWidth, onSummaryPanelResize, onEditWorkspace, summaryPanelOpen = false, onToggleSummaryPanel, nativeSurfacesVisible = true }) {
   const ref = useMemo(() => normalizeSessionRef(sessionRef, sessionId), [sessionRef, sessionId]);
@@ -3670,12 +3680,19 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
 
   // sendMode:'send'(Enter / 发送按钮)、'queue'(Ctrl+Enter,回复中排到回合结束)、
   // 'fork'(Ctrl+Alt+Enter,在分叉出的新会话里发送)。
-  const submit = useStableCallback((text, { sendMode = 'send' } = {}) => {
+  const submit = useStableCallback((text, { sendMode = 'send',
+    extraAttachments = null, annotationSettle = null,
+  } = {}) => {
     if (sessionRuntimeUnavailable) return;
     // 这个会话还在创建 / 建 worktree:遮罩出现之前也不接受第二次发送。
     if (sessionStartMask.isBlocking()) return;
     const submittedContent = reconcileComposerContentAttachments(composerContentRef.current, composerAttachments);
-    const activeAttachments = submittedContent ? composerContentAttachments(submittedContent, composerAttachments, { sessionId: sid }) : composerAttachments;
+    const activeAttachments = [
+      ...(submittedContent
+        ? composerContentAttachments(submittedContent, composerAttachments, { sessionId: sid })
+        : composerAttachments),
+      ...(Array.isArray(extraAttachments) ? extraAttachments : []),
+    ];
     if (activeAttachments.some((item) => item.error || (!item.id && !item.pending_upload && !item.uploading))) {
       toast({ kind: 'err', text: tr('composerAttachment.stagedUnavailable') });
       return;
@@ -4055,8 +4072,31 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
     const sessionStartToken = sessionWorktreeIntent
       ? sessionStartMask.begin({ worktree: true, sessionId: targetSid })
       : null;
-    sendInputOrBuiltin(targetSid, sessionSendPayload)
-      .then((queued) => {
+    const delivery = annotationSettle
+      ? annotationSendOutcome({
+          api,
+          sessionId: targetSid,
+          clientMessageId: sessionSendPayload.client_message_id,
+          send: sendInputOrBuiltin(targetSid, sessionSendPayload),
+        })
+      : sendInputOrBuiltin(targetSid, sessionSendPayload).then((value) => ({ status: 'accepted', value }));
+    delivery
+      .then((outcome) => {
+        if (outcome.status === 'lost') {
+          // 自查没查到：批注退回待发，提示可重试；这条消息本身也不当已接受。
+          annotationSettle?.(false);
+          toast({ kind: 'err', text: '发送未确认，批注已退回待发，可重试' });
+          if (sidRef.current === targetSid) {
+            applyEvent({ type: 'busy_changed', payload: { busy: false } }, { emitEffects: false });
+          }
+          return;
+        }
+        if (outcome.status === 'unknown') {
+          // 自查本身失败：不回滚，交给用户决定重试还是撤销。
+          toast({ kind: 'info', text: '没有收到发送确认，消息可能仍在发送中' });
+        }
+        annotationSettle?.(true);
+        const queued = outcome.value;
         if (!isBuiltin && sidRef.current === targetSid) {
           applyEvent(acceptedUserInputEvent(sessionSendPayload), { emitEffects: false });
         }
@@ -4081,6 +4121,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
         if (sidRef.current === targetSid && clearCurrentSessionDraft({ expectedText: submittedComposerText, expectedContent: submittedComposerContent })) clearComposerExtras();
       })
       .catch((e) => {
+        annotationSettle?.(false);
         toast({ kind: 'err', text: '发送失败:' + (e.message || '') });
         if (sidRef.current === targetSid) {
           applyEvent({ type: 'busy_changed', payload: { busy: false } }, { emitEffects: false });
@@ -4090,6 +4131,88 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
         if (sessionStartToken) sessionStartMask.end(sessionStartToken);
         setComposerSubmitting(false);
       });
+  });
+
+  // 批注容器：会话级待发集合。页签那边只上报快照，这里只读。
+  const annotationBox = useMemo(() => annotationOutboxFor(sid, api), [sid, api]);
+  const annotationState = useSyncExternalStore(
+    useCallback((listener) => (annotationBox ? annotationBox.subscribe(listener) : () => {}), [annotationBox]),
+    useCallback(() => annotationBox?.getSnapshot() || EMPTY_ANNOTATION_STATE, [annotationBox]),
+  );
+
+  // 唯一的发送组装点（Q35）：输入框正文 + 会话内全部待发批注，发成一条消息。
+  // 输入框发送按钮、页内工具栏、浮窗 Ctrl+Enter 三条路径最后都落到这里。
+  const submitWithAnnotations = useStableCallback(async (text, { sendMode = 'send' } = {}) => {
+    const targetSid = sidRef.current;
+    const value = typeof text === 'string' ? text : composerValueRef.current;
+    const records = annotationBox?.pendingRecords() || [];
+    if (!targetSid || !records.length) {
+      submit(value, { sendMode });
+      return { ok: true, annotations: 0 };
+    }
+    const prepared = await prepareAnnotationSubmission({
+      sessionId: targetSid,
+      text: value,
+      records,
+      outbox: annotationBox,
+      api,
+    });
+    submit(prepared.text, {
+      sendMode,
+      extraAttachments: prepared.shotAttachments,
+      annotationSettle: (ok) => {
+        prepared.settle(ok);
+        if (!ok) toast({ kind: 'err', text: '批注未发出，仍在待发列表里，可重试' });
+      },
+    });
+    return { ok: true, annotations: records.length };
+  });
+
+  useEffect(() => {
+    if (!sid) return undefined;
+    return registerAnnotationSubmitter(sid, submitWithAnnotations);
+  }, [sid, submitWithAnnotations]);
+
+  const annotationGroups = useMemo(() => {
+    const groups = new Map();
+    for (const page of annotationState.pages) {
+      if (!page.count) continue;
+      groups.set(page.id, { ...page, records: [] });
+    }
+    for (const record of annotationState.records) {
+      groups.get(record.pageId)?.records.push(record);
+    }
+    return [...groups.values()];
+  }, [annotationState]);
+
+  // 删除待发批注：活页签走原生存储，已关闭页签只剩本地这份清单。
+  const [editingAnnotation, setEditingAnnotation] = useState(null);
+  const editAnnotationRecord = useStableCallback(async (record) => {
+    const page = annotationState.pages.find((item) => item.id === record.pageId);
+    if (page?.closed) {
+      setEditingAnnotation(record);
+      return;
+    }
+    const result = await requestAnnotationEdit(record.pageId, record);
+    if (result?.ok !== false) return;
+    if (result.error === 'Annotation target is invalid' || result.error === 'Unknown annotation') {
+      // 页签还开着但目标已没了：退化成只改文字（与页面已关闭同一形态）。
+      setEditingAnnotation(record);
+      return;
+    }
+    toast({ kind: 'err', text: result.error || '无法回到该页面' });
+  });
+
+  const deleteAnnotationRecord = useStableCallback((record) => {
+    if (!record?.id) return;
+    const page = annotationState.pages.find((item) => item.id === record.pageId);
+    if (page?.closed || !record.pageId) {
+      annotationBox?.markSent([record.id]);
+      return;
+    }
+    void runPageAnnotationCommand(record.pageId, {
+      action: 'remove', document_id: '', record_ids: [record.id],
+    }).catch(() => {});
   });
 
   const drainQueuedInput = useStableCallback(() => {
@@ -6804,6 +6927,25 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
             />
           ) : (
             <>
+          <PageAnnotationPendingCard
+            pages={annotationGroups}
+            onDelete={deleteAnnotationRecord}
+            onEdit={editAnnotationRecord}
+          />
+          {editingAnnotation ? (
+            <PageAnnotationEditDialog
+              record={editingAnnotation}
+              onCancel={() => setEditingAnnotation(null)}
+              onSave={(record, description) => {
+                annotationBox?.updateDescription(record.id, description);
+                setEditingAnnotation(null);
+              }}
+              onDelete={(record) => {
+                deleteAnnotationRecord(record);
+                setEditingAnnotation(null);
+              }}
+            />
+          ) : null}
           <InputBar
             showSessionTime={showSessionTime}
             ref={inputRef}
@@ -6834,7 +6976,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
             historyEntries={composerHistoryEntries}
             value={composerValue}
             onChange={handleComposerChange}
-            onSubmit={submit}
+            onSubmit={submitWithAnnotations}
             onAbort={stopCurrentWork}
             {...composerInputProps}
             fileDropManagedExternally

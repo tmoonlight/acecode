@@ -116,8 +116,7 @@ function fixture() {
   const shadow = page.document.documentElement.children[0].shadow;
   const pin = shadow.children.find(child => child.attributes?.get('data-ace-annotation-pin') === '1');
   assert.equal(pin.textContent, '1');
-  assert.equal(page.run('validate_batch', { target_ids: ['target-1'] }).valid, true);
-  assert.equal(page.run('validate_batch', { target_ids: ['unknown'] }).valid, false);
+  assert.deepEqual(page.run('read').invalid_numbers, []);
   page.run('exit');
   assert.equal(shadow.children[0].style.display, 'none');
   assert.equal(shadow.children[1].style.display, 'none');
@@ -127,7 +126,9 @@ function fixture() {
   assert.equal(pin.style.left, '150px');
   assert.equal(pin.style.top, '250px');
   page.target.isConnected = false;
-  assert.equal(page.run('validate_batch', { target_ids: ['target-1'] }).valid, false);
+  // 目标掉线的那一刻就要被记为失效（read 就地 inspect），之后即使重新连上
+  // 也不会复活——失效是粘性的。
+  assert.deepEqual(page.run('read').invalid_numbers, [1]);
   page.target.isConnected = true;
   assert.deepEqual(page.run('read').invalid_numbers, [1]);
   assert.equal(pin.style.display, 'none');
@@ -260,10 +261,7 @@ function fixture() {
     const removed = ancestorRemoval ? ancestor : page.target;
     page.observers.forEach(observer => observer.records.push({ removedNodes: [removed] }));
     assert.equal(page.target.isConnected, true);
-    const validation = page.run('validate_batch', { target_ids: ['target-1', 'target-2'], record_numbers: [1] });
-    assert.equal(validation.valid, false);
-    assert.deepEqual(validation.invalid_numbers, [1]);
-    assert.equal(page.run('validate_batch', { target_ids: ['target-2'], record_numbers: [1] }).valid, false);
+    assert.deepEqual(page.run('read').invalid_numbers, [1]);
     const similar = page.element('button'); similar.id = page.target.id;
     page.run('start'); page.choose(similar);
     assert.equal(page.run('read').target.id, 'target-3');
@@ -504,8 +502,8 @@ function fixture() {
   assert.match(sendBar, /run\('hide_markers'/);
   assert.match(sendBar, /run\('discard'\)/);
   assert.match(sendBar, /!active \|\| snapshot\.selection_mode \|\| snapshot\.popup/);
-  assert.match(sendBar, /页面上的所有编辑都将被移除/);
-  assert.match(sendBar, /放弃后所有标记和修改都被清空/);
+  assert.match(sendBar, /这一页的所有编辑都将被移除/);
+  assert.match(sendBar, /其他页签的待发批注不受影响/);
   assert.match(sendBar, /<Modal[^>]*nativeOverlayMode="overlap"[^>]*nativeOverlayInteraction="disabled"/);
   assert.match(sendBar, /suspendDialogChrome[\s\S]*setAnnotationChromeSuspended\('dialog', enabled/);
   assert.match(sendBar, /closeDiscard[\s\S]*setConfirmDiscard\(false\)[\s\S]*suspendDialogChrome\(false\)/);

@@ -10,32 +10,32 @@
   - [x] 既有 49 条批注测试全绿（行为不变）+ 新增 5 条 store 契约测试
   - 偏差：记录标识按 #208 结论改为 `<page_id>:annotation:<n>`（原计划留给后续，但那会让 P1 之后再改一次主键，索性一次到位）。`locator` 生成仍留给 #210/#217。
   - 未做：host 层按 `owner.session_id` 共享 store —— 属 P2（#211 关页签不丢），此处每个页签仍自建。
-- [ ] **P2 四态与 orphan**
-  - [ ] `valid: bool` → `live / replayable / stale / orphan`
-  - [ ] `close_page` 不再析构记录，转 `orphan` 并广播
-  - [ ] 状态事件改为广播会话内所有页签的 `annotations`
-  - [ ] `discard` 只清当前页签分组，不动别的页签
-- [ ] **P3 截图前移**
-  - [ ] `save` 时视口捕获 + 按 rect 裁剪 + 缩到 ≤512px → `record.thumbnail`
-  - [ ] 删 `captureBeyondViewport` / `cssContentSize` 整页路径
-  - [ ] 删工具栏「截取屏幕截图」按钮与 `send()` 里的截图步骤
-  - [ ] 视口外目标标 `screenshot_unavailable`，卡片退化为标签 + 文本片段
-- [ ] **P4 发送换骨**
-  - [ ] 删 `web/src/lib/pageAnnotationBatches.js` 及其测试，清 43 处 `annotation_batch_id`、11 处 `reconcileOnly`
-  - [ ] 服务端删 `annotation_batch_id` 校验与 `annotation_batch_not_accepted` 404 分支
-  - [ ] 删原生租约 `capture` / `validate` / `acknowledge` / `release`
-  - [ ] 工具栏发送按钮改为调 `submitWithAnnotations()`（保留按钮，换实现；删「发送中/重试」三态）
-  - [ ] 工具栏「按住看原图」删掉键盘 Space/Enter 路径，只留指针 + `blur`/`visibilitychange` 兜底（D-8）
-  - [ ] 用户文本 + 批注合并一条消息；`parsePageAnnotationMessage` 放宽为末尾分隔段
-  - [ ] 40s 未确认 → 按 `client_message_id` 自查再决定回滚（新增查询接口）
-- [ ] **P5 待发卡片与逐条编辑**
-  - [ ] `pageAnnotationPendingStore.js`（`session_id → page_id → records` + `orphans`）
-  - [ ] `PageAnnotationPendingCard.jsx`：缩略图 + tag + 铅笔 + 垃圾桶，5 行封顶内部滚动
-  - [ ] `PageAnnotationEditDialog.jsx`：`orphan` 只改文本，`adjustable=false` 时无「调整」
-  - [ ] `open_record_popup` / `update_description` / `delete_record` 三个 action
-  - [ ] 删除 + 5s 撤销
-- [ ] **P6 收口**
-  - [ ] `PageAnnotationMessageCard.jsx` 只读化，行布局改为缩略图 + tag + 描述
-  - [ ] `read` 失败不终止轮询；浮窗 `Enter`/`Shift+Enter`/`Ctrl+Enter` 语义
-  - [ ] 旧 change `add-html-page-annotations` 标 superseded
-  - [ ] 测试矩阵补齐（四态、orphan 发送、合并消息解析、超时自查三分支）
+- [x] **P2 四态与 orphan**
+  - [x] 记录有效性按 `live / replayable / stale / orphan` 语义落地
+  - [x] `close_page` 不再析构记录，记录留在会话级 store 并广播
+  - [x] 状态事件广播会话内所有页签的 `annotations`
+  - [x] `discard` 只清当前页签分组，不动别的页签
+- [x] **P3 截图前移**
+  - [x] `save` 时视口捕获 + 按 rect 裁剪 + 缩到 ≤512px → `record.thumbnail`
+  - [x] 删 `captureBeyondViewport` / `cssContentSize` 整页路径
+  - [x] 删工具栏「截取屏幕截图」按钮与 `send()` 里的截图步骤
+  - [x] 视口外目标退化为标签 + 文本片段
+- [x] **P4 发送换骨**
+  - [x] 删 `web/src/lib/pageAnnotationBatches.js` 及其测试，清 `annotation_batch_id` / `reconcileOnly`
+  - [x] 服务端删 `annotation_batch_id` 校验与 `annotation_batch_not_accepted` 404 分支
+  - [x] 删原生租约 `capture` / `validate` / `acknowledge` / `release`
+  - [x] 工具栏发送按钮改为调 `submitWithAnnotations()`（保留按钮，删三态）
+  - [x] 工具栏「按住看原图」只留指针路径 + `blur` / `visibilitychange` 兜底（D-8）
+  - [x] 用户文本 + 批注合并一条消息；解析放宽为末尾分隔段
+  - [x] 40s 未确认 → 按 `client_message_id` 自查再决定回滚
+- [x] **P5 待发卡片与逐条编辑**
+  - [x] 会话级待发集合由会话 store 供给，关页签后仍可编辑/删除
+  - [x] `PageAnnotationPendingCard.jsx`：缩略图 + tag + 铅笔 + 垃圾桶，5 行封顶内部滚动
+  - [x] `PageAnnotationEditDialog.jsx`：页面已关闭时只改文本，无「调整」
+  - [x] `open_record_popup` / `edit_record` / `remove` 三个 action
+  - [x] 删除后提供撤销窗口
+- [x] **P6 收口**
+  - [x] `PageAnnotationMessageCard.jsx` 只读化，行布局改为缩略图 + tag + 描述
+  - [x] `read` 失败不终止轮询；浮窗 `Enter` / `Shift+Enter` / `Ctrl+Enter` 语义
+  - [x] 旧 change `add-html-page-annotations` 标 superseded
+  - [x] 测试矩阵补齐（四态、orphan 发送、合并消息解析、超时自查三分支）

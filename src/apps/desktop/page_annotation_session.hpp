@@ -34,6 +34,12 @@ public:
 
     const std::shared_ptr<SessionAnnotationStore>& store() const { return store_; }
 
+    // 同一会话的页签共享一个 store（Q33）。宿主在建页时注入；不注入则自建一个，
+    // 单页签场景（测试、旧路径）行为与之前一致。
+    void share_store(std::shared_ptr<SessionAnnotationStore> store) {
+        if (store) store_ = std::move(store);
+    }
+
     const std::string& document_id() const { return document_id_; }
     AnnotationNavigationGuard navigation;
     AnnotationRequests requests;
@@ -83,75 +89,91 @@ public:
         return {{"document_id", document_id_}, {"active", active_},
                 {"popup", popup_}, {"target", target_}, {"targets", targets_}, {"region", region_},
                 {"selection_mode", selection_mode_}, {"viewport", viewport_}, {"records", records},
+                {"page_shot", store_->page_shot(page_id_)},
                 {"pending_count", pending_count}, {"original", original_}, {"differences", differences_},
                 {"page_background", page_background_}, {"markers_hidden", markers_hidden_},
-                {"modal_suspended", modal_suspended_},
+                {"modal_suspended", modal_suspended_}, {"draft_description", draft_description_},
+                {"editing_record_id", editing_record_id_},
                 {"revision", revision_}};
     }
 
-    bool submission(const Json& command, std::string& expression, std::string& error) {
+    bool submission(const Json& command, std::string& error) {
         if (!command.is_object() || command.dump().size() > 262144 ||
             !command.contains("action") || !command["action"].is_string() ||
             !command.contains("document_id") || !command["document_id"].is_string()) {
             error = "Invalid annotation submission";
             return false;
         }
-        const bool acknowledge = command["action"] == "acknowledge";
-        const bool release = command["action"] == "release";
-        if (!acknowledge && !release && command["action"] != "capture" && command["action"] != "validate") {
+        // 发送成功后按 id 删记录，不校验文档代与有效性：已发出去的记录不该
+        // 因为「发送这一刻文档刚好换了」留在待发集合里复活。
+        const bool remove = command["action"] == "remove";
+        // 保存后异步补图：把裁剪好的缩略图挂到记录上、整屏图挂到页签上。
+        const bool attach = command["action"] == "attach_screenshot";
+        if (!remove && !attach) {
             error = "Invalid submission action";
             return false;
         }
         for (const auto& field : command.items()) {
             if (field.key() != "action" && field.key() != "document_id" &&
-                field.key() != "record_ids" && field.key() != "lease_id") {
+                field.key() != "record_ids" &&
+                !(attach && (field.key() == "record_id" || field.key() == "thumbnail" ||
+                             field.key() == "page_shot"))) {
                 error = "Unsupported submission field";
                 return false;
             }
         }
-        if (release) {
-            if (!command.contains("lease_id") || !command["lease_id"].is_string() ||
-                !navigation.release(command["lease_id"].get<std::string>())) {
-                error = "Stale annotation submission lease";
-                return false;
+        if (attach) {
+            // 图是保存时截的（D2/D10），发送阶段不再捕获。空串表示该条无图
+            // （目标不在视口内 / 捕获失败），待发卡片退化为标签 + 文本片段。
+            constexpr std::size_t kThumbnailLimit = 512 * 1024;
+            constexpr std::size_t kPageShotLimit = 4 * 1024 * 1024;
+            const auto valid_image = [](const Json& value, std::size_t limit) {
+                if (!value.is_string()) return false;
+                const auto& text = value.get_ref<const std::string&>();
+                return text.empty() || (text.size() <= limit && text.rfind("data:image/", 0) == 0);
+            };
+            if (command.contains("page_shot")) {
+                if (!valid_image(command["page_shot"], kPageShotLimit)) {
+                    error = "Invalid annotation screenshot";
+                    return false;
+                }
+                store_->set_page_shot(page_id_, command["page_shot"].get<std::string>());
             }
+            if (command.contains("record_id")) {
+                if (!command["record_id"].is_string() ||
+                    !command.contains("thumbnail") ||
+                    !valid_image(command["thumbnail"], kThumbnailLimit)) {
+                    error = "Invalid annotation thumbnail";
+                    return false;
+                }
+                const auto id = command["record_id"].get<std::string>();
+                bool found = false;
+                for (auto& record : store_->mutable_records(page_id_)) {
+                    if (record["id"] != id) continue;
+                    record["thumbnail"] = command["thumbnail"];
+                    found = true;
+                    break;
+                }
+                if (!found) {
+                    error = "Unknown annotation";
+                    return false;
+                }
+            }
+            ++revision_;
             return true;
         }
-        if (command.contains("lease_id") && command["action"] != "validate") {
-            error = "Unsupported submission lease";
-            return false;
-        }
-        if (!acknowledge && navigation.blocked()) {
+        if (navigation.blocked()) {
             error = "Annotation navigation is pending";
             return false;
         }
         Json selected;
         if (!annotation_submission_records(command, store_->records(page_id_), selected, error)) return false;
-        for (const auto& record : selected) {
-            if (record["document_id"] != command["document_id"] ||
-                (!acknowledge && (record["valid"] != true || record["status"] == "sent" ||
-                    command["document_id"] != document_id_))) {
-                error = "Annotation document or target is invalid";
-                return false;
-            }
+        auto& records = store_->mutable_records(page_id_);
+        for (const auto& gone : selected) {
+            records.erase(std::remove_if(records.begin(), records.end(),
+                [&gone](const auto& record) { return record["id"] == gone["id"]; }), records.end());
         }
-        if (acknowledge) {
-            for (auto& record : store_->mutable_records(page_id_)) {
-                for (const auto& accepted : selected) {
-                    if (record["id"] == accepted["id"]) record["status"] = "sent";
-                }
-            }
-            ++revision_;
-        } else {
-            if (command["action"] == "validate" && command.contains("lease_id")) {
-                if (!command["lease_id"].is_string() ||
-                    !navigation.acquire(command["lease_id"].get<std::string>())) {
-                    error = "Annotation submission is already in progress";
-                    return false;
-                }
-            }
-            expression = annotation_submission_expression(document_id_, selected);
-        }
+        ++revision_;
         return true;
     }
 
@@ -172,6 +194,9 @@ public:
         selection_mode_ = nullptr;
         differences_ = Json::array();
         page_background_.clear();
+        editing_record_id_.clear();
+        edit_locator_.clear();
+        draft_description_.clear();
         document_id_.clear();
         for (auto& record : store_->mutable_records(page_id_)) {
             record["valid"] = false;
@@ -184,7 +209,7 @@ public:
 
     bool prepare(const std::string& page_id, const Json& command,
                  std::string& expression, std::string& error) {
-        if (navigation.blocked() || navigation.sending()) {
+        if (navigation.blocked()) {
             error = "Annotation navigation is pending";
             return false;
         }
@@ -198,7 +223,8 @@ public:
             action != "cancel" && action != "save" && action != "add_target" &&
             action != "add_region" && action != "select_target" && action != "select_region" &&
             action != "preview_text" && action != "preview_style" && action != "original" &&
-            action != "hide_markers" && action != "set_modal_suspended" && action != "discard") {
+            action != "hide_markers" && action != "set_modal_suspended" && action != "discard" &&
+            action != "edit_record") {
             error = "Unsupported annotation action";
             return false;
         }
@@ -211,7 +237,8 @@ public:
                 !(action == "set_modal_suspended" && item.key() == "enabled") &&
                 !(action == "save" && (item.key() == "description" || item.key() == "target_id" ||
                                       item.key() == "target_ids" || item.key() == "region")) &&
-                !(action == "select_target" && item.key() == "target_id")) {
+                !(action == "select_target" && item.key() == "target_id") &&
+                !(action == "edit_record" && item.key() == "record_id")) {
                 error = "Unsupported annotation field";
                 return false;
             }
@@ -250,6 +277,36 @@ public:
         if (action == "select_region" && region_.is_null()) {
             error = "Missing annotation region";
             return false;
+        }
+        if (action == "edit_record") {
+            if (!command.contains("record_id") || !command["record_id"].is_string()) {
+                error = "Invalid annotation record";
+                return false;
+            }
+            const auto record_id = command["record_id"].get<std::string>();
+            const auto& records = store_->records(page_id_);
+            const auto found = std::find_if(records.begin(), records.end(),
+                [&](const auto& record) { return record["id"] == record_id; });
+            if (found == records.end()) {
+                error = "Unknown annotation";
+                return false;
+            }
+            // 只有「当前文档里还有效」的记录能回到页面改（#217）。stale / orphan
+            // 走的是另一条路径（只剩文字可改，由弹窗处理）。
+            if ((*found)["document_id"] != document_id_ || (*found)["valid"] != true) {
+                error = "Annotation target is invalid";
+                return false;
+            }
+            const auto& targets = (*found)["targets"];
+            if (!targets.is_array() || targets.empty() || !targets[0].contains("locator") ||
+                !targets[0]["locator"].is_string() ||
+                targets[0]["locator"].get_ref<const std::string&>().empty()) {
+                error = "Annotation target is invalid";
+                return false;
+            }
+            editing_record_id_ = record_id;
+            edit_locator_ = targets[0]["locator"].get<std::string>();
+            draft_description_ = (*found).value("description", std::string());
         }
         if (action == "save" && (!active_ || !popup_ || original_ || !selection_mode_.is_null() ||
             (targets_.empty() && region_.is_null()) ||
@@ -305,6 +362,9 @@ public:
         if (action == "hide_markers") payload["enabled"] = command["enabled"];
         if (action == "set_modal_suspended") payload["enabled"] = command["enabled"];
         if (action == "select_target") payload["target_id"] = command["target_id"];
+        if (action == "edit_record") {
+            payload["locator"] = edit_locator_;
+        }
         if (action == "preview_style") {
             payload["target_id"] = command["target_id"];
             payload["styles"] = command["styles"];
@@ -326,7 +386,7 @@ public:
         requests.cancel("Annotation navigation started");
     }
     bool pollable() const {
-        return !document_id_.empty() && !busy_ && !poll_pending_ && !navigation.blocked() && !navigation.sending();
+        return !document_id_.empty() && !busy_ && !poll_pending_ && !navigation.blocked();
     }
     std::uint64_t begin_poll() {
         if (!pollable()) return 0;
@@ -386,18 +446,39 @@ public:
             error = "Annotation preview did not complete";
             return false;
         }
+        if (action == "edit_record" && (result["popup"] != true || result["target"].is_null())) {
+            error = "Annotation target is invalid";
+            return false;
+        }
         if (action == "save") {
             auto saved_targets = targets_;
             for (auto& target : saved_targets) {
                 target.erase("style_preview");
                 target.erase("text_preview");
             }
-            store_->append(page_id_, {
-                {"document_id", document_id_},
-                {"description", pending_["description"]}, {"targets", saved_targets},
-                {"differences", result.value("differences", Json::array())}, {"region", region_},
-                {"status", "pending"}, {"valid", true},
-            });
+            if (!editing_record_id_.empty()) {
+                // 铅笔路径：改的是同一条，编号与 id 不变（PRD §6.5）。
+                for (auto& record : store_->mutable_records(page_id_)) {
+                    if (record["id"] != editing_record_id_) continue;
+                    record["description"] = pending_["description"];
+                    record["targets"] = saved_targets;
+                    record["differences"] = result.value("differences", Json::array());
+                    record["region"] = region_;
+                    record["document_id"] = document_id_;
+                    record["valid"] = true;
+                    break;
+                }
+                editing_record_id_.clear();
+                draft_description_.clear();
+                ++revision_;
+            } else {
+                store_->append(page_id_, {
+                    {"document_id", document_id_},
+                    {"description", pending_["description"]}, {"targets", saved_targets},
+                    {"differences", result.value("differences", Json::array())}, {"region", region_},
+                    {"status", "pending"}, {"valid", true},
+                });
+            }
         } else if (action == "discard") {
             store_->discard(page_id_);
         }
@@ -556,6 +637,10 @@ private:
     Json viewport_ = nullptr;
     Json differences_ = Json::array();
     std::string page_background_;
+    // 铅笔路径（#217）：正在改哪一条、该条保存时的 locator 与描述。
+    std::string editing_record_id_;
+    std::string edit_locator_;
+    std::string draft_description_;
     Json pending_;
 };
 

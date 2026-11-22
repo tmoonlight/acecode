@@ -87,9 +87,25 @@ public:
     // 这里只保证记录还活着（P2 的 orphan 语义靠这个前提）。
     bool has_page(const std::string& page_id) const { return pages_.find(page_id) != pages_.end(); }
 
+    // 该页最近一次的整屏图（已发消息卡片配图）。每页只留最新一张：不随记录
+    // 增减而变化，所以删掉最后几条批注后配图仍是删除前的画面（PRD §11）。
+    const std::string& page_shot(const std::string& page_id) const {
+        static const std::string empty;
+        const auto found = pages_.find(page_id);
+        return found == pages_.end() ? empty : found->second.page_shot;
+    }
+
+    void set_page_shot(const std::string& page_id, std::string shot) {
+        auto& bucket = pages_[page_id];
+        if (bucket.page_shot == shot) return;
+        bucket.page_shot = std::move(shot);
+        ++revision_;
+    }
+
     struct Page {
         Json records = Json::array();
         std::uint64_t next_number = 1;
+        std::string page_shot;
     };
 
     // 按页签遍历（用于跨页签广播与发送时聚合）。

@@ -15,37 +15,25 @@ public:
     bool armed() const { return armed_; }
     bool arm() { if (!reserved_) return false; armed_ = true; return true; }
     std::uint64_t ticket() const { return ticket_; }
-    bool sending() const { return !lease_.empty(); }
     bool reserve() {
-        if (blocked() || sending()) return false;
+        if (blocked()) return false;
         reserved_ = true;
         ++ticket_;
         return true;
     }
     bool start(bool continuation = false) {
         if (navigating_) return continuation;
-        if (!reserved_ || !armed_ || sending()) return false;
+        if (!reserved_ || !armed_) return false;
         reserved_ = false;
         armed_ = false;
         navigating_ = true;
         return true;
     }
     void finish() { reserved_ = false; armed_ = false; navigating_ = false; ++ticket_; }
-    bool acquire(const std::string& lease) {
-        if (blocked() || lease.empty() || lease.size() > 128 || (sending() && lease_ != lease)) return false;
-        lease_ = lease;
-        return true;
-    }
-    bool release(const std::string& lease) {
-        if (lease.empty() || (!lease_.empty() && lease_ != lease)) return false;
-        lease_.clear();
-        return true;
-    }
 private:
     bool reserved_ = false;
     bool navigating_ = false;
     bool armed_ = false;
-    std::string lease_;
     std::uint64_t ticket_ = 0;
 };
 

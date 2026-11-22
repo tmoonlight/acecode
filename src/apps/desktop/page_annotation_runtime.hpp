@@ -381,10 +381,6 @@ inline constexpr const char kPageAnnotationRuntime[] = R"ACEANNOTATION(
       }
       inspect(mutations?.takeRecords?.() || []);
       switch (next.action) {
-        case 'validate_batch':
-          return {...lifecycle(), valid:Array.isArray(next.target_ids) && next.target_ids.every(id =>
-            pins.some(pin => !pin.invalid && pin.targets.some(target => connected(target) && ids.get(target) === id))) &&
-            (!next.record_numbers || next.record_numbers.every(number => pins.some(pin => pin.number === number && !pin.invalid)))};
         case 'start': active = true; markersHidden = false; modalSuspended = false; hovered = null; break;
         case 'read': break;
         case 'set_modal_suspended':
@@ -445,6 +441,31 @@ inline constexpr const char kPageAnnotationRuntime[] = R"ACEANNOTATION(
           selected = null;
           selectedId = '';
           break;
+        case 'edit_record': {
+          // 从待发卡片点铅笔回到页面（#217）：按保存时记下的 locator 找回元素，
+          // 重新进入批注态并把草稿切换成这一条。窗口内的重放（#216 的 replayable）
+          // 以后可以复用这条路径，所以只做「定位 + 选中」，不碰描述。
+          const locator = typeof next.locator === 'string' ? next.locator : '';
+          if (!locator || locator.length > 2048 || selectionMode) return {error:'stale_target'};
+          let element = null;
+          try { element = document.querySelector(locator); } catch { element = null; }
+          if (!connected(element)) return {error:'stale_target'};
+          active = true;
+          markersHidden = false;
+          modalSuspended = false;
+          targets.length = 0;
+          targets.push(element);
+          draftChains.set(element, ancestors(element));
+          observe(element);
+          region = null;
+          selected = element;
+          if (!ids.has(element)) ids.set(element, `target-${++sequence}`);
+          selectedId = ids.get(element);
+          styles.select(element, selectedId);
+          open = true;
+          layout();
+          break;
+        }
         case 'save': {
           if (!active || !open || selectionMode || !targets.every(connected) ||
               (!selected && !region) || (selected ? selectedId : null) !== next.target_id ||

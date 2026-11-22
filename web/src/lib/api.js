@@ -526,17 +526,16 @@ export function createApi(base = null) {
     ),
     clearSessionTodos: (id, workspaceHash = '') =>
       request('DELETE', sessionTodosPath(id, workspaceHash), undefined, base),
-    sendInput:        (id, payload, options = {})  => {
+    sendInput:        (id, payload)  => {
       const body = payload && typeof payload === 'object' && !Array.isArray(payload)
         ? payload
         : { text: payload };
-      const query = options.reconcileOnly === true ? '?annotation_reconcile_only=1' : '';
       const requestOptions = body.worktree?.create
         ? { timeoutMs: WORKTREE_CREATE_TIMEOUT_MS }
         : {};
       return request(
         'POST',
-        `/api/sessions/${encodeURIComponent(id)}/messages${query}`,
+        `/api/sessions/${encodeURIComponent(id)}/messages`,
         body,
         base,
         requestOptions,

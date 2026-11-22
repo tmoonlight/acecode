@@ -5,6 +5,7 @@ import {
   pageAnnotationPopupDragPosition,
   pageAnnotationPopupPosition,
 } from '../lib/pageAnnotations.js';
+import { requestAnnotationSubmit } from '../lib/annotationSubmission.js';
 import { notifyNativeSurfaceOverlayChange } from '../lib/agentBrowserSurfaceCoordinator.js';
 import {
   setAnnotationChromeSuspended,
@@ -40,10 +41,14 @@ export function usePageAnnotations(pageId, nativeState) {
     const poll = async () => {
       const result = await controller.command('read');
       if (cancelled) return;
+      // 一次读取失败（断网、页面正在导航）不能让轮询停下：停一次，页面上的
+      // 点击就再也开不出浮窗。失败退避重试，成功即清掉错误提示。
       if (result?.ok === false) {
-        setError(result.error || '无法读取网页批注，请退出后重试');
+        setError(result.error || '无法读取网页批注，正在重试');
+        timer = setTimeout(poll, 1000);
         return;
       }
+      setError(current => (current ? '' : current));
       timer = setTimeout(poll, 200);
     };
     timer = setTimeout(poll, 200);
@@ -267,10 +272,16 @@ function fontSuggestions(value, previousValue) {
   return [...custom, ...fontFamilies];
 }
 
-export function PageAnnotationPopup({ snapshot, command, working, viewportRef }) {
+export function PageAnnotationPopup({ snapshot, command, working, viewportRef, sessionId }) {
   const popupRef = useRef(null);
   const inputRef = useRef(null);
   const [description, setDescription] = useState('');
+  // 从待发卡片点铅笔回来时（#217），原生已经把该条的 locator 定位成草稿，
+  // 这里把描述回填进输入框；新开一条时 draft_description 为空，等同清空。
+  useEffect(() => {
+    if (!snapshot.popup) return;
+    setDescription(String(snapshot.draft_description || ''));
+  }, [snapshot.document_id, snapshot.draft_description, snapshot.popup]);
   const [styleInputs, setStyleInputs] = useState({});
   const [saving, setSaving] = useState(false);
   const [adjusting, setAdjusting] = useState(false);
@@ -280,6 +291,8 @@ export function PageAnnotationPopup({ snapshot, command, working, viewportRef })
   const [tooltip, setTooltip] = useState(null);
   const [adjustBounds, setAdjustBounds] = useState(null);
   const dirtyStyles = useRef({});
+  // Ctrl+Enter = 先保存这一条，再走和输入框同一个提交（Q35 的第三个触发点）。
+  const sendAfterSaveRef = useRef(false);
   const styleFlight = useRef(null);
   const styleTimer = useRef(null);
   const dragRef = useRef(null);
@@ -476,6 +489,7 @@ export function PageAnnotationPopup({ snapshot, command, working, viewportRef })
     }
     if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
       event.preventDefault();
+      sendAfterSaveRef.current = true;
       popupRef.current?.requestSubmit?.();
       return;
     }
@@ -803,9 +817,10 @@ export function PageAnnotationPopup({ snapshot, command, working, viewportRef })
       event.currentTarget.releasePointerCapture(event.pointerId);
     }
   };
-  const hasDraft = description.trim().length > 0 ||
+  const hasDraftNow = () => description.trim().length > 0 ||
     (snapshot.differences?.length || 0) > 0 ||
     Object.keys(dirtyStyles.current).length > 0;
+  const hasDraft = hasDraftNow();
   const pageBackground = typeof snapshot.page_background === 'string' &&
     snapshot.page_background.trim() &&
     CSS.supports('color', snapshot.page_background)
@@ -830,10 +845,20 @@ export function PageAnnotationPopup({ snapshot, command, working, viewportRef })
       onKeyDown={onKeyDown}
       onSubmit={async (event) => {
         event.preventDefault();
-        if (working || saving || snapshot.original) return;
+        if (working || saving || snapshot.original || !hasDraftNow()) return;
         setSaving(true);
         try {
-          if ((await flushStyles())?.ok === true && liveRef.current) await command('save', { description });
+          if ((await flushStyles())?.ok === true && liveRef.current) {
+            const result = await command('save', { description });
+            if (result?.ok === true && sendAfterSaveRef.current) {
+              sendAfterSaveRef.current = false;
+              void requestAnnotationSubmit(sessionId);
+            } else if (result?.ok !== true) {
+              sendAfterSaveRef.current = false;
+            }
+          } else {
+            sendAfterSaveRef.current = false;
+          }
         } finally { if (liveRef.current) setSaving(false); }
       }}
     >
@@ -868,6 +893,14 @@ export function PageAnnotationPopup({ snapshot, command, working, viewportRef })
           value={description}
           disabled={working}
           onChange={(event) => setDescription(event.target.value)}
+          onKeyDown={(event) => {
+            // Q36：描述框 Enter 添加，Shift+Enter 才换行；Ctrl/Cmd+Enter 由
+            // 卡片级处理器先接管为「保存并发送」。
+            if (event.key !== 'Enter' || event.shiftKey || event.ctrlKey || event.metaKey ||
+                event.altKey || event.repeat || isShortcutComposing(event)) return;
+            event.preventDefault();
+            if (hasDraftNow() && !working && !saving && !snapshot.original) popupRef.current?.requestSubmit?.();
+          }}
           className="ace-annotation-comment"
         />
       </div>
@@ -985,9 +1018,9 @@ export function PageAnnotationPopup({ snapshot, command, working, viewportRef })
       <div className="ace-annotation-actions">
         {adjusting && <button type="button" className="ace-annotation-cancel" disabled={working} onClick={close}>取消</button>}
         <button type="submit" aria-label="保存批注" data-ace-dialog-primary="true"
-          onPointerEnter={event => showTooltip(event, '添加批注', 'Enter 发送 · Ctrl+Enter')}
+          onPointerEnter={event => showTooltip(event, '添加批注', 'Enter 添加 · Ctrl+Enter 发送')}
           onPointerLeave={hideTooltip}
-          onFocus={event => showTooltip(event, '添加批注', 'Enter 发送 · Ctrl+Enter')}
+          onFocus={event => showTooltip(event, '添加批注', 'Enter 添加 · Ctrl+Enter 发送')}
           onBlur={hideTooltip}
           disabled={working || saving || snapshot.original || !hasDraft} className="ace-annotation-submit">
           <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">

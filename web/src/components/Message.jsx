@@ -40,9 +40,9 @@ import { PastedTextCard } from './PastedTextCard.jsx';
 import { PastedTextDialog } from './PastedTextDialog.jsx';
 import { extractSessionReferences } from '../lib/sessionReference.js';
 import {
-  contentPartsWithoutAnnotationScreenshot,
+  annotationShotsByName,
+  contentPartsWithoutAnnotationScreenshots,
   pageAnnotationMessageCopyText,
-  pageAnnotationScreenshot,
   parsePageAnnotationMessage,
 } from '../lib/pageAnnotationMessage.js';
 import { basenameForPath } from '../lib/selectionChatContext.js';
@@ -333,7 +333,8 @@ function UserBubble({
   const annotationCard = useMemo(() => parsePageAnnotationMessage(
     composerContent ? composerContentText(composerContent) : content,
   ), [composerContent, content]);
-  const annotationShot = annotationCard ? pageAnnotationScreenshot(contentParts) : null;
+  const annotationShots = useMemo(() => (annotationCard ? annotationShotsByName(contentParts) : null),
+    [annotationCard, contentParts]);
   // f300:2400 多万字符的旧消息整段进 pre-wrap 气泡会卡死页面。气泡只渲染有界预览,
   // 截断时显示 … 与「查看全文」(只读对话框);复制仍取全文。
   const messagePreview = useMemo(() => {
@@ -361,17 +362,19 @@ function UserBubble({
       )}
       <AttachmentStrip
         contentParts={annotationCard
-          ? contentPartsWithoutAnnotationScreenshot(remainingParts, annotationShot)
+          ? contentPartsWithoutAnnotationScreenshots(remainingParts)
           : remainingParts}
         annotationPresentations={annotationPresentations}
         align="right"
       />
+      {/* 用户正文与批注卡片同时存在（v2 载荷）：先显示说的话，再显示批注那一段。 */}
+      {annotationCard?.text ? (
+        <div className="ace-user-message-bubble ace-chat-message-content min-w-0 max-w-full px-3.5 py-2 rounded-[14px] rounded-br-[4px] bg-accent-bg border border-accent-soft text-fg text-[13px] leading-[1.5] whitespace-pre-wrap break-words">
+          {annotationCard.text}
+        </div>
+      ) : null}
       {annotationCard ? (
-        <PageAnnotationMessageCard
-          title={annotationCard.title}
-          comments={annotationCard.comments}
-          imageUrl={annotationShot?.blob_url || annotationShot?.preview_url || annotationShot?.url || ''}
-        />
+        <PageAnnotationMessageCard pages={annotationCard.pages} shots={annotationShots} />
       ) : hasBubbleBody ? (
         <div className="ace-user-message-bubble ace-chat-message-content min-w-0 max-w-full px-3.5 py-2 rounded-[14px] rounded-br-[4px] bg-accent-bg border border-accent-soft text-fg text-[13px] leading-[1.5] whitespace-pre-wrap break-words">
           {messagePreview.composerContent ? (

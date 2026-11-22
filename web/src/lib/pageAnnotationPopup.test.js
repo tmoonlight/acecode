@@ -214,6 +214,37 @@ const openEditor = page => {
 
 {
   const page = fixture(async () => ({ok:true}));
+  let tree = page.render();
+  let submitted = 0;
+  tree.props.ref.current = { requestSubmit() { ++submitted; } };
+  const comment = tree => find(tree, node => node.type === 'textarea' && node.props['aria-label'] === '批注描述');
+  const key = fields => {
+    const event = { key: 'Enter', preventDefault() { this.prevented = true; }, ...fields };
+    comment(tree).props.onKeyDown(event);
+    return event;
+  };
+  assert.equal(key({}).prevented, true);
+  assert.equal(submitted, 0, 'an empty annotation cannot be added');
+  comment(tree).props.onChange({ target: { value: '这里加粗' } });
+  tree = page.render();
+  assert.equal(key({}).prevented, true);
+  assert.equal(submitted, 1, 'plain Enter adds the annotation');
+  assert.equal(key({ shiftKey: true }).prevented, undefined);
+  assert.equal(submitted, 1, 'Shift+Enter keeps the native newline');
+  assert.equal(key({ repeat: true }).prevented, undefined);
+  assert.equal(submitted, 1, 'holding Enter cannot add the same annotation repeatedly');
+  assert.equal(key({ isComposing: true }).prevented, undefined);
+  assert.equal(submitted, 1, 'IME Enter stays with the input method');
+  const ctrlEnter = { key: 'Enter', ctrlKey: true, target: comment(tree), preventDefault() { this.prevented = true; } };
+  tree.props.onKeyDown(ctrlEnter);
+  assert.equal(ctrlEnter.prevented, true);
+  assert.equal(submitted, 2, 'Ctrl+Enter saves through the same submit path before sending');
+  page.dispose();
+  console.log('[pass] comment box Enter adds, Shift+Enter wraps and Ctrl+Enter saves then sends');
+}
+
+{
+  const page = fixture(async () => ({ok:true}));
   const viewport = { getBoundingClientRect: () => ({ left: 0, top: 0, width: 600, height: 400 }) };
   let tree = page.render({ viewportRef: { current: viewport } });
   const popup = {

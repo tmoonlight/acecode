@@ -1,7 +1,5 @@
 #pragma once
 
-#include "page_annotation_runtime.hpp"
-
 #include <algorithm>
 #include <string>
 #include <nlohmann/json.hpp>
@@ -31,19 +29,6 @@ inline bool annotation_submission_records(const nlohmann::json& command,
         selected.push_back(*found);
     }
     return true;
-}
-
-inline std::string annotation_submission_expression(const std::string& document_id,
-                                                     const nlohmann::json& records) {
-    auto targets = nlohmann::json::array();
-    auto numbers = nlohmann::json::array();
-    for (const auto& record : records) {
-        numbers.push_back(record["number"]);
-        for (const auto& target : record["targets"]) targets.push_back(target["id"]);
-    }
-    const nlohmann::json request{{"action", "validate_batch"},
-        {"document_id", document_id}, {"target_ids", targets}, {"record_numbers", numbers}};
-    return std::string(kPageAnnotationRuntime) + "(" + request.dump() + ")";
 }
 
 } // namespace acecode::desktop

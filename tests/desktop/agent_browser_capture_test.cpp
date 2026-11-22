@@ -329,7 +329,6 @@ TEST(AgentBrowserCapture, SessionRetirementClearsCdpPinBeforeRetryAndLateCallbac
         EXPECT_TRUE(sheets.at(old_sheet).empty());
         EXPECT_EQ(clears, 1);
         if (replace) start_document();
-        ASSERT_TRUE(session.navigation.acquire("new-batch"));
         const auto next = begin();
         ASSERT_EQ(screenshots.size(), 2u);
         const auto before_late = commands;
@@ -337,8 +336,6 @@ TEST(AgentBrowserCapture, SessionRetirementClearsCdpPinBeforeRetryAndLateCallbac
         EXPECT_EQ(commands, before_late);
         EXPECT_EQ(responses.size(), 1u);
         EXPECT_FALSE(next->completed());
-        EXPECT_TRUE(session.navigation.sending());
-        EXPECT_FALSE(session.navigation.release("old-batch"));
         EXPECT_EQ(std::count_if(sheets.begin(), sheets.end(), [](const auto& sheet) {
             return !sheet.second.empty();
         }), 1);
@@ -353,8 +350,6 @@ TEST(AgentBrowserCapture, SessionRetirementClearsCdpPinBeforeRetryAndLateCallbac
         screenshots.back()({{"data", "duplicate"}}, {});
         EXPECT_EQ(commands, finished);
         EXPECT_EQ(responses.size(), 2u);
-        EXPECT_TRUE(session.navigation.sending());
-        EXPECT_TRUE(session.navigation.release("new-batch"));
     }
 }
 

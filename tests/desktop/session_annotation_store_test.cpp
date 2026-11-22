@@ -188,5 +188,136 @@ TEST_F(SessionAnnotationStoreTest, EraseDropsOneRecordAndBumpsRevision) {
     EXPECT_EQ(store->next_number("page-1"), 3u);
 }
 
+TEST_F(SessionAnnotationStoreTest, SnapshotIsServedByTheStoreNotTheTab) {
+    auto store = std::make_shared<SessionAnnotationStore>();
+    Driver driver(store, "page-1");
+    driver.start();
+    ASSERT_TRUE(driver.session.snapshot()["records"].empty());
+
+    // 直接改存储（不经过页签的任何命令），快照必须跟着变——存储是权威（#210）。
+    store->append("page-1", {{"document_id", driver.session.document_id()},
+                             {"description", "poked"}, {"targets", Json::array()},
+                             {"differences", Json::array()}, {"region", nullptr},
+                             {"status", "pending"}, {"valid", true}});
+    const auto snapshot = driver.session.snapshot();
+    ASSERT_EQ(snapshot["records"].size(), 1u);
+    EXPECT_EQ(snapshot["records"][0]["description"], "poked");
+    EXPECT_EQ(snapshot["pending_count"], 1);
+}
+
+TEST_F(SessionAnnotationStoreTest, AttachScreenshotStoresThumbnailAndPageShot) {
+    auto store = std::make_shared<SessionAnnotationStore>();
+    Driver driver(store, "page-1");
+    driver.start();
+    driver.select();
+    driver.save("needs a picture");
+    const auto id = store->records("page-1")[0]["id"].get<std::string>();
+
+    std::string error;
+    ASSERT_TRUE(driver.session.submission({
+        {"action", "attach_screenshot"}, {"document_id", ""}, {"record_id", id},
+        {"thumbnail", "data:image/png;base64,AAA"},
+        {"page_shot", "data:image/png;base64,BBB"},
+    }, error)) << error;
+    const auto snapshot = driver.session.snapshot();
+    EXPECT_EQ(snapshot["page_shot"], "data:image/png;base64,BBB");
+    EXPECT_EQ(store->records("page-1")[0]["thumbnail"], "data:image/png;base64,AAA");
+
+    // 只更新整屏图时不动记录上的缩略图（每页只留最新一张）。
+    ASSERT_TRUE(driver.session.submission({
+        {"action", "attach_screenshot"}, {"document_id", ""},
+        {"page_shot", "data:image/png;base64,CCC"},
+    }, error)) << error;
+    EXPECT_EQ(driver.session.snapshot()["page_shot"], "data:image/png;base64,CCC");
+    EXPECT_EQ(store->records("page-1")[0]["thumbnail"], "data:image/png;base64,AAA");
+
+    // 非 image data URL、超过体积上限、未知记录都要拒绝。
+    EXPECT_FALSE(driver.session.submission({
+        {"action", "attach_screenshot"}, {"document_id", ""}, {"record_id", id},
+        {"thumbnail", "https://evil.invalid/x.png"},
+    }, error));
+    EXPECT_FALSE(driver.session.submission({
+        {"action", "attach_screenshot"}, {"document_id", ""}, {"record_id", "page-1:annotation:404"},
+        {"thumbnail", "data:image/png;base64,AAA"},
+    }, error));
+}
+
+TEST_F(SessionAnnotationStoreTest, RemoveErasesRecordsWithoutDocumentCheck) {
+    auto store = std::make_shared<SessionAnnotationStore>();
+    Driver driver(store, "page-1");
+    driver.start();
+    driver.select();
+    driver.save("keep");
+    driver.select();
+    driver.save("sent");
+    const auto sent = store->records("page-1")[1]["id"].get<std::string>();
+
+    std::string error;
+    // 文档代传空也能删：发送成功后清理不该被「这一刻文档刚好换了」挡住。
+    ASSERT_TRUE(driver.session.submission({
+        {"action", "remove"}, {"document_id", ""}, {"record_ids", Json::array({sent})},
+    }, error)) << error;
+    ASSERT_EQ(store->records("page-1").size(), 1u);
+    EXPECT_EQ(store->records("page-1")[0]["description"], "keep");
+
+    EXPECT_FALSE(driver.session.submission({
+        {"action", "remove"}, {"document_id", ""},
+        {"record_ids", Json::array({"page-1:annotation:404"})},
+    }, error));
+}
+
+// 铅笔路径（#217）：改的是同一条记录，不新增、编号不变。
+TEST_F(SessionAnnotationStoreTest, EditRecordUpdatesTheSameRecordInPlace) {
+    auto store = std::make_shared<SessionAnnotationStore>();
+    Driver driver(store, "page-1");
+    driver.start();
+    driver.select();
+    driver.save("first");
+
+    Json request{{"action", "edit_record"},
+                 {"document_id", driver.session.document_id()},
+                 {"record_id", "page-1:annotation:1"}};
+    ASSERT_TRUE(driver.session.prepare("page-1", request, driver.expression, driver.error))
+        << driver.error;
+    // 回页面后 popup 必须打开、目标必须被重新选中，否则这次编辑没有落点。
+    ASSERT_TRUE(driver.session.complete(driver.session.sequence(),
+        driver.result(true, true, driver.target()), driver.error)) << driver.error;
+    const auto popup = driver.session.snapshot();
+    EXPECT_EQ(popup["draft_description"], "first");
+    EXPECT_EQ(popup["editing_record_id"], "page-1:annotation:1");
+
+    auto save = driver.command("save");
+    save["description"] = "edited";
+    save["target_id"] = "target-1";
+    ASSERT_TRUE(driver.session.prepare("page-1", save, driver.expression, driver.error)) << driver.error;
+    ASSERT_TRUE(driver.session.complete(driver.session.sequence(),
+        driver.result(true, false), driver.error)) << driver.error;
+
+    const auto& records = store->records("page-1");
+    ASSERT_EQ(records.size(), 1u);
+    EXPECT_EQ(records[0]["id"], "page-1:annotation:1");
+    EXPECT_EQ(records[0]["number"], 1);
+    EXPECT_EQ(records[0]["description"], "edited");
+    EXPECT_EQ(driver.session.snapshot()["editing_record_id"], "");
+}
+
+// 目标已失效的记录不能回页面改：调用方要退化成「只改文字」。
+TEST_F(SessionAnnotationStoreTest, EditRecordRejectsStaleRecords) {
+    auto store = std::make_shared<SessionAnnotationStore>();
+    Driver driver(store, "page-1");
+    driver.start();
+    driver.select();
+    driver.save("first");
+    driver.session.replace_document();
+    // 刷新后重新进入批注模式：文档代是新的，旧记录属于上一代。
+    driver.start();
+
+    Json request{{"action", "edit_record"},
+                 {"document_id", driver.session.document_id()},
+                 {"record_id", "page-1:annotation:1"}};
+    EXPECT_FALSE(driver.session.prepare("page-1", request, driver.expression, driver.error));
+    EXPECT_EQ(driver.error, "Annotation target is invalid");
+}
+
 } // namespace
 } // namespace acecode::desktop

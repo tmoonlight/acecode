@@ -37,6 +37,7 @@
 #include <filesystem>
 #include <fstream>
 #include <functional>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -508,6 +509,15 @@ struct AgentBrowserHost::Impl final
     : public MacAgentBrowserDelegateSink,
       public std::enable_shared_from_this<AgentBrowserHost::Impl> {
     bool parent_surface_visible = true;
+    // 会话级批注记录（Q33）：页签销毁不带走记录。
+    std::map<std::string, std::shared_ptr<SessionAnnotationStore>> annotation_stores;
+
+    std::shared_ptr<SessionAnnotationStore> annotation_store_for(const std::string& session_id) {
+        if (session_id.empty()) return std::make_shared<SessionAnnotationStore>();
+        auto& slot = annotation_stores[session_id];
+        if (!slot) slot = std::make_shared<SessionAnnotationStore>();
+        return slot;
+    }
 
     struct Page {
         std::string id;
@@ -1191,6 +1201,8 @@ struct AgentBrowserHost::Impl final
         page->state.supported = true;
         page->state.shared_with_agent = shared_with_agent;
         page->state.owner = owner;
+        // 同会话所有页签共享一个记录容器；页签关掉后记录仍在，转 orphan 继续可发。
+        page->annotations.share_store(annotation_store_for(owner.session_id));
         attach_webview(page);
 
         std::vector<AgentBrowserState> changed;

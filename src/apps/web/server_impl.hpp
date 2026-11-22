@@ -164,7 +164,6 @@ struct ParsedSessionUserInputRequest {
     int status = 400;
     std::string error;
     UserInput input;
-    AnnotationSubmissionIdentity annotation_identity;
     bool worktree_create = false;
     std::string worktree_base;
     std::string worktree_path;
@@ -478,8 +477,7 @@ struct WebServer::Impl {
     ParsedSessionUserInputRequest parse_session_user_input_request(
         const std::string& body,
         const std::string& session_id,
-        bool allow_worktree,
-        const char* annotation_reconcile_only = nullptr);
+        bool allow_worktree);
     crow::response handle_turn_input_request(const crow::request& req,
                                              const std::string& session_id,
                                              bool interrupting);
