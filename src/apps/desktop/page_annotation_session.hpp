@@ -7,10 +7,12 @@
 #include "page_annotation_submission.hpp"
 #include "page_annotation_navigation.hpp"
 #include "page_annotation_requests.hpp"
+#include "session_annotation_store.hpp"
 
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <memory>
 #include <string>
 #include <utility>
 #include <vector>
@@ -22,15 +24,24 @@ class PageAnnotationSession {
 public:
     using Json = nlohmann::json;
 
+    // 记录归属会话（Q33），页签只转发。同一会话的所有页签共享一个 store；
+    // 单页签场景（测试、未绑定会话的旧路径）允许自建一个。
+    explicit PageAnnotationSession(std::shared_ptr<SessionAnnotationStore> store =
+                                       std::make_shared<SessionAnnotationStore>())
+        : store_(std::move(store)) {}
+
     ~PageAnnotationSession() { requests.stop(); }
+
+    const std::shared_ptr<SessionAnnotationStore>& store() const { return store_; }
 
     const std::string& document_id() const { return document_id_; }
     AnnotationNavigationGuard navigation;
     AnnotationRequests requests;
     std::uint64_t revision() const { return revision_; }
     bool has_unsent_work() const {
+        const auto& records = store_->records(page_id_);
         return !targets_.empty() || !region_.is_null() || !selection_mode_.is_null() || busy_ ||
-            std::any_of(records_.begin(), records_.end(), [](const auto& record) {
+            std::any_of(records.begin(), records.end(), [](const auto& record) {
                 return record["status"] != "sent";
             });
     }
@@ -39,18 +50,21 @@ public:
         if (!result.is_object() || result.value("document_id", Json()) != document_id_) return false;
         if (!result.contains("invalid_numbers")) return true;
         const auto& numbers = result["invalid_numbers"];
-        if (!numbers.is_array() || numbers.size() > records_.size()) return false;
+        if (!numbers.is_array()) return false;
+        if (numbers.empty()) return true;
+        auto& records = store_->mutable_records(page_id_);
+        if (numbers.size() > records.size()) return false;
         Json matched = Json::array();
         for (const auto& number : numbers) {
             if (!number.is_number_unsigned() && !number.is_number_integer()) return false;
-            const auto found = std::find_if(records_.begin(), records_.end(), [&](const auto& record) {
+            const auto found = std::find_if(records.begin(), records.end(), [&](const auto& record) {
                 return record["document_id"] == document_id_ && record["number"] == number;
             });
-            if (found == records_.end() || std::find(matched.begin(), matched.end(), number) != matched.end()) return false;
+            if (found == records.end() || std::find(matched.begin(), matched.end(), number) != matched.end()) return false;
             matched.push_back(number);
         }
         bool changed = false;
-        for (auto& record : records_) {
+        for (auto& record : records) {
             if (record["document_id"] == document_id_ && record["valid"] == true &&
                 std::find(matched.begin(), matched.end(), record["number"]) != matched.end()) {
                 record["valid"] = false;
@@ -63,11 +77,12 @@ public:
     }
 
     Json snapshot() const {
-        const auto pending_count = std::count_if(records_.begin(), records_.end(),
+        const auto& records = store_->records(page_id_);
+        const auto pending_count = std::count_if(records.begin(), records.end(),
             [](const auto& record) { return record["status"] != "sent"; });
         return {{"document_id", document_id_}, {"active", active_},
                 {"popup", popup_}, {"target", target_}, {"targets", targets_}, {"region", region_},
-                {"selection_mode", selection_mode_}, {"viewport", viewport_}, {"records", records_},
+                {"selection_mode", selection_mode_}, {"viewport", viewport_}, {"records", records},
                 {"pending_count", pending_count}, {"original", original_}, {"differences", differences_},
                 {"page_background", page_background_}, {"markers_hidden", markers_hidden_},
                 {"modal_suspended", modal_suspended_},
@@ -111,7 +126,7 @@ public:
             return false;
         }
         Json selected;
-        if (!annotation_submission_records(command, records_, selected, error)) return false;
+        if (!annotation_submission_records(command, store_->records(page_id_), selected, error)) return false;
         for (const auto& record : selected) {
             if (record["document_id"] != command["document_id"] ||
                 (!acknowledge && (record["valid"] != true || record["status"] == "sent" ||
@@ -121,7 +136,7 @@ public:
             }
         }
         if (acknowledge) {
-            for (auto& record : records_) {
+            for (auto& record : store_->mutable_records(page_id_)) {
                 for (const auto& accepted : selected) {
                     if (record["id"] == accepted["id"]) record["status"] = "sent";
                 }
@@ -158,7 +173,7 @@ public:
         differences_ = Json::array();
         page_background_.clear();
         document_id_.clear();
-        for (auto& record : records_) {
+        for (auto& record : store_->mutable_records(page_id_)) {
             record["valid"] = false;
             record["invalid_reason"] = "document_replaced";
         }
@@ -280,7 +295,7 @@ public:
             payload["target_id"] = command["target_id"];
             payload["target_ids"] = command["target_ids"];
             payload["region"] = region_;
-            payload["number"] = next_number_;
+            payload["number"] = store_->next_number(page_id_);
         }
         if (action == "preview_text") {
             payload["target_id"] = command["target_id"];
@@ -377,17 +392,14 @@ public:
                 target.erase("style_preview");
                 target.erase("text_preview");
             }
-            records_.push_back({
-                {"id", document_id_ + ":annotation:" + std::to_string(next_number_)},
-                {"number", next_number_++}, {"document_id", document_id_},
-                {"page_id", page_id_},
+            store_->append(page_id_, {
+                {"document_id", document_id_},
                 {"description", pending_["description"]}, {"targets", saved_targets},
                 {"differences", result.value("differences", Json::array())}, {"region", region_},
                 {"status", "pending"}, {"valid", true},
             });
         } else if (action == "discard") {
-            records_.clear();
-            next_number_ = 1;
+            store_->discard(page_id_);
         }
         active_ = result["active"].get<bool>();
         popup_ = result["popup"].get<bool>();
@@ -523,12 +535,12 @@ private:
         return std::find(result["targets"].begin(), result["targets"].end(), target) != result["targets"].end();
     }
 
+    std::shared_ptr<SessionAnnotationStore> store_;
     std::string document_id_;
     std::string page_id_;
     std::uint64_t epoch_ = 1;
     std::uint64_t sequence_ = 0;
     std::uint64_t revision_ = 0;
-    std::uint64_t next_number_ = 1;
     bool busy_ = false;
     bool active_ = false;
     bool popup_ = false;
@@ -542,7 +554,6 @@ private:
     bool poll_pending_ = false;
     std::uint64_t poll_token_ = 0;
     Json viewport_ = nullptr;
-    Json records_ = Json::array();
     Json differences_ = Json::array();
     std::string page_background_;
     Json pending_;

@@ -2,11 +2,14 @@
 
 > 顺序即依赖顺序。P1 必须行为零变化——它是纯搬运，任何行为差异都算 bug。
 
-- [ ] **P0 基线**：把当前 WIP（51 个改动）提交为一条 `wip:` 提交，让后续每批的 diff 可读。
-- [ ] **P1 记录上提（纯搬运）**
-  - [ ] 新增 `src/apps/desktop/session_annotation_store.hpp`：`records` / `in_flight` / 按 `page_id` 分组的 `next_number`
-  - [ ] `page_annotation_session.hpp` 的 `records_` / `next_number_` 改为转发到 store
-  - [ ] 既有 74 行 session 测试全绿（行为不变）
+- [x] **P0 基线**：把当前 WIP（51 个改动）提交为一条 `wip:` 提交，让后续每批的 diff 可读。
+  - 54 个改动落成两条提交：`9da82a61 docs: 批注重设计文档基线` + `44c3fad4 wip: codex visual parity, style panel, native overlay geometry`
+- [x] **P1 记录上提（纯搬运）**
+  - [x] 新增 `src/apps/desktop/session_annotation_store.hpp`：`records` / `in_flight` / 按 `page_id` 分组的 `next_number`
+  - [x] `page_annotation_session.hpp` 的 `records_` / `next_number_` 改为转发到 store
+  - [x] 既有 49 条批注测试全绿（行为不变）+ 新增 5 条 store 契约测试
+  - 偏差：记录标识按 #208 结论改为 `<page_id>:annotation:<n>`（原计划留给后续，但那会让 P1 之后再改一次主键，索性一次到位）。`locator` 生成仍留给 #210/#217。
+  - 未做：host 层按 `owner.session_id` 共享 store —— 属 P2（#211 关页签不丢），此处每个页签仍自建。
 - [ ] **P2 四态与 orphan**
   - [ ] `valid: bool` → `live / replayable / stale / orphan`
   - [ ] `close_page` 不再析构记录，转 `orphan` 并广播
