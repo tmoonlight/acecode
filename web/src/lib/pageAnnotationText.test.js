@@ -5,7 +5,8 @@ import { DOMParser } from '@xmldom/xmldom';
 
 const header = name => fs.readFileSync(new URL(`../../../src/apps/desktop/${name}.hpp`, import.meta.url), 'utf8');
 const textRuntime = header('page_annotation_text_runtime').split('R"ACETEXT(')[1].split(')ACETEXT"')[0];
-const runtime = header('page_annotation_runtime').split('R"ACEANNOTATION(')[1].split(')ACEANNOTATION"')[0];
+const runtime = header('page_annotation_runtime').split('R"ACEANNOTATION(').slice(1)
+  .map(part => part.split(')ACEANNOTATION"')[0]).join('');
 
 function fixture(markup = '<button id="target">Hello <strong>world</strong>!<span hidden="">secret</span></button>') {
   const document = new DOMParser().parseFromString(`<html><body>${markup}</body></html>`, 'text/html');
@@ -59,13 +60,11 @@ function fixture(markup = '<button id="target">Hello <strong>world</strong>!<spa
           select() {}, save:() => [], cancel() {}, setOriginal() {}, dispose() {}}))`, context,
     )));
   };
-  const click = node => listeners.get(node === target ? document : node).get('click')({
+  const click = node => listeners.get(document).get('click')({
     isTrusted:true, button:0, composedPath:() => [node], preventDefault() {}, stopImmediatePropagation() {}, stopPropagation() {},
   });
   const select = () => {
     click(target);
-    const host = document.documentElement.lastChild;
-    click(host.shadow.childNodes[1]);
     return run('read').target.id;
   };
   return {document, target, text, run, select, listeners};
@@ -288,7 +287,8 @@ for (const childFirst of [true, false]) {
   run('original', {enabled:false});
   run('cancel');
   assert.equal(target.firstChild.data, 'Saved ');
-  const pin = target.ownerDocument.documentElement.lastChild.shadow.childNodes[3];
+  const pin = Array.from(target.ownerDocument.documentElement.lastChild.shadow.childNodes)
+    .find(node => node.getAttribute?.('data-ace-annotation-pin') === '1');
   assert.equal(pin.textContent, '1');
   select();
   run('preview_text', {target_id:id, text:'Unsaved world!'});

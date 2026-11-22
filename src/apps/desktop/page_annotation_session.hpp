@@ -68,7 +68,10 @@ public:
         return {{"document_id", document_id_}, {"active", active_},
                 {"popup", popup_}, {"target", target_}, {"targets", targets_}, {"region", region_},
                 {"selection_mode", selection_mode_}, {"viewport", viewport_}, {"records", records_},
-                {"pending_count", pending_count}, {"original", original_}, {"differences", differences_}, {"revision", revision_}};
+                {"pending_count", pending_count}, {"original", original_}, {"differences", differences_},
+                {"page_background", page_background_}, {"markers_hidden", markers_hidden_},
+                {"modal_suspended", modal_suspended_},
+                {"revision", revision_}};
     }
 
     bool submission(const Json& command, std::string& expression, std::string& error) {
@@ -146,11 +149,14 @@ public:
         active_ = false;
         popup_ = false;
         original_ = false;
+        markers_hidden_ = false;
+        modal_suspended_ = false;
         target_ = nullptr;
         targets_ = Json::array();
         region_ = nullptr;
         selection_mode_ = nullptr;
         differences_ = Json::array();
+        page_background_.clear();
         document_id_.clear();
         for (auto& record : records_) {
             record["valid"] = false;
@@ -176,7 +182,8 @@ public:
         if (action != "start" && action != "read" && action != "exit" &&
             action != "cancel" && action != "save" && action != "add_target" &&
             action != "add_region" && action != "select_target" && action != "select_region" &&
-            action != "preview_text" && action != "preview_style" && action != "original") {
+            action != "preview_text" && action != "preview_style" && action != "original" &&
+            action != "hide_markers" && action != "set_modal_suspended" && action != "discard") {
             error = "Unsupported annotation action";
             return false;
         }
@@ -185,6 +192,8 @@ public:
                 !(action == "preview_style" && (item.key() == "styles" || item.key() == "ratio_lock" || item.key() == "target_id")) &&
                 !(action == "preview_text" && (item.key() == "text" || item.key() == "target_id")) &&
                 !(action == "original" && item.key() == "enabled") &&
+                !(action == "hide_markers" && item.key() == "enabled") &&
+                !(action == "set_modal_suspended" && item.key() == "enabled") &&
                 !(action == "save" && (item.key() == "description" || item.key() == "target_id" ||
                                       item.key() == "target_ids" || item.key() == "region")) &&
                 !(action == "select_target" && item.key() == "target_id")) {
@@ -248,6 +257,15 @@ public:
             error = "Invalid original view request";
             return false;
         }
+        if (action == "hide_markers" && (!command.contains("enabled") || !command["enabled"].is_boolean())) {
+            error = "Invalid marker visibility request";
+            return false;
+        }
+        if (action == "set_modal_suspended" &&
+            (!command.contains("enabled") || !command["enabled"].is_boolean())) {
+            error = "Invalid modal suspension request";
+            return false;
+        }
         if (action == "preview_style" && (!active_ || !popup_ || original_ || !selection_mode_.is_null() || !target_.is_object() ||
             !command.contains("target_id") || command["target_id"] != target_["id"] ||
             !command.contains("styles") || !valid_styles(command["styles"]) ||
@@ -269,6 +287,8 @@ public:
             payload["text"] = command["text"];
         }
         if (action == "original") payload["enabled"] = command["enabled"];
+        if (action == "hide_markers") payload["enabled"] = command["enabled"];
+        if (action == "set_modal_suspended") payload["enabled"] = command["enabled"];
         if (action == "select_target") payload["target_id"] = command["target_id"];
         if (action == "preview_style") {
             payload["target_id"] = command["target_id"];
@@ -331,16 +351,20 @@ public:
             error = "Invalid annotation lifecycle report";
             return false;
         }
-        if ((action == "save" || action == "cancel" || action == "exit") &&
+        if ((action == "save" || action == "cancel" || action == "exit" || action == "discard") &&
             (!result["target"].is_null() || result["popup"] != false ||
              !result["targets"].empty() || !result["region"].is_null() || !result["selection_mode"].is_null())) {
             error = "Annotation action did not complete";
             return false;
         }
-        const bool changed = action == "save" || action == "original" || active_ != result["active"] ||
+        const bool changed = action == "save" || action == "original" || action == "discard" ||
+            action == "hide_markers" || action == "set_modal_suspended" || active_ != result["active"] ||
             popup_ != result["popup"] || target_ != result["target"] || viewport_ != result["viewport"] ||
             targets_ != result["targets"] || region_ != result["region"] || selection_mode_ != result["selection_mode"] ||
-            differences_ != result.value("differences", Json::array());
+            differences_ != result.value("differences", Json::array()) ||
+            page_background_ != result.value("page_background", std::string()) ||
+            markers_hidden_ != result.value("markers_hidden", false) ||
+            modal_suspended_ != result.value("modal_suspended", false);
         if (((action == "preview_style" || action == "preview_text") &&
              (result["target"].is_null() || result["target"]["id"] != target_["id"])) ||
             (action == "original" && result.value("original", false) != pending_["enabled"])) {
@@ -361,6 +385,9 @@ public:
                 {"differences", result.value("differences", Json::array())}, {"region", region_},
                 {"status", "pending"}, {"valid", true},
             });
+        } else if (action == "discard") {
+            records_.clear();
+            next_number_ = 1;
         }
         active_ = result["active"].get<bool>();
         popup_ = result["popup"].get<bool>();
@@ -371,6 +398,9 @@ public:
         viewport_ = result["viewport"];
         original_ = result.value("original", false);
         differences_ = targets_.empty() ? Json::array() : result.value("differences", Json::array());
+        page_background_ = result.value("page_background", std::string());
+        markers_hidden_ = result.value("markers_hidden", false);
+        modal_suspended_ = result.value("modal_suspended", false);
         if (changed) ++revision_;
         return true;
     }
@@ -443,6 +473,11 @@ private:
             if (!std::isfinite(value) || value <= 0 || value > 10000000) return false;
         }
         if (result.contains("original") && !result["original"].is_boolean()) return false;
+        if (result.contains("markers_hidden") && !result["markers_hidden"].is_boolean()) return false;
+        if (result.contains("modal_suspended") && !result["modal_suspended"].is_boolean()) return false;
+        if (result.contains("page_background") &&
+            (!result["page_background"].is_string() ||
+             result["page_background"].get_ref<const std::string&>().size() > 128)) return false;
         if (result.contains("differences")) {
             if (!result["differences"].is_array() || result["differences"].size() > 3136) return false;
             std::vector<std::pair<std::string, std::string>> seen;
@@ -498,6 +533,8 @@ private:
     bool active_ = false;
     bool popup_ = false;
     bool original_ = false;
+    bool markers_hidden_ = false;
+    bool modal_suspended_ = false;
     Json target_ = nullptr;
     Json targets_ = Json::array();
     Json region_ = nullptr;
@@ -507,6 +544,7 @@ private:
     Json viewport_ = nullptr;
     Json records_ = Json::array();
     Json differences_ = Json::array();
+    std::string page_background_;
     Json pending_;
 };
 

@@ -27,6 +27,7 @@ import {
   failedNativeSurfaceOcclusionSignature,
   nativeSurfaceOcclusionRectsFromClientRects,
   nativeSurfaceLayoutWithOcclusionFallback,
+  nativeSurfaceInteractionBlockedByDocument,
   nativeSurfaceOverlayGeometryByDocument,
   nativeSurfaceShouldShow,
   nativeSurfaceSupportsLocalOcclusion,
@@ -143,6 +144,8 @@ export function AgentBrowserPanel({
       scale,
       visible,
     );
+    desiredLayout.interaction_blocked = !forceHidden &&
+      nativeSurfaceInteractionBlockedByDocument(surfaceRect, document, window);
     desiredLayout.occlusion_rects = visible && supportsLocalOcclusion
       ? nativeSurfaceOcclusionRectsFromClientRects(
           surfaceRect,
@@ -268,7 +271,9 @@ export function AgentBrowserPanel({
       attributeFilter: [
         'aria-hidden',
         'class',
+        'data-ace-native-interaction',
         'data-ace-native-overlay',
+        'data-ace-native-overlay-bleed',
         'hidden',
         'style',
       ],
@@ -457,25 +462,15 @@ export function AgentBrowserPanel({
         <div className="ace-agent-browser-toolbar-actions">
           <button
             type="button"
-            className={clsx('ace-agent-browser-toolbar-button', annotations.snapshot.active && 'is-checked')}
+            className={clsx('ace-agent-browser-annotation-toggle', annotations.snapshot.active && 'is-active')}
             disabled={!nativePageVisible || state.element_selection_active || annotations.working}
             aria-pressed={!!annotations.snapshot.active}
             aria-label={annotations.snapshot.active ? '退出网页批注' : '网页批注'}
+            title={annotations.snapshot.active ? '退出网页批注' : '网页批注'}
             onClick={() => annotations.command(annotations.snapshot.active ? 'exit' : 'start')}
           >
-            批注
-          </button>
-          {(annotations.snapshot.active || annotations.snapshot.records?.length > 0) && (
-            <button
-              type="button"
-              className={clsx('ace-agent-browser-toolbar-button', annotations.snapshot.original && 'is-checked')}
-              disabled={!nativePageVisible || annotations.working || !annotations.snapshot.document_id}
-              aria-pressed={!!annotations.snapshot.original}
-              onClick={() => annotations.command('original', { enabled: !annotations.snapshot.original })}
-            >
-              原始页面
+            <VsIcon name="chat" size={16} />
             </button>
-          )}
           <button
             type="button"
             className={clsx(
@@ -518,6 +513,9 @@ export function AgentBrowserPanel({
               viewportRef={viewportRef}
             />
           )}
+          <PageAnnotationSendBar pageId={pageId} snapshot={annotations.snapshot}
+            api={api} sessionId={sessionId} page={state}
+            command={annotations.command} working={annotations.working} />
           {surface.kind === 'empty' && (
             <AgentBrowserNewTab
               recentFiles={recentFiles}
@@ -529,8 +527,6 @@ export function AgentBrowserPanel({
           {!nativePageVisible && surface.kind !== 'empty' && statusSurface}
         </div>
       </div>
-      <PageAnnotationSendBar pageId={pageId} snapshot={annotations.snapshot}
-        api={api} sessionId={sessionId} page={state} />
       {annotations.error && (
         <div className="flex items-center gap-3 border-t border-border px-3 py-1.5 text-[12px] text-fg-2">
           {annotations.error && <span role="alert" className="text-err">{annotations.error}</span>}

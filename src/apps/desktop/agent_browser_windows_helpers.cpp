@@ -501,10 +501,38 @@ bool apply_agent_browser_widget_region(
             height, occlusion.y + occlusion.height));
         if (right <= left || bottom <= top) continue;
 
-        HRGN hole = ::CreateRectRgn(left, top, right, bottom);
+        // Match the overlay's rounded corners so the WebUI background cannot
+        // peek through the native rectangle at the corners. Corners the
+        // surface cut stay square: rounding them would paint a curve of
+        // Browser content across the overlay at the surface edge.
+        const int radius = (std::max)(0, (std::min)(
+            occlusion.radius, (std::min)(right - left, bottom - top) / 2));
+        HRGN hole = radius > 0
+            ? ::CreateRoundRectRgn(left, top, right, bottom, radius * 2, radius * 2)
+            : ::CreateRectRgn(left, top, right, bottom);
         if (!hole) {
             ::DeleteObject(visible_region);
             return false;
+        }
+        const int cut_corners = radius > 0 ? (occlusion.square_corners & 0xF) : 0;
+        if (cut_corners) {
+            // RGN_OR of the corner quarter squares turns each clipped corner of
+            // the rounded hole back into a right angle.
+            const RECT corners[4] = {
+                {left, top, left + radius, top + radius},
+                {right - radius, top, right, top + radius},
+                {right - radius, bottom - radius, right, bottom},
+                {left, bottom - radius, left + radius, bottom},
+            };
+            for (int index = 0; index < 4; ++index) {
+                if (!(cut_corners & (1 << index))) continue;
+                const RECT& corner = corners[index];
+                HRGN square = ::CreateRectRgn(corner.left, corner.top, corner.right,
+                                              corner.bottom);
+                if (!square) continue;
+                ::CombineRgn(hole, hole, square, RGN_OR);
+                ::DeleteObject(square);
+            }
         }
         const int combine_result =
             ::CombineRgn(visible_region, visible_region, hole, RGN_DIFF);

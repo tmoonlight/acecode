@@ -14,7 +14,8 @@ inline constexpr const char kPageAnnotationStyleRuntime[] = R"ACESTYLES(
     gap:['row-gap','column-gap'],
   };
   const fields = ['color','background-color','opacity','font-family','font-size','font-weight',
-    'width','height','letter-spacing','word-spacing',...Object.keys(groups),...Object.values(groups).flat()];
+    'width','height','letter-spacing','word-spacing','row-gap','column-gap',
+    ...Object.keys(groups),...Object.values(groups).flat()];
   const properties = [...new Set(fields.flatMap(field => groups[field] || [field])),
     ...sides.map(side => `border-${side}-style`)];
   const token = `data-ace-preview-${Array.from(crypto.getRandomValues(new Uint32Array(4)),value => value.toString(16)).join('')}`;
@@ -164,12 +165,16 @@ inline constexpr const char kPageAnnotationStyleRuntime[] = R"ACESTYLES(
         draft.touched.add(linked);
         apply();
       }
-      draft.errors = [...draft.touched].filter(property => target.style.getPropertyPriority(property) === 'important' &&
-        Object.hasOwn(draft.styles,property)).map(property => `inline_important:${property}`);
+      draft.errors = [];
     },
     describe(target,id) {
       const state = stateFor(target,id);
-      return {values:computed(target),styles:{...state.draft?.styles},
+      const values = computed(target);
+      const baseline = state.draft?.baseline;
+      const previous = baseline
+        ? Object.fromEntries([...new Set([...fields,...properties])].map(field => [field,baseline[field] ?? values[field]]))
+        : values;
+      return {values,previous_values:previous,styles:{...state.draft?.styles},
         ratio_locked:!!state.draft?.ratio,ratio:state.draft?.ratio || null,errors:state.draft?.errors || []};
     },
     differences() { return [...targets.values()].flatMap(changes); },
@@ -186,6 +191,13 @@ inline constexpr const char kPageAnnotationStyleRuntime[] = R"ACESTYLES(
       return differences;
     },
     cancel() { for (const state of targets.values()) state.draft = null; apply(); },
+    discardAll() {
+      for (const state of targets.values()) {
+        state.saved = {};
+        state.draft = null;
+      }
+      apply();
+    },
     invalidate(ids) {
       for (const id of ids) {
         const state = targets.get(id);

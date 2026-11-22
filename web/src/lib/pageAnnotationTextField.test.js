@@ -63,5 +63,11 @@ const textarea = field => field.props.children.find(child => child?.type === 'te
   field = PageAnnotationTextField({...props, target:{...target, text_preview:{value:'', editable:false, error:'Text is not editable'}}});
   assert.equal(textarea(field).props.disabled, true);
   assert.equal(field.props.children[2].props.role, 'alert');
+  assert.equal(field.props.children[2].props.children, 'Text is not editable');
+  // Native prose hints must be localized through the i18n catalog, never shown raw.
+  field = PageAnnotationTextField({...props, target:{...target, text_preview:{value:'', editable:false, error:'Text exceeds the editable limit or is not visible content'}}});
+  assert.equal(field.props.children[2].props.children, '文本超出可编辑上限，或该内容不可见');
+  field = PageAnnotationTextField({...props, target:{...target, text_preview:{value:'', editable:false, error:'Text nodes changed; cancel and select the element again'}}});
+  assert.equal(field.props.children[2].props.children, '文本节点已变化，请取消后重新选择元素');
   console.log('[pass] production text field keeps rapid local edits, binds target/document and queues save after previews');
 }

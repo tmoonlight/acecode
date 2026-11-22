@@ -8,7 +8,7 @@ import { pathToFileURL } from 'node:url';
 const binary = process.argv[2];
 assert.ok(binary, 'Usage: node tests/desktop/page_annotation_lifecycle_smoke.mjs <Chromium executable>');
 const factory = (file, delimiter) => fs.readFileSync(new URL(`../../src/apps/desktop/${file}`, import.meta.url), 'utf8')
-  .split(`R"${delimiter}(`)[1].split(`)${delimiter}"`)[0];
+  .split(`R"${delimiter}(`).slice(1).map(part => part.split(`)${delimiter}"`)[0]).join('');
 const runtime = factory('page_annotation_runtime.hpp', 'ACEANNOTATION');
 const text = factory('page_annotation_text_runtime.hpp', 'ACETEXT');
 const styles = factory('page_annotation_style_runtime.hpp', 'ACESTYLES');
@@ -38,14 +38,11 @@ try {
   };
   const run = command => (${runtime})({document_id:'document-1', ...command}, ${text}, ${styles});
   run({action:'start'});
-  const annotationRoot = roots.find(root => root.querySelector('button')?.textContent === 'Annotate');
+  const annotationRoot = roots.find(root => root.host?.hasAttribute('data-ace-annotation-overlay'));
+  check(annotationRoot, 'annotation overlay shadow root');
   const event = target => ({isTrusted:true, button:0, composedPath:() => [target],
     preventDefault() {}, stopPropagation() {}, stopImmediatePropagation() {}});
   const select = target => listeners.get(document).get('click')(event(target));
-  const open = () => {
-    const button = annotationRoot.querySelector('button');
-    listeners.get(button).get('click')(event(button));
-  };
   const save = number => {
     const snapshot = run({action:'read'});
     const result = run({action:'save', number, target_id:snapshot.target?.id || null,
@@ -54,7 +51,13 @@ try {
   };
   const first = document.getElementById('first');
   const second = document.getElementById('second');
-  select(first); open();
+  listeners.get(document).get('pointermove')({...event(first), clientX:12, clientY:12, pointerId:9});
+  check(annotationRoot.querySelector('[data-ace-annotation-hover]').style.display === 'block', 'hover outline');
+  const hoverInfo = annotationRoot.querySelector('[data-ace-annotation-info]');
+  check(hoverInfo.style.display === 'block' && hoverInfo.textContent.includes('button'), 'hover info card');
+  select(first);
+  check(run({action:'read'}).popup === true, 'element click opens the popup directly');
+  check(annotationRoot.querySelector('[data-ace-annotation-hover]').style.display === 'none', 'hover hidden after click');
   const firstId = run({action:'read'}).target.id;
   check(!run({action:'preview_text',target_id:firstId,text:'Edited'}).error, 'text preview');
   check(!run({action:'preview_style',target_id:firstId,styles:{color:'rgb(0,0,255)'}}).error, 'style preview');
@@ -74,21 +77,21 @@ try {
   check(!validation.valid && validation.invalid_numbers.includes(1), 'queued ancestor removal and reinsertion');
   check(first.textContent === 'Original', 'invalid text restored');
   check(getComputedStyle(first).color === 'rgb(255, 0, 0)', 'invalid style restored');
-  check(annotationRoot.querySelector('span').style.display === 'none', 'whole multi-target pin hidden');
+  check(annotationRoot.querySelector('[data-ace-annotation-pin="1"]').style.display === 'none', 'whole multi-target pin hidden');
   const replacement = first.cloneNode(true);
   first.replaceWith(replacement);
-  run({action:'start'}); select(replacement); open();
+  run({action:'start'}); select(replacement);
   check(run({action:'read'}).target.id !== firstId, 'similar element not relocated');
   run({action:'cancel'});
   const shadowHost = document.getElementById('shadow-host');
   const shadow = shadowHost.attachShadow({mode:'open'});
   shadow.innerHTML = '<div><button>Shadow</button></div>';
   const shadowTarget = shadow.querySelector('button');
-  select(shadowTarget); open(); save(2);
+  select(shadowTarget); save(2);
   const parent = shadowTarget.parentNode;
   parent.remove(); shadow.append(parent);
   check(run({action:'read'}).invalid_numbers.includes(2), 'shadow ancestor removal and reinsertion');
-  run({action:'start'}); select(second); open();
+  run({action:'start'}); select(second);
   run({action:'add_region'});
   for (const [type,clientX,clientY] of [['pointerdown',30,40],['pointerup',80,90]]) {
     listeners.get(document).get(type)({...event(second),pointerId:2,clientX,clientY});
@@ -111,6 +114,10 @@ try {
   assert.ifError(result.error);
   assert.equal(result.status, 0, result.stderr);
   const outcome = result.stdout.match(/<pre id="result">([\s\S]*?)<\/pre>/)?.[1];
+  if (!outcome?.startsWith('PASS:')) {
+    console.error(result.stdout.slice(-4000));
+    console.error(result.stderr.slice(-2000));
+  }
   assert.ok(outcome?.startsWith('PASS:'), outcome || result.stdout || result.stderr);
   console.log(outcome);
 } finally {

@@ -93,6 +93,17 @@ TEST_F(PageAnnotationSessionTest, PassivePollIsBoundedAndNeverAdvancesCommandSeq
     EXPECT_EQ(session.begin_poll(), 0);
 }
 
+TEST_F(PageAnnotationSessionTest, SnapshotRetainsPageBackgroundForOverlayCorners) {
+    ASSERT_TRUE(prepare(command("start"))) << error;
+    auto initial = result(true, false);
+    initial["page_background"] = "rgb(18, 53, 30)";
+    ASSERT_TRUE(session.complete(session.sequence(), initial, error)) << error;
+    EXPECT_EQ(session.snapshot()["page_background"], "rgb(18, 53, 30)");
+
+    session.replace_document();
+    EXPECT_EQ(session.snapshot()["page_background"], "");
+}
+
 TEST_F(PageAnnotationSessionTest, HeldCaptureCancelsOnReplacementAndDeadlineExactlyOnce) {
     for (const bool replace : {true, false}) {
         start();
@@ -338,6 +349,69 @@ TEST_F(PageAnnotationSessionTest, CancelAndExitPreserveSavedRecordsAndDoNotAlloc
     select();
     save("After reopening");
     EXPECT_EQ(session.snapshot()["records"][1]["number"], 2);
+}
+
+TEST_F(PageAnnotationSessionTest, HideMarkersAndDiscardAllKeepSessionStateExplicit) {
+    start();
+    select();
+    save("__annotation_description_sentinel__");
+    ASSERT_EQ(session.snapshot()["pending_count"], 1);
+
+    auto hidden = command("hide_markers");
+    hidden["enabled"] = true;
+    ASSERT_TRUE(prepare(hidden)) << error;
+    auto hidden_result = result();
+    hidden_result["markers_hidden"] = true;
+    ASSERT_TRUE(session.complete(session.sequence(), hidden_result, error)) << error;
+    EXPECT_EQ(session.snapshot()["markers_hidden"], true);
+    EXPECT_EQ(session.snapshot()["pending_count"], 1);
+
+    ASSERT_TRUE(prepare(command("discard"))) << error;
+    ASSERT_TRUE(session.complete(session.sequence(), result(), error)) << error;
+    EXPECT_EQ(session.snapshot()["markers_hidden"], false);
+    EXPECT_TRUE(session.snapshot()["records"].empty());
+    EXPECT_EQ(session.snapshot()["pending_count"], 0);
+    EXPECT_FALSE(session.has_unsent_work());
+}
+
+TEST_F(PageAnnotationSessionTest, ModalSuspensionIsValidatedAndTracked) {
+    start();
+    select();
+
+    // set_modal_suspended requires a boolean `enabled` field.
+    auto missing = command("set_modal_suspended");
+    EXPECT_FALSE(prepare(missing));
+    auto invalid = command("set_modal_suspended");
+    invalid["enabled"] = "yes";
+    EXPECT_FALSE(prepare(invalid));
+
+    auto suspend = command("set_modal_suspended");
+    suspend["enabled"] = true;
+    ASSERT_TRUE(prepare(suspend)) << error;
+    EXPECT_NE(expression.find("set_modal_suspended"), std::string::npos);
+    EXPECT_NE(expression.find("\"enabled\":true"), std::string::npos);
+    auto suspended_result = result();
+    suspended_result["modal_suspended"] = true;
+    ASSERT_TRUE(session.complete(session.sequence(), suspended_result, error)) << error;
+    EXPECT_EQ(session.snapshot()["modal_suspended"], true);
+
+    auto bad_result_request = command("set_modal_suspended");
+    bad_result_request["enabled"] = false;
+    ASSERT_TRUE(prepare(bad_result_request)) << error;
+    auto non_boolean = result();
+    non_boolean["modal_suspended"] = "true";
+    EXPECT_FALSE(session.complete(session.sequence(), non_boolean, error));
+
+    auto resume = command("set_modal_suspended");
+    resume["enabled"] = false;
+    ASSERT_TRUE(prepare(resume)) << error;
+    auto resumed_result = result();
+    resumed_result["modal_suspended"] = false;
+    ASSERT_TRUE(session.complete(session.sequence(), resumed_result, error)) << error;
+    EXPECT_EQ(session.snapshot()["modal_suspended"], false);
+
+    session.replace_document();
+    EXPECT_EQ(session.snapshot()["modal_suspended"], false);
 }
 
 TEST_F(PageAnnotationSessionTest, TextCommandsBindTargetAndSaveOnlyAcknowledgedActualDifferences) {

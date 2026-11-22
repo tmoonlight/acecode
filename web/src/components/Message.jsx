@@ -23,6 +23,7 @@ import { resolveLeadingSlashCommand } from '../lib/slashCommands.js';
 import { useSlashCommands } from './SlashCommandsContext.jsx';
 import { AttachmentStrip } from './AttachmentStrip.jsx';
 import { ImageLightbox } from './ImageLightbox.jsx';
+import { PageAnnotationMessageCard } from './PageAnnotationMessageCard.jsx';
 import { attachmentsFromContentParts, isImageAttachment } from '../lib/messageAttachments.js';
 import {
   composerContentAttachments,
@@ -38,6 +39,12 @@ import { AttachmentTextLoaderContext } from './AttachmentTextLoaderContext.jsx';
 import { PastedTextCard } from './PastedTextCard.jsx';
 import { PastedTextDialog } from './PastedTextDialog.jsx';
 import { extractSessionReferences } from '../lib/sessionReference.js';
+import {
+  contentPartsWithoutAnnotationScreenshot,
+  pageAnnotationMessageCopyText,
+  pageAnnotationScreenshot,
+  parsePageAnnotationMessage,
+} from '../lib/pageAnnotationMessage.js';
 import { basenameForPath } from '../lib/selectionChatContext.js';
 import { DESKTOP_CONTEXT_ACTION_EVENT, DESKTOP_CONTEXT_ACTIONS } from '../lib/desktopContextMenu.js';
 
@@ -323,6 +330,10 @@ function UserBubble({
   const hasBubbleBody = composerContent
     ? composerContent.parts.some((part) => !isThumbnailPart(part))
     : !!content;
+  const annotationCard = useMemo(() => parsePageAnnotationMessage(
+    composerContent ? composerContentText(composerContent) : content,
+  ), [composerContent, content]);
+  const annotationShot = annotationCard ? pageAnnotationScreenshot(contentParts) : null;
   // f300:2400 多万字符的旧消息整段进 pre-wrap 气泡会卡死页面。气泡只渲染有界预览,
   // 截断时显示 … 与「查看全文」(只读对话框);复制仍取全文。
   const messagePreview = useMemo(() => {
@@ -349,11 +360,19 @@ function UserBubble({
         </span>
       )}
       <AttachmentStrip
-        contentParts={remainingParts}
+        contentParts={annotationCard
+          ? contentPartsWithoutAnnotationScreenshot(remainingParts, annotationShot)
+          : remainingParts}
         annotationPresentations={annotationPresentations}
         align="right"
       />
-      {hasBubbleBody ? (
+      {annotationCard ? (
+        <PageAnnotationMessageCard
+          title={annotationCard.title}
+          comments={annotationCard.comments}
+          imageUrl={annotationShot?.blob_url || annotationShot?.preview_url || annotationShot?.url || ''}
+        />
+      ) : hasBubbleBody ? (
         <div className="ace-user-message-bubble ace-chat-message-content min-w-0 max-w-full px-3.5 py-2 rounded-[14px] rounded-br-[4px] bg-accent-bg border border-accent-soft text-fg text-[13px] leading-[1.5] whitespace-pre-wrap break-words">
           {messagePreview.composerContent ? (
             <OrderedUserMessageBody composerContent={messagePreview.composerContent} contentParts={contentParts}
@@ -387,9 +406,11 @@ function UserBubble({
           {ts != null && <span className="text-[10px] text-fg-mute">{relativeTime(ts)}</span>}
           <MessageActions
             messageId={messageId}
-            getCopyText={() => composerContent
-              ? extractSessionReferences(composerContentClipboardText(composerContent)).displayText
-              : content}
+            getCopyText={() => (annotationCard
+              ? pageAnnotationMessageCopyText(annotationCard)
+              : (composerContent
+                ? extractSessionReferences(composerContentClipboardText(composerContent)).displayText
+                : content))}
             onFork={onFork}
             forkPending={forkPending}
             forkLoading={forkLoading}

@@ -25,6 +25,21 @@ acecode::LifetimeToken install_page_annotation_bridge(WebHost& host, AgentBrowse
             });
             if (!delivered) reply("{\"ok\":false,\"error\":\"Browser closed\"}");
         });
+    host.bind_async("aceDesktop_agentBrowserAnnotationScreenshot",
+        [browser = lifetime.ref(browser)](
+            const std::string& req, WebHost::BindingReply reply) {
+            const auto args = nlohmann::json::parse(req, nullptr, false);
+            if (!args.is_array() || args.size() != 1 || !args[0].is_object() ||
+                !args[0].contains("page_id") || !args[0]["page_id"].is_string()) {
+                reply("{\"ok\":false,\"error\":\"Invalid annotation screenshot request\"}");
+                return;
+            }
+            const std::string page_id = args[0]["page_id"].get<std::string>();
+            const bool delivered = browser.with([page_id, reply](AgentBrowserHost& current) {
+                current.annotation_command(page_id, R"({"action":"screenshot"})", reply);
+            });
+            if (!delivered) reply("{\"ok\":false,\"error\":\"Browser closed\"}");
+        });
     return lifetime;
 }
 

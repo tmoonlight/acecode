@@ -20,6 +20,7 @@ import { presentSystemNotice } from './systemNotice.js';
 import { tr } from '../i18n/index.js';
 import { clsx } from './format.js';
 import { userMessageTextPreview } from './userMessagePreview.js';
+import * as pageAnnotationMessage from './pageAnnotationMessage.js';
 
 async function run(name, fn) { await fn(); console.log(`[pass] ${name}`); }
 const read = (relative) => readFileSync(new URL(relative, import.meta.url), 'utf8');
@@ -237,6 +238,7 @@ await run('actual messages restrict custom wallpaper to user text and preserve a
     useTranslation: () => ({ t: tr }), useSlashCommands: () => ({ commands: [] }),
     resolveLeadingSlashCommand: () => null, renderMarkdownBlocks, useStreamingRenderThrottle, assistantChromeState,
     presentSystemNotice, clsx, VsIcon: () => null, userMessageTextPreview,
+    ...pageAnnotationMessage, PageAnnotationMessageCard: () => null,
     ActivityLine: activityLineComponent({ clsx, VsIcon: () => null }),
     AttachmentStrip: ({ align }) => React.createElement('span', { 'data-attachment-align': align }, 'Attachment'),
   });

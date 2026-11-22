@@ -9,6 +9,20 @@ export async function runPageAnnotationCommand(pageId, command, win = globalThis
   );
 }
 
+export async function capturePageAnnotationScreenshot(pageId, win = globalThis.window) {
+  if (typeof win?.aceDesktop_agentBrowserAnnotationScreenshot !== 'function') {
+    return { ok: false, error: '当前桌面版本不支持网页批注截图' };
+  }
+  const result = parseAgentBrowserBridgeResult(
+    await win.aceDesktop_agentBrowserAnnotationScreenshot({ page_id: pageId }),
+  );
+  const data = result?.result?.data;
+  if (result?.ok !== true || result?.page_id !== pageId || typeof data !== 'string' || !data) {
+    return { ok: false, error: result?.error || '网页截图失败' };
+  }
+  return { ok: true, data, mimeType: 'image/png' };
+}
+
 export function createPageAnnotationController({ pageId, invoke = runPageAnnotationCommand, onChange }) {
   let snapshot = { document_id: '', active: false, popup: false, pending_count: 0, revision: -1 };
   let tail = Promise.resolve();
@@ -61,5 +75,16 @@ export function pageAnnotationPopupPosition({ width, height, popupWidth, popupHe
   return {
     left: clamp(left, width - popupWidth),
     top: clamp(bottom + 8 + popupHeight <= height ? bottom + 8 : top - popupHeight - 8, height - popupHeight),
+  };
+}
+
+export function pageAnnotationPopupDragPosition({
+  startLeft, startTop, deltaX = 0, deltaY = 0,
+  width, height, popupWidth, popupHeight,
+}) {
+  const clamp = (value, available) => Math.max(8, Math.min(value, available - 8));
+  return {
+    left: clamp(startLeft + deltaX, width - popupWidth),
+    top: clamp(startTop + deltaY, height - popupHeight),
   };
 }

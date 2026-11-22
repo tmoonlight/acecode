@@ -14,6 +14,7 @@ import { extractSessionReferences, formatSessionReferenceToken } from './session
 import { basenameForPath } from './selectionChatContext.js';
 import * as pastedText from './pastedText.js';
 import * as userMessagePreview from './userMessagePreview.js';
+import * as pageAnnotationMessage from './pageAnnotationMessage.js';
 import { clsx } from './format.js';
 
 function run(name, fn) { fn(); console.log(`[pass] ${name}`); }
@@ -40,9 +41,11 @@ function compile(overrides = {}) {
   return vm.runInNewContext(`${messageCode}; ({ Message, OrderedUserMessageBody });`, {
     React, ...React, ...composerContent, ...composerImagePresentation, ...messageAttachments, ...desktopContext,
     ...pastedText, ...userMessagePreview, clsx, basenameForPath,
+    ...pageAnnotationMessage,
     useTranslation() {}, useSlashCommands: () => ({ commands }), resolveLeadingSlashCommand, extractSessionReferences,
     VsIcon: () => null, CommandGlyph: () => null, FileTypeIcon: () => null,
     ImageLightbox: () => null,
+    PageAnnotationMessageCard: () => null,
     AttachmentTextLoaderContext: LoaderContext,
     PastedTextCard: PastedTextCardStub,
     PastedTextDialog: PastedTextDialogStub,

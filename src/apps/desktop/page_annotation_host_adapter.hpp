@@ -117,6 +117,16 @@ void annotation_dispatch(const std::shared_ptr<Host>& host, const std::string& p
         completion(nlohmann::json{{"ok", false}, {"error", "Annotation page is unavailable"}}.dump());
         return;
     }
+    if (command.is_object() && command.value("action", nlohmann::json()) == "screenshot") {
+        const auto pending = page->annotations.requests.add(
+            [completion](nlohmann::json response) { completion(response.dump()); });
+        if (!pending) {
+            completion(nlohmann::json{{"ok", false}, {"error", "Annotation capture is already running"}}.dump());
+            return;
+        }
+        host->capture_screenshot(page, {{"format", "png"}}, pending, "true");
+        return;
+    }
     const std::weak_ptr<Host> weak = host;
     const std::weak_ptr<typename Host::Page> weak_page = page;
     host->annotation_poller.start([weak] {

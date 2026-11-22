@@ -26,6 +26,15 @@ struct AgentBrowserOcclusionRect {
     int y = 0;
     int width = 0;
     int height = 0;
+    // Corner radius in surface pixels. Overlay cards and toolbars are rounded,
+    // so a plain rectangular hole would expose the WebUI background at their
+    // corners. 0 keeps the legacy rectangular hole.
+    int radius = 0;
+    // Bitmask of corners that the surface edge cut instead of the overlay
+    // (1 top-left, 2 top-right, 4 bottom-right, 8 bottom-left). Rounding a cut
+    // corner paints a quarter circle of Browser content across the overlay, so
+    // those corners are squared off on the native side.
+    int square_corners = 0;
 };
 
 struct AgentBrowserBounds {
@@ -34,6 +43,10 @@ struct AgentBrowserBounds {
     int width = 0;
     int height = 0;
     bool visible = false;
+    // Keep the native page painted, but make it ignore pointer/keyboard input
+    // while a WebUI modal dialog sits above it. Implemented as EnableWindow(FALSE)
+    // on Windows and an input-ignoring surface view on macOS.
+    bool interaction_blocked = false;
     std::uint64_t layout_revision = 0;
     std::vector<AgentBrowserOcclusionRect> occlusion_rects;
 };

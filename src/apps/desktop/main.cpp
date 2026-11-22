@@ -1645,6 +1645,7 @@ int main(int argc, char** argv) {
             bounds.width = value.value("width", 0);
             bounds.height = value.value("height", 0);
             bounds.visible = value.value("visible", false);
+            bounds.interaction_blocked = value.value("interaction_blocked", false);
             if (const auto occlusions = value.find("occlusion_rects");
                 occlusions != value.end()) {
                 if (!occlusions->is_array() ||
@@ -1667,6 +1668,8 @@ int main(int argc, char** argv) {
                     rect.y = item.value("y", -1);
                     rect.width = item.value("width", 0);
                     rect.height = item.value("height", 0);
+                    rect.radius = item.value("radius", 0);
+                    rect.square_corners = item.value("square_corners", 0);
                     bounds.occlusion_rects.push_back(rect);
                 }
             }

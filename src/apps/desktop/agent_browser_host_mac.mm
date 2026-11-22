@@ -92,11 +92,47 @@ public:
 } // namespace
 } // namespace acecode::desktop
 
+namespace {
+
+// Adds one occlusion hole with an independent radius per DOM corner
+// (top-left, top-right, bottom-right, bottom-left). A radius of 0 draws that
+// corner square, which is what the surface edge needs: `hole` is already
+// expressed in the target layer's coordinates, so the DOM corner order maps
+// straight onto the rectangle.
+void add_occlusion_cornered_hole(CGMutablePathRef path,
+                                 CGRect hole,
+                                 CGFloat top_left,
+                                 CGFloat top_right,
+                                 CGFloat bottom_right,
+                                 CGFloat bottom_left) {
+    const CGFloat min_x = CGRectGetMinX(hole);
+    const CGFloat min_y = CGRectGetMinY(hole);
+    const CGFloat max_x = CGRectGetMaxX(hole);
+    const CGFloat max_y = CGRectGetMaxY(hole);
+    CGPathMoveToPoint(path, nullptr, min_x + bottom_left, min_y);
+    CGPathAddArcToPoint(path, nullptr, min_x, min_y, min_x, min_y + bottom_left,
+                        bottom_left);
+    CGPathAddArcToPoint(path, nullptr, min_x, max_y, min_x + top_left, max_y,
+                        top_left);
+    CGPathAddArcToPoint(path, nullptr, max_x, max_y, max_x, max_y - top_right,
+                        top_right);
+    CGPathAddArcToPoint(path, nullptr, max_x, min_y, max_x - bottom_right, min_y,
+                        bottom_right);
+    CGPathCloseSubpath(path);
+}
+
+} // namespace
+
 @interface ACECodeAgentBrowserSurfaceView : NSView {
 @private
-    NSArray<NSValue*>* occlusion_rects_;
+    NSArray<NSValue*>* occlusion_rects_; NSArray<NSNumber*>* occlusion_radii_;
+    NSArray<NSNumber*>* occlusion_square_corners_;
+    BOOL interaction_blocked_;
 }
-- (BOOL)setOcclusionRects:(NSArray<NSValue*>*)rects;
+- (BOOL)setOcclusionRects:(NSArray<NSValue*>*)rects
+                   radii:(NSArray<NSNumber*>*)radii
+           squareCorners:(NSArray<NSNumber*>*)squareCorners;
+- (void)setInteractionBlocked:(BOOL)blocked;
 @end
 
 @implementation ACECodeAgentBrowserSurfaceView
@@ -104,14 +140,17 @@ public:
 - (instancetype)initWithFrame:(NSRect)frame {
     self = [super initWithFrame:frame];
     if (self) {
-        occlusion_rects_ = [[NSArray alloc] init];
+        occlusion_rects_ = [[NSArray alloc] init]; occlusion_radii_ = [[NSArray alloc] init];
+        occlusion_square_corners_ = [[NSArray alloc] init];
+        interaction_blocked_ = NO;
         [self setWantsLayer:YES];
     }
     return self;
 }
 
 - (void)dealloc {
-    [occlusion_rects_ release];
+    [occlusion_rects_ release]; [occlusion_radii_ release];
+    [occlusion_square_corners_ release];
     [super dealloc];
 }
 
@@ -126,8 +165,11 @@ public:
     const CGFloat height = NSHeight(bounds);
     CGMutablePathRef path = CGPathCreateMutable();
     CGPathAddRect(path, nullptr, CGRectMake(0, 0, width, height));
-    for (NSValue* value in occlusion_rects_) {
-        const NSRect rect = [value rectValue];
+    for (NSUInteger index = 0; index < [occlusion_rects_ count]; index += 1) {
+        const NSRect rect = [[occlusion_rects_ objectAtIndex:index] rectValue];
+        const CGFloat radius = std::clamp(index < [occlusion_radii_ count]
+            ? [[occlusion_radii_ objectAtIndex:index] doubleValue] : 0.0, 0.0,
+            (std::min)(NSWidth(rect), NSHeight(rect)) / 2.0);
         // Occlusion rectangles use the DOM's top-left Browser contract.
         // Backing layers for flipped AppKit views already use that orientation;
         // converting them again mirrors top overlays to the bottom. Convert Y
@@ -137,8 +179,26 @@ public:
         const CGFloat y = [target_view isFlipped]
             ? top
             : height - top - NSHeight(rect);
-        CGPathAddRect(path, nullptr,
-                      CGRectMake(x, y, NSWidth(rect), NSHeight(rect)));
+        const CGRect hole = CGRectMake(x, y, NSWidth(rect), NSHeight(rect));
+        const int square_corners = radius > 0 && index < [occlusion_square_corners_ count]
+            ? [[occlusion_square_corners_ objectAtIndex:index] intValue] & 0xF
+            : 0;
+        if (radius <= 0 || square_corners == 0xF) {
+            CGPathAddRect(path, nullptr, hole);
+        } else if (square_corners == 0) {
+            CGPathAddRoundedRect(path, nullptr, hole, radius, radius);
+        } else {
+            // A corner the surface cut must stay square; rounding it would cut a
+            // quarter circle out of the overlay where the page begins. The hole
+            // rect already carries the DOM orientation, so the corner order maps
+            // straight onto the target layer.
+            add_occlusion_cornered_hole(
+                path, hole,
+                (square_corners & 1) ? 0 : radius,
+                (square_corners & 2) ? 0 : radius,
+                (square_corners & 4) ? 0 : radius,
+                (square_corners & 8) ? 0 : radius);
+        }
     }
 
     CAShapeLayer* mask = [[CAShapeLayer alloc] init];
@@ -197,14 +257,22 @@ public:
     [self updateOcclusionMask];
 }
 
-- (BOOL)setOcclusionRects:(NSArray<NSValue*>*)rects {
-    NSArray<NSValue*>* next = rects ? [rects copy] : [[NSArray alloc] init];
-    [occlusion_rects_ release];
-    occlusion_rects_ = next;
+- (BOOL)setOcclusionRects:(NSArray<NSValue*>*)rects
+                   radii:(NSArray<NSNumber*>*)radii
+           squareCorners:(NSArray<NSNumber*>*)squareCorners {
+    [occlusion_rects_ release]; occlusion_rects_ = rects ? [rects copy] : [[NSArray alloc] init];
+    [occlusion_radii_ release]; occlusion_radii_ = radii ? [radii copy] : [[NSArray alloc] init];
+    [occlusion_square_corners_ release];
+    occlusion_square_corners_ = squareCorners ? [squareCorners copy] : [[NSArray alloc] init];
     return [self updateOcclusionMask];
 }
 
+- (void)setInteractionBlocked:(BOOL)blocked {
+    interaction_blocked_ = blocked;
+}
+
 - (NSView*)hitTest:(NSPoint)point {
+    if (interaction_blocked_) return nil;
     NSView* superview = [self superview];
     const NSPoint local = superview
         ? [self convertPoint:point fromView:superview]
@@ -1172,8 +1240,9 @@ struct AgentBrowserHost::Impl final
             bounds.x, y, bounds.width, bounds.height)];
         [page->webview setFrame:[page->surface bounds]];
 
-        NSMutableArray<NSValue*>* occlusion_rects =
-            [NSMutableArray arrayWithCapacity:bounds.occlusion_rects.size()];
+        NSMutableArray<NSValue*>* occlusion_rects = [NSMutableArray arrayWithCapacity:bounds.occlusion_rects.size()];
+        NSMutableArray<NSNumber*>* occlusion_radii = [NSMutableArray arrayWithCapacity:bounds.occlusion_rects.size()];
+        NSMutableArray<NSNumber*>* occlusion_square_corners = [NSMutableArray arrayWithCapacity:bounds.occlusion_rects.size()];
         for (const auto& occlusion : bounds.occlusion_rects) {
             const int left = std::max(0, std::min(bounds.width, occlusion.x));
             const int top = std::max(0, std::min(bounds.height, occlusion.y));
@@ -1184,10 +1253,16 @@ struct AgentBrowserHost::Impl final
             if (right > left && bottom > top) {
                 [occlusion_rects addObject:[NSValue valueWithRect:NSMakeRect(
                     left, top, right - left, bottom - top)]];
+                [occlusion_radii addObject:@((std::max)(0, (std::min)(
+                    occlusion.radius, (std::min)(right - left, bottom - top) / 2)))];
+                [occlusion_square_corners addObject:@(occlusion.square_corners & 0xF)];
             }
         }
         const bool occlusion_ready =
-            [page->surface setOcclusionRects:occlusion_rects] == YES;
+            [page->surface setOcclusionRects:occlusion_rects
+                                        radii:occlusion_radii
+                                squareCorners:occlusion_square_corners] == YES;
+        [page->surface setInteractionBlocked:bounds.interaction_blocked ? YES : NO];
         const AgentBrowserState snapshot = state(page->id);
         const bool show = parent_surface_visible && bounds.visible &&
             snapshot.active &&
@@ -2957,7 +3032,8 @@ bool AgentBrowserHost::set_bounds(const std::string& page_id,
     for (const auto& rect : bounds.occlusion_rects) {
         if (rect.x < 0 || rect.y < 0 || rect.width <= 0 || rect.height <= 0 ||
             rect.x > 32768 || rect.y > 32768 ||
-            rect.width > 32768 || rect.height > 32768) {
+            rect.width > 32768 || rect.height > 32768 || rect.radius < 0 || rect.radius > 32768 ||
+            rect.square_corners < 0 || rect.square_corners > 0xF) {
             assign_error(error, "Agent Browser occlusion rectangle is invalid");
             return false;
         }

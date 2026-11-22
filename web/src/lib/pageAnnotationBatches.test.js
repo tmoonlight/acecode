@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { annotationIsSendable, createAnnotationBatchSender, formatAnnotationBatch, pageAnnotationBatchSender } from './pageAnnotationBatches.js';
+import { annotationIsSendable, createAnnotationBatchSender, formatAnnotationBatch, localizedSendError, pageAnnotationBatchSender } from './pageAnnotationBatches.js';
 
 const record = (number, fields = {}) => ({ id: `record-${number}`, number, status: 'pending', valid: true,
   document_id: 'runtime-doc', description: `Request ${number}`, targets: [{ id: `target-${number}` }],
@@ -132,6 +132,22 @@ for (const badCapture of [
   assert.equal(test.calls.some(call => call.action === 'upload' || call.action === 'send'), false);
 }
 
+{
+  assert.equal(localizedSendError('annotation_target_or_document_changed'), '批注目标已失效，请重新选择元素后再发送');
+  assert.equal(localizedSendError('Annotation document or target is invalid'), '批注目标已失效，请重新选择元素后再发送');
+  assert.equal(localizedSendError('capture_document_changed'), '网页内容已变化，请重新批注后再发送');
+  assert.equal(localizedSendError('Annotation page is unavailable'), '批注页面不可用');
+  assert.equal(localizedSendError('Annotation capture is already running'), '截图正在进行中，请稍后再试');
+  assert.equal(localizedSendError('network down'), 'network down');
+  const test = fixture({ native: command => command.action === 'capture'
+    ? { ok: false, page_id: 'page-1', error: 'annotation_target_or_document_changed' } : undefined });
+  const result = await test.sender.send(test.context);
+  assert.equal(result.ok, false);
+  assert.equal(result.error, '批注目标已失效，请重新选择元素后再发送');
+  assert.equal(test.sender.getSnapshot().error, '批注目标已失效，请重新选择元素后再发送');
+  console.log('[pass] native annotation send error codes are localized before reaching the toolbar');
+}
+
 for (const stage of ['capture', 'validate', 'acknowledge']) {
   const test = fixture({ native: command => command.action === stage
     ? { ok: false, page_id: 'page-1', error: 'target removed or document replaced' } : undefined });
@@ -161,6 +177,20 @@ for (const mutate of [
 }
 
 {
+  // Two different preconditions used to share one copy: annotations need a
+  // conversation to land in, and the transport needs to be usable.
+  const test = fixture();
+  const noSession = await test.sender.send({ ...test.context, sessionId: '' });
+  assert.equal(noSession.ok, false);
+  assert.equal(noSession.error, '请先选择对话');
+  assert.deepEqual(test.calls, []);
+  const noApi = await test.sender.send({ ...test.context, api: null });
+  assert.equal(noApi.ok, false);
+  assert.equal(noApi.error, '批注页面不可用');
+  assert.deepEqual(test.calls, []);
+}
+
+{
   const test = fixture({ upload: () => ({ attachment: {} }) });
   assert.equal((await test.sender.send(test.context)).ok, false);
   assert.equal(test.calls.some(call => call.action === 'send'), false);
@@ -186,6 +216,10 @@ for (const mutate of [
   assert.match(source, /toggleAgentBrowserElementSelection/);
   assert.doesNotMatch(sender + component, /steerTurn|interruptTurn|setComposer|composerAttachments|onAddContext/);
   assert.match(source, /<PageAnnotationSendBar/);
+  // The toolbar explains the missing conversation instead of letting the click
+  // fail with an error message.
+  assert.match(component, /disabled=\{!sender \|\| !sessionId \|\|/);
+  assert.match(component, /\{!sessionId && <span className="ace-annotation-toolbar-note">请先选择对话<\/span>\}/);
 }
 
 {

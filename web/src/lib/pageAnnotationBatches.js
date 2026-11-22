@@ -2,6 +2,21 @@ import { apiConnectionScope } from './api.js';
 import { runPageAnnotationCommand } from './pageAnnotations.js';
 import { AGENT_BROWSER_STATE_EVENT } from './agentBrowser.js';
 
+// The native capture layer reports stable machine codes when the annotated
+// target or page changed while sending. Map them to product copy so they join
+// the i18n catalog instead of leaking raw codes into the toolbar (mirrors
+// localizedTextError in PageAnnotationTextField).
+export function localizedSendError(error) {
+  if (error === 'annotation_target_or_document_changed' ||
+      error === 'Annotation document or target is invalid') {
+    return '批注目标已失效，请重新选择元素后再发送';
+  }
+  if (error === 'capture_document_changed') return '网页内容已变化，请重新批注后再发送';
+  if (error === 'Annotation page is unavailable') return '批注页面不可用';
+  if (error === 'Annotation capture is already running') return '截图正在进行中，请稍后再试';
+  return error;
+}
+
 export function annotationIsSendable(record) {
   return record?.status === 'pending' &&
     (String(record.description || '').trim().length > 0 ||
@@ -47,7 +62,8 @@ export function createAnnotationBatchSender({
   const run = async ({ snapshot, sessionId, api, page }) => {
     try {
       publish({ working: true, error: '' });
-      if (!sessionId || !api) throw new Error('请先选择对话');
+      if (!sessionId) throw new Error('请先选择对话');
+      if (!api) throw new Error('批注页面不可用');
       if (batch && sessionId !== batch.sessionId) throw new Error('请切回发送批注的对话后重试');
       if (batch?.leasePending) await releaseLease();
       if (!batch) {
@@ -133,7 +149,7 @@ export function createAnnotationBatchSender({
       publish({ phase: 'idle', sessionId: '' });
       return result;
     } catch (error) {
-      publish({ error: String(error?.message || error) });
+      publish({ error: localizedSendError(String(error?.message || error)) });
       return { ok: false, error: state.error };
     } finally {
       publish({ working: false });

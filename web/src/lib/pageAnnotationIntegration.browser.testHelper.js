@@ -101,7 +101,6 @@ export async function runAnnotationIntegration({ evaluate, request }) {
   const open = async () => {
     await command('start');
     await click(20, 30);
-    await click(30, 70);
     const snapshot = await command('read');
     assert.equal(snapshot.popup, true);
     return snapshot.target.id;

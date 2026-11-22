@@ -30,8 +30,20 @@ export function Modal({
   dismissOnEscape = true,
   layerClassName = 'z-[200]',
   labelledBy,
+  nativeOverlayMode = 'blocking',
+  nativeOverlayInteraction = 'blocking',
 }) {
   const zIndex = useOverlayLayer();
+  // `blocking` keeps the existing full-surface semantics: the native view is
+  // hidden while the dialog is up. `overlap` lets a dialog sit above a native
+  // surface without hiding it; only the dialog card punches a hole in it.
+  // `interactive` (used with `overlap`) additionally keeps the native view
+  // painted but disables its input, so hover/selection inside the page cannot
+  // leak through a modal dialog.
+  const overlapsNativeSurface = nativeOverlayMode === 'overlap';
+  const backdropNativeOverlay = overlapsNativeSurface ? undefined : 'blocking';
+  const backdropInteraction = overlapsNativeSurface ? nativeOverlayInteraction : undefined;
+  const dialogNativeOverlay = overlapsNativeSurface ? 'overlap' : undefined;
   const dialogRef = useRef(null);
   const closeRef = useRef(onClose);
   const dismissOnEscapeRef = useRef(dismissOnEscape);
@@ -88,13 +100,15 @@ export function Modal({
 
   const modalLayer = (
     <div
-      data-ace-native-overlay="blocking"
+      data-ace-native-overlay={backdropNativeOverlay}
+      data-ace-native-interaction={backdropInteraction}
       className={clsx('fixed inset-0 flex items-center justify-center p-4', layerClassName)}
       style={{ backgroundColor: 'rgba(0, 0, 0, 0.35)', zIndex }}
       onClick={() => dismissOnBackdrop && handleClose()}
     >
       <div
         ref={dialogRef}
+        data-ace-native-overlay={dialogNativeOverlay}
         data-ace-modal-dialog="true"
         role="dialog"
         aria-modal="true"

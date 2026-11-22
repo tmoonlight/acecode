@@ -1994,6 +1994,13 @@ struct AgentBrowserHost::Impl
                 const HRESULT visible_result =
                     page->controller->put_IsVisible(TRUE);
                 show = SUCCEEDED(bounds_result) && SUCCEEDED(visible_result);
+                // A modal WebUI dialog keeps this page painted but must stop it
+                // from receiving pointer/keyboard input (no hover outlines or
+                // clicks leaking through the dialog).
+                if (browser_widget && ::IsWindow(browser_widget)) {
+                    ::EnableWindow(browser_widget,
+                                   page->requested_bounds.interaction_blocked ? FALSE : TRUE);
+                }
                 if (!show) {
                     LOG_WARN("[agent-browser] failed to show native page " +
                              page->id + " (bounds=" +
@@ -2009,6 +2016,9 @@ struct AgentBrowserHost::Impl
             }
         }
         if (page->state.active && !show) {
+            if (browser_widget && ::IsWindow(browser_widget) && !::IsWindowEnabled(browser_widget)) {
+                ::EnableWindow(browser_widget, TRUE);
+            }
             hide_agent_browser_widget(browser_widget);
         }
         if (page->state.visible != show) {
@@ -2594,7 +2604,8 @@ bool AgentBrowserHost::set_bounds(const std::string& page_id,
     for (const auto& rect : bounds.occlusion_rects) {
         if (rect.x < 0 || rect.y < 0 || rect.width <= 0 || rect.height <= 0 ||
             rect.x > 32768 || rect.y > 32768 ||
-            rect.width > 32768 || rect.height > 32768) {
+            rect.width > 32768 || rect.height > 32768 || rect.radius < 0 || rect.radius > 32768 ||
+            rect.square_corners < 0 || rect.square_corners > 0xF) {
             assign_error(error, "Agent Browser occlusion rectangle is invalid");
             return false;
         }

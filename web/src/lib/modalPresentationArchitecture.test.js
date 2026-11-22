@@ -56,7 +56,9 @@ run('shared Modal escapes chat and details stacking contexts through a body port
   const queueCards = source('components/QueueCardList.jsx');
 
   assert.match(modalFile, /import \{ createPortal \} from 'react-dom';/);
-  assert.match(modal, /const modalLayer = \([\s\S]*data-ace-native-overlay="blocking"/);
+  assert.match(modal, /nativeOverlayMode\s*=\s*'blocking'/);
+  assert.match(modal, /const modalLayer = \([\s\S]*data-ace-native-overlay=\{backdropNativeOverlay\}/);
+  assert.match(modal, /data-ace-native-overlay=\{dialogNativeOverlay\}/);
   assert.match(
     modal,
     /return typeof document === 'undefined'[\s\S]*createPortal\(modalLayer, document\.body\)/,
