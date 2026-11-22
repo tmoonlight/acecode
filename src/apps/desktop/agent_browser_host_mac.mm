@@ -1,4 +1,5 @@
 #include "agent_browser_host.hpp"
+#include "agent_browser_host_common.hpp"
 #include "page_annotation_session.hpp"
 #include "page_annotation_host_submission.hpp"
 #include "page_annotation_host_adapter.hpp"
@@ -37,7 +38,6 @@
 #include <filesystem>
 #include <fstream>
 #include <functional>
-#include <map>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -510,14 +510,7 @@ struct AgentBrowserHost::Impl final
       public std::enable_shared_from_this<AgentBrowserHost::Impl> {
     bool parent_surface_visible = true;
     // 会话级批注记录（Q33）：页签销毁不带走记录。
-    std::map<std::string, std::shared_ptr<SessionAnnotationStore>> annotation_stores;
-
-    std::shared_ptr<SessionAnnotationStore> annotation_store_for(const std::string& session_id) {
-        if (session_id.empty()) return std::make_shared<SessionAnnotationStore>();
-        auto& slot = annotation_stores[session_id];
-        if (!slot) slot = std::make_shared<SessionAnnotationStore>();
-        return slot;
-    }
+    SessionAnnotationStoreRegistry annotation_store_registry;
 
     struct Page {
         std::string id;
@@ -1202,7 +1195,7 @@ struct AgentBrowserHost::Impl final
         page->state.shared_with_agent = shared_with_agent;
         page->state.owner = owner;
         // 同会话所有页签共享一个记录容器；页签关掉后记录仍在，转 orphan 继续可发。
-        page->annotations.share_store(annotation_store_for(owner.session_id));
+        page->annotations.share_store(annotation_store_registry.for_session(owner.session_id));
         attach_webview(page);
 
         std::vector<AgentBrowserState> changed;
@@ -2144,95 +2137,6 @@ struct AgentBrowserHost::Impl final
     void proxy_loop();
 };
 
-namespace {
-
-std::string synthetic_mouse_expression(const json& parameters) {
-    json payload = parameters.is_object() ? parameters : json::object();
-    payload.erase("acecodeInputMode");
-    return "(() => {\n"
-        " const p=" + payload.dump() + ";\n"
-        " const x=Number(p.x||0),y=Number(p.y||0);\n"
-        " const target=document.elementFromPoint(x,y)||document.documentElement;\n"
-        " if(!target)return {ok:false,message:'No element at input coordinates'};\n"
-        " const key='__acecodeSyntheticPointerV1';const state=globalThis[key]||(globalThis[key]={pressed:null,dragging:false,data:null});\n"
-        " const names={mouseMoved:'mousemove',mousePressed:'mousedown',mouseReleased:'mouseup',mouseWheel:'wheel'};\n"
-        " const button={left:0,middle:1,right:2}[String(p.button||'left')]??0;\n"
-        " const buttons=Number(p.buttons==null?(p.type==='mousePressed'?1:0):p.buttons);\n"
-        " const init={bubbles:true,cancelable:true,composed:true,clientX:x,clientY:y,screenX:x,screenY:y,button,buttons,detail:Number(p.clickCount||1)};\n"
-        " if(p.type==='mouseWheel'){const event=new WheelEvent('wheel',{...init,deltaX:Number(p.deltaX||0),deltaY:Number(p.deltaY||0),deltaMode:0});target.dispatchEvent(event);if(!event.defaultPrevented)window.scrollBy({left:Number(p.deltaX||0),top:Number(p.deltaY||0),behavior:'instant'});return {ok:true};}\n"
-        " if(p.type==='mousePressed'){target.focus?.({preventScroll:true});state.pressed=target;state.dragging=false;state.data=null;target.dispatchEvent(new MouseEvent('mousedown',init));return {ok:true};}\n"
-        " if(p.type==='mouseMoved'){target.dispatchEvent(new MouseEvent('mousemove',init));if(state.pressed&&buttons){try{if(!state.dragging){state.data=new DataTransfer();state.pressed.dispatchEvent(new DragEvent('dragstart',{...init,dataTransfer:state.data}));state.dragging=true;}target.dispatchEvent(new DragEvent('dragenter',{...init,dataTransfer:state.data}));target.dispatchEvent(new DragEvent('dragover',{...init,dataTransfer:state.data}));}catch(_){}}return {ok:true};}\n"
-        " if(p.type==='mouseReleased'){target.dispatchEvent(new MouseEvent('mouseup',init));if(state.dragging){try{target.dispatchEvent(new DragEvent('drop',{...init,dataTransfer:state.data}));state.pressed?.dispatchEvent(new DragEvent('dragend',{...init,dataTransfer:state.data}));}catch(_){}}else if(state.pressed){const clickTarget=state.pressed.isConnected?state.pressed:target;if(button===0&&typeof clickTarget.click==='function')clickTarget.click();else clickTarget.dispatchEvent(new MouseEvent('contextmenu',init));if(Number(p.clickCount||1)>1)clickTarget.dispatchEvent(new MouseEvent('dblclick',init));}state.pressed=null;state.dragging=false;state.data=null;return {ok:true};}\n"
-        " target.dispatchEvent(new MouseEvent(names[p.type]||String(p.type||'mousemove'),init));return {ok:true};\n"
-        "})()";
-}
-
-std::string synthetic_text_expression(const json& parameters) {
-    json payload = parameters.is_object() ? parameters : json::object();
-    payload.erase("acecodeInputMode");
-    return "(() => {\n"
-        " const p=" + payload.dump() + ";const text=String(p.text==null?'':p.text);const el=document.activeElement;\n"
-        " if(!el||el===document.body)return {ok:false,message:'No focused editable element'};\n"
-        " const before=new InputEvent('beforeinput',{bubbles:true,cancelable:true,composed:true,inputType:'insertText',data:text});if(!el.dispatchEvent(before))return {ok:true,cancelled:true};\n"
-        " if(el instanceof HTMLInputElement||el instanceof HTMLTextAreaElement){const start=Number.isInteger(el.selectionStart)?el.selectionStart:el.value.length;const end=Number.isInteger(el.selectionEnd)?el.selectionEnd:start;el.setRangeText(text,start,end,'end');}\n"
-        " else if(el.isContentEditable){const selection=getSelection();if(selection&&selection.rangeCount){selection.deleteFromDocument();selection.getRangeAt(0).insertNode(document.createTextNode(text));selection.collapseToEnd();}else el.textContent=(el.textContent||'')+text;}\n"
-        " else if('value'in el){el.value=String(el.value||'')+text;}else return {ok:false,message:'Focused element is not editable'};\n"
-        " el.dispatchEvent(new InputEvent('input',{bubbles:true,composed:true,inputType:'insertText',data:text}));return {ok:true};\n"
-        "})()";
-}
-
-std::string synthetic_key_expression(const json& parameters) {
-    json payload = parameters.is_object() ? parameters : json::object();
-    payload.erase("acecodeInputMode");
-    return "(() => {\n"
-        " const p=" + payload.dump() + ";const el=document.activeElement||document.body;const key=String(p.key||'');const down=p.type==='keyDown'||p.type==='rawKeyDown';const mods=Number(p.modifiers||0);\n"
-        " const init={key,code:String(p.code||key),bubbles:true,cancelable:true,composed:true,altKey:!!(mods&1),ctrlKey:!!(mods&2),metaKey:!!(mods&4),shiftKey:!!(mods&8),repeat:false};\n"
-        " const event=new KeyboardEvent(down?'keydown':'keyup',init);const proceed=el.dispatchEvent(event);if(!down||!proceed)return {ok:true};\n"
-        " if((init.metaKey||init.ctrlKey)&&key.toLowerCase()==='a'&&typeof el.select==='function'){el.select();return {ok:true};}\n"
-        " if(key==='Tab'){const nodes=[...document.querySelectorAll('a[href],button,input,textarea,select,[tabindex]:not([tabindex=\"-1\"])')].filter(n=>!n.disabled&&n.getClientRects().length);const index=nodes.indexOf(el);const delta=init.shiftKey?-1:1;const next=nodes[(index+delta+nodes.length)%nodes.length];next?.focus();return {ok:true};}\n"
-        " if(key==='Enter'){if(el instanceof HTMLTextAreaElement){el.setRangeText('\\n',el.selectionStart,el.selectionEnd,'end');el.dispatchEvent(new InputEvent('input',{bubbles:true,inputType:'insertLineBreak',data:'\\n'}));}else if(el.form&&typeof el.form.requestSubmit==='function'){el.form.requestSubmit();}else if(typeof el.click==='function'){el.click();}return {ok:true};}\n"
-        " if((key==='Backspace'||key==='Delete')&&(el instanceof HTMLInputElement||el instanceof HTMLTextAreaElement)){const start=el.selectionStart??el.value.length;const end=el.selectionEnd??start;const left=key==='Backspace'&&start===end?Math.max(0,start-1):start;const right=key==='Delete'&&start===end?Math.min(el.value.length,end+1):end;el.setRangeText('',left,right,'end');el.dispatchEvent(new InputEvent('input',{bubbles:true,inputType:'deleteContentBackward',data:null}));}\n"
-        " return {ok:true};\n"
-        "})()";
-}
-
-std::string remote_type(const json& value) {
-    if (value.is_null()) return "object";
-    if (value.is_boolean()) return "boolean";
-    if (value.is_number()) return "number";
-    if (value.is_string()) return "string";
-    return "object";
-}
-
-CGMouseButton cg_mouse_button(const std::string& button) {
-    if (button == "right") return kCGMouseButtonRight;
-    if (button == "middle") return kCGMouseButtonCenter;
-    return kCGMouseButtonLeft;
-}
-
-CGEventType cg_mouse_event_type(const std::string& type,
-                                CGMouseButton button,
-                                bool dragging) {
-    if (type == "mousePressed") {
-        return button == kCGMouseButtonRight ? kCGEventRightMouseDown
-            : button == kCGMouseButtonCenter ? kCGEventOtherMouseDown
-            : kCGEventLeftMouseDown;
-    }
-    if (type == "mouseReleased") {
-        return button == kCGMouseButtonRight ? kCGEventRightMouseUp
-            : button == kCGMouseButtonCenter ? kCGEventOtherMouseUp
-            : kCGEventLeftMouseUp;
-    }
-    if (dragging) {
-        return button == kCGMouseButtonRight ? kCGEventRightMouseDragged
-            : button == kCGMouseButtonCenter ? kCGEventOtherMouseDragged
-            : kCGEventLeftMouseDragged;
-    }
-    return kCGEventMouseMoved;
-}
-
-} // namespace
-
 CGPoint AgentBrowserHost::Impl::native_screen_point(
     const std::shared_ptr<Page>& page,
     double x,
@@ -2536,7 +2440,7 @@ void AgentBrowserHost::Impl::call_command_on_ui(
                 finish_proxy_call(pending,
                     {{"ok", true}, {"page_id", page->id},
                      {"result", {{"result", {
-                         {"type", remote_type(value)}, {"value", value},
+                         {"type", remote_object_type(value)}, {"value", value},
                      }}}}});
             });
         return;
@@ -3032,23 +2936,8 @@ bool AgentBrowserHost::set_bounds(const std::string& page_id,
         assign_error(error, "Agent Browser is unavailable on this platform");
         return false;
     }
-    if (bounds.x < 0 || bounds.y < 0 || bounds.width < 0 || bounds.height < 0 ||
-        bounds.width > 32768 || bounds.height > 32768) {
-        assign_error(error, "Agent Browser bounds are invalid");
+    if (!agent_browser_common::valid_agent_browser_bounds(bounds, error)) {
         return false;
-    }
-    if (bounds.occlusion_rects.size() > kAgentBrowserMaxOcclusionRects) {
-        assign_error(error, "Agent Browser has too many occlusion rectangles");
-        return false;
-    }
-    for (const auto& rect : bounds.occlusion_rects) {
-        if (rect.x < 0 || rect.y < 0 || rect.width <= 0 || rect.height <= 0 ||
-            rect.x > 32768 || rect.y > 32768 ||
-            rect.width > 32768 || rect.height > 32768 || rect.radius < 0 || rect.radius > 32768 ||
-            rect.square_corners < 0 || rect.square_corners > 0xF) {
-            assign_error(error, "Agent Browser occlusion rectangle is invalid");
-            return false;
-        }
     }
     auto page = impl_->find_page(page_id);
     if (!page) {

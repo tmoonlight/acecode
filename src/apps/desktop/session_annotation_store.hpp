@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <map>
+#include <memory>
 #include <string>
 #include <utility>
 #include <nlohmann/json.hpp>
@@ -114,6 +115,22 @@ public:
 private:
     std::map<std::string, Page> pages_;
     std::uint64_t revision_ = 0;
+};
+
+// 宿主侧的会话级 store 索引：同一会话的所有页签共享一个容器，页签关掉后记录
+// 仍留在这里（Q33）。只在 UI 线程上访问，所以不加锁。
+class SessionAnnotationStoreRegistry {
+public:
+    std::shared_ptr<SessionAnnotationStore> for_session(
+        const std::string& session_id) {
+        if (session_id.empty()) return std::make_shared<SessionAnnotationStore>();
+        auto& slot = stores_[session_id];
+        if (!slot) slot = std::make_shared<SessionAnnotationStore>();
+        return slot;
+    }
+
+private:
+    std::map<std::string, std::shared_ptr<SessionAnnotationStore>> stores_;
 };
 
 } // namespace acecode::desktop

@@ -2,6 +2,8 @@
 
 Specification: [#193](https://github.com/tmoonlight/acecode/issues/193). Implementation tickets: #194–201. OpenSpec: `add-html-page-annotations`. Integration baseline: `0155a863`.
 
+Superseded: the 2026-11-22 session-record redesign ([#207–#220](https://github.com/tmoonlight/acecode/issues/210), OpenSpec `redesign-html-page-annotations`) replaced the batch sender, native send leases and their test driver with pending session records sent through the composer. Rows below that still describe batch semantics are historical evidence for the previous design; the workflow checklist has been updated where the redesign changed a step.
+
 This is the execution checklist, not a claim that the feature is complete. Keep the pull request draft until both platform workflows and required automated checks have passed. Reference-app screenshots and source inspection do not qualify as ACECode acceptance.
 
 ## Automated checks
@@ -19,66 +21,25 @@ This is the execution checklist, not a claim that the feature is complete. Keep 
 | macOS native build and focused tests | Not executed; macOS environment required |
 | Standards and specification code review | Final dual-axis review pinned to 39cd01db reports no open code findings; layers/size/ownership/OpenSpec/diff passed. Documentation-path prose failure corrected without baseline exemption in the documentation follow-up |
 
-## High-seam automated regression (#201)
+## High-seam automated regression (#201, retired)
 
-The opt-in `pnpm test:annotations:integration` suite reuses the existing real Chromium
-browser fixture and isolated-world runtime. Unlike sender unit fixtures, its saved
-records and differences originate from trusted mouse input, the production frontend
-controller, `PageAnnotationSession::prepare/complete`, and the injected production
-text/style/target runtimes. It exercises:
+The batch sender, native navigation leases and the test-only native integration
+driver documented here were removed by the 2026-11-22 session-record redesign;
+`pnpm test:annotations:integration` no longer exists. The seams that driver
+covered now live in the ordinary suites:
 
-- Multiple element targets plus one region, actual text/style differences, original
-  comparison, saved/draft cancel, nested node identity and retained listeners.
-- Saved records flowing into the production batch sender and API client, frozen
-  membership/session/credentials/page metadata, additions during capture, one PNG
-  upload, a mismatched receipt, stable retry and native acknowledgement.
-- Production identity parsing and busy `AgentTaskQueue` admission/deduplication;
-  ordinary source-selection/composer payload serialization with existing attachments.
-  Existing composer callback and source-selection suites remain in `pnpm test`.
-- Document/page/record ownership, untrusted command fields, exact-target clone
-  replacement, invalidated retained records and late native callback rejection.
-- Native navigation-lease acquisition and matching release after an uncertain HTTP
-  response; failed exact-target validation observes lifecycle invalidation and
-  releases its matching lease before sender retry. The driver exposes the real
-  session navigation guard; platform host callbacks remain outside this seam.
-- Explicit HTTP refusal followed by real DOM target replacement: retry must stop
-  before HTTP admission, retain pending work and leave the busy queue unchanged.
-- Uncertain pre-admission failure followed by exact-target replacement: query-only
-  retry preserves serialized body/ID, gets the real queue's not-accepted result,
-  then fails native validation rather than admitting invalid work. Existing accepted
-  receipts instead recover through query-only deduplication.
-- Overlapping parent/child text differences checked against the final real DOM,
-  rather than against requested preview values.
+- `annotationOutbox.test.js` and `annotationSubmission.test.js` cover submission
+  assembly, retry and the settle/timeout self-check.
+- `pageAnnotationMessage.test.js` covers the multi-page sent payload.
+- `pageAnnotations.test.js`, `pageAnnotationPopup.test.js` and
+  `pageAnnotationPollRetryArchitecture.test.js` cover the popup, the
+  Enter/Shift+Enter/Ctrl+Enter semantics and poll retry.
+- `tests/desktop/page_annotation_session_test.cpp` and
+  `tests/desktop/session_annotation_store_test.cpp` cover the session store,
+  orphan retention and removal.
 
-Build the test-only native driver outside the repository, using an existing
-read-only dependency include prefix. No CMake configure, shared build graph,
-vcpkg installation, native host or daemon is started by this command:
-
-```powershell
-tests/test_support/desktop/build_annotation_integration_driver.ps1 `
-  -DependencyInclude C:/path/to/installed/triplet/include `
-  -OutputDirectory "$env:TEMP/acecode-annotation-integration"
-$env:ACECODE_TEST_ANNOTATION_SESSION = "$env:TEMP/acecode-annotation-integration/annotation_integration_driver.exe"
-$env:ACECODE_TEST_BROWSER = 'C:/path/to/msedge.exe'
-cd web
-pnpm test:annotations:integration
-```
-
-The driver links the production queue and append-file implementation, not stubs.
-The build helper initializes x64 MSVC when needed; other installations can supply
-`-VcVarsPath` or use an initialized developer shell. The dedicated integration
-command fails when the driver is missing; `test:annotations:browser` can still run
-the pre-existing CSS tests independently and explicitly reports the native seam
-as skipped when no driver is configured.
-
-Boundary limitations: capture transport is injected using a standalone Chromium
-PNG and an independent opaque capture token. The loopback HTTP adapter invokes the
-real identity parser/queue, not the daemon routes, attachment storage, persisted
-session manager or model. Existing web-server smoke and receiver tests own those
-boundaries. This suite does **not** establish WebView2/WKWebView full-page pixels,
-native navigation prompts, complete ChatView interaction, platform compilation,
-manual acceptance, or restart recovery. A PNG-height assertion is not native
-below-viewport pixel acceptance.
+The execution records below are retained as-is; they describe the superseded
+design and are not acceptance for the redesign.
 
 ## Real desktop workflow
 
@@ -97,11 +58,11 @@ The local fixture is `tests/desktop/helpers/html_annotation_fixture.html`. Serve
 | Multiple elements and one replaceable region share description and pin; region has no property editing | Not executed | Not executed |
 | Save produces pin/count but no model work and no HTML/CSS file writes | Not executed | Not executed |
 | Original comparison keeps pins; restoring previews and leaving mode retain saved work | Not executed | Not executed |
-| Explicit batch send yields one message and exactly one full-page image with below-viewport pixels | Not executed | Not executed |
+| Sending from the composer along with pending records yields one message with exactly one full-page image containing below-viewport pixels | Not executed | Not executed |
 | Busy model receives queued new turn, not steering; composer draft and attachments remain | Not executed | Not executed |
-| Session switching cannot retarget frozen batch; additions during send remain pending | Not executed | Not executed |
-| Accepted batch clears only its pending count, retains pins/previews, and subsequent numbers increase | Not executed | Not executed |
-| Capture/upload failure sends nothing; uncertain receipt retries same identity without duplicate work | Not executed | Not executed |
+| Session switching cannot retarget a submission already assembled; records added during the send stay pending | Not executed | Not executed |
+| Accepted submission removes only the sent records, keeps the page shot, and subsequent numbers do not reuse a removed id | Not executed | Not executed |
+| Capture or upload failure sends nothing and leaves the record editable; an uncertain response settles under the same client message id without duplicate work | Not executed | Not executed |
 | Navigation/refresh defaults to staying; replacement/removal invalidates without relocation | Not executed | Not executed |
 | No usable conversation permits annotation but blocks sending without creating a conversation | Not executed | Not executed |
 | Existing source-selection annotation workflow remains functional | Not executed | Not executed |

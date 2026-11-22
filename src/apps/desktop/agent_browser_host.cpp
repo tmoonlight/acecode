@@ -24,7 +24,6 @@
 #include <cstdint>
 #include <filesystem>
 #include <functional>
-#include <map>
 #include <memory>
 #include <mutex>
 #include "utils/joining_thread.hpp"
@@ -76,14 +75,7 @@ struct AgentBrowserHost::Impl
     AgentBrowserCookieMode cookie_mode = AgentBrowserCookieMode::Shared;
     // 会话级批注记录（Q33）。页签销毁不带走记录：关页签只让记录降级为 orphan，
     // 所以存储挂在宿主上、按 owner.session_id 分桶，由 UI 线程读写。
-    std::map<std::string, std::shared_ptr<SessionAnnotationStore>> annotation_stores;
-
-    std::shared_ptr<SessionAnnotationStore> annotation_store_for(const std::string& session_id) {
-        if (session_id.empty()) return std::make_shared<SessionAnnotationStore>();
-        auto& slot = annotation_stores[session_id];
-        if (!slot) slot = std::make_shared<SessionAnnotationStore>();
-        return slot;
-    }
+    SessionAnnotationStoreRegistry annotation_store_registry;
 
 #ifdef _WIN32
     struct QueuedCdpCall {
@@ -543,7 +535,7 @@ struct AgentBrowserHost::Impl
         page->state.shared_with_agent = shared_with_agent;
         page->state.owner = owner;
         // 同会话所有页签共享一个记录容器；页签关掉后记录仍在，转 orphan 继续可发。
-        page->annotations.share_store(annotation_store_for(owner.session_id));
+        page->annotations.share_store(annotation_store_registry.for_session(owner.session_id));
         std::vector<AgentBrowserState> changed;
         AgentBrowserState created;
         {
@@ -2007,13 +1999,8 @@ struct AgentBrowserHost::Impl
                 const HRESULT visible_result =
                     page->controller->put_IsVisible(TRUE);
                 show = SUCCEEDED(bounds_result) && SUCCEEDED(visible_result);
-                // A modal WebUI dialog keeps this page painted but must stop it
-                // from receiving pointer/keyboard input (no hover outlines or
-                // clicks leaking through the dialog).
-                if (browser_widget && ::IsWindow(browser_widget)) {
-                    ::EnableWindow(browser_widget,
-                                   page->requested_bounds.interaction_blocked ? FALSE : TRUE);
-                }
+                set_agent_browser_widget_input_enabled(
+                    browser_widget, !page->requested_bounds.interaction_blocked);
                 if (!show) {
                     LOG_WARN("[agent-browser] failed to show native page " +
                              page->id + " (bounds=" +
@@ -2029,9 +2016,7 @@ struct AgentBrowserHost::Impl
             }
         }
         if (page->state.active && !show) {
-            if (browser_widget && ::IsWindow(browser_widget) && !::IsWindowEnabled(browser_widget)) {
-                ::EnableWindow(browser_widget, TRUE);
-            }
+            set_agent_browser_widget_input_enabled(browser_widget, true);
             hide_agent_browser_widget(browser_widget);
         }
         if (page->state.visible != show) {
@@ -2605,24 +2590,7 @@ bool AgentBrowserHost::set_bounds(const std::string& page_id,
         assign_error(error, "Agent Browser is unavailable on this platform");
         return false;
     }
-    if (bounds.x < 0 || bounds.y < 0 || bounds.width < 0 || bounds.height < 0 ||
-        bounds.width > 32768 || bounds.height > 32768) {
-        assign_error(error, "Agent Browser bounds are invalid");
-        return false;
-    }
-    if (bounds.occlusion_rects.size() > kAgentBrowserMaxOcclusionRects) {
-        assign_error(error, "Agent Browser has too many occlusion rectangles");
-        return false;
-    }
-    for (const auto& rect : bounds.occlusion_rects) {
-        if (rect.x < 0 || rect.y < 0 || rect.width <= 0 || rect.height <= 0 ||
-            rect.x > 32768 || rect.y > 32768 ||
-            rect.width > 32768 || rect.height > 32768 || rect.radius < 0 || rect.radius > 32768 ||
-            rect.square_corners < 0 || rect.square_corners > 0xF) {
-            assign_error(error, "Agent Browser occlusion rectangle is invalid");
-            return false;
-        }
-    }
+    if (!valid_agent_browser_bounds(bounds, error)) return false;
 #ifdef _WIN32
     auto page = impl_->find_page(page_id);
     if (!page) {

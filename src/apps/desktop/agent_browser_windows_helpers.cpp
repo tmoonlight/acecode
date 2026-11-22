@@ -466,6 +466,14 @@ void hide_agent_browser_widget(HWND widget) {
                        SWP_NOZORDER | SWP_HIDEWINDOW);
 }
 
+// A modal WebUI dialog keeps the page painted but must stop it from receiving
+// pointer/keyboard input (no hover outlines or clicks leaking through).
+void set_agent_browser_widget_input_enabled(HWND widget, bool enabled) {
+    if (!widget || !::IsWindow(widget)) return;
+    if ((::IsWindowEnabled(widget) != FALSE) == enabled) return;
+    ::EnableWindow(widget, enabled ? TRUE : FALSE);
+}
+
 // 页面给的 bounds 是主 WebView 视口坐标,而 Agent Browser 子窗口挂在宿主窗口
 // 上。两者原点通常重合;Win10 非最大化时主 WebView 下移了 1px 给自绘顶边线
 // (web_host.cpp resize_webview_widget),这里要把偏移加回来,否则整块往上错位。
