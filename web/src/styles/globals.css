@@ -999,7 +999,8 @@ body {
   border: 1px solid var(--ace-border);
   color: var(--ace-fg);
   font-size: 12px;
-  line-height: 1.35;
+  /* 1.35 会在 Linux CJK 字体下截掉标签底部(见 .ace-composer-adaptive-chip)。 */
+  line-height: 1.5;
   font-weight: 400;
   box-shadow: var(--ace-shadow-lg);
   overflow-x: hidden;
@@ -1447,7 +1448,10 @@ body {
   color: var(--ace-accent);
   font-size: 13px;
   font-weight: 400;
-  line-height: 1;
+  /* CJK fonts on Linux (e.g. Noto Sans CJK) report a font bounding box taller
+     than 1em; with line-height: 1 the glyph bottoms poke out of the line box
+     and overflow: hidden clips them. Keep the line box metric-safe. */
+  line-height: 1.5;
   white-space: nowrap;
   cursor: pointer;
   overflow: hidden;
@@ -1565,7 +1569,8 @@ body {
   justify-content: center;
   gap: 5px;
   font-size: 13px;
-  line-height: 1;
+  /* Metric-safe line box: see .ace-composer-adaptive-chip. */
+  line-height: 1.5;
   transition: color 0.14s ease, background-color 0.14s ease;
 }
 .ace-composer-control-button:hover:not(:disabled) {
@@ -1600,7 +1605,8 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  line-height: 1.35;
+  /* 1.35 clips CJK model names whose font bounding box exceeds 1.35em. */
+  line-height: 1.5;
 }
 .ace-composer-model-glyph {
   display: inline-flex;
@@ -7853,7 +7859,8 @@ div.ace-markdown-opaque > div.ace-markdown-opaque-rendered {
   position: relative;
   z-index: 1;
 }
-.ace-git-pill { line-height: 1.2; }
+/* 1.2 会截掉中文分支名 / worktree 名的底部(见 .ace-composer-adaptive-chip)。 */
+.ace-git-pill { line-height: 1.5; }
 .ace-git-pill-checkbox {
   width: 13px;
   height: 13px;

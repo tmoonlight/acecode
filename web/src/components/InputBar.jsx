@@ -162,7 +162,7 @@ function ComposerSelectionCard({
   const sourcePath = item?.source?.path || item?.path || presentation.label;
   return (
     <div
-      className="group h-6 max-w-[260px] shrink-0 rounded-md border border-border bg-surface px-1.5 flex items-center gap-1 text-[11px] font-sans leading-none text-fg"
+      className="group h-6 max-w-[260px] shrink-0 rounded-md border border-border bg-surface px-1.5 flex items-center gap-1 text-[11px] font-sans text-fg"
       title={presentation.title}
     >
       <button
@@ -190,7 +190,7 @@ function ComposerBrowserContextCard({ item, onRemove }) {
   const presentation = contextPresentation(item);
   return (
     <div
-      className="group h-6 max-w-[260px] shrink-0 rounded-md border border-border bg-surface px-1.5 flex items-center gap-1 text-[11px] font-sans leading-none text-fg"
+      className="group h-6 max-w-[260px] shrink-0 rounded-md border border-border bg-surface px-1.5 flex items-center gap-1 text-[11px] font-sans text-fg"
       title={presentation.title}
     >
       <button
