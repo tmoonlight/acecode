@@ -14,6 +14,7 @@
 #include <thread>
 #include <type_traits>
 #include <utility>
+#include <vector>
 
 using acecode::ModelProfile;
 using acecode::create_provider_from_entry;
@@ -117,6 +118,102 @@ TEST(ProviderFactory, OpenAiProfileRequestHeadersReachProvider) {
 
     std::lock_guard<std::mutex> lk(mu);
     EXPECT_EQ(seen_header, "profile");
+}
+
+TEST(ProviderFactory, OpenCodeGoRoutesEachCallAcrossInferenceProtocols) {
+    std::mutex mutex;
+    std::vector<std::string> sessions;
+    LocalHttpServer server([&](httplib::Server& http) {
+        http.Post(R"(/(chat/completions|responses|messages))", [&](const httplib::Request& req,
+                                                               httplib::Response& res) {
+            std::lock_guard<std::mutex> lock(mutex);
+            sessions.push_back(req.get_header_value("x-opencode-session"));
+            EXPECT_EQ(req.get_header_value("User-Agent").find("ACECode/"), 0u);
+            // End each call after recording headers, without transport-specific fixtures or retries.
+            res.status = 401;
+            res.set_content(R"({"error":{"message":"end of header capture"}})", "application/json");
+        });
+    });
+    acecode::ChatRequestOptions first{"session-one"}, second{"session-two"};
+    const auto messages = std::vector<acecode::ChatMessage>{user_message()};
+    for (const std::string protocol : {"chat_completions", "responses", "messages"}) {
+        SCOPED_TRACE(protocol);
+        auto profile = openai_profile(server.base_url());
+        if (protocol == "messages") profile.provider = "anthropic";
+        else profile.api_protocol = protocol;
+        const auto original = fingerprint_for(profile);
+        profile.models_dev_provider_id = "opencode-go";
+        EXPECT_NE(fingerprint_for(profile), original);
+        auto provider = create_provider_from_entry(profile);
+        ASSERT_TRUE(provider);
+        provider->chat_with_options(messages, {}, first, nullptr);
+        provider->chat_with_options(messages, {}, second, nullptr);
+        provider->chat_stream_with_options(messages, {}, first, [](const auto&) {}, nullptr);
+        std::lock_guard<std::mutex> lock(mutex);
+        ASSERT_EQ(sessions.size(), 3u);
+        EXPECT_FALSE(sessions[0].empty());
+        EXPECT_FALSE(sessions[1].empty());
+        EXPECT_NE(sessions[0], sessions[1]);
+        EXPECT_EQ(sessions[0], sessions[2]);
+        sessions.clear();
+    }
+}
+
+TEST(ProviderFactory, OpenCodeGoRecognizesOfficialEndpointsAndHonorsCustomHeaders) {
+    acecode::ProviderRequestOptions options;
+    acecode::ChatRequestOptions conversation{"same-session"};
+    std::string error;
+    for (const auto* url : {"https://OPENCODE.AI:443/inference/go/openai/v1/chat/completions",
+                            "https://opencode.ai/zen/go/v1/messages"}) {
+        auto headers = options.resolve_headers({}, url, &conversation, error);
+        ASSERT_TRUE(headers);
+        EXPECT_FALSE(headers->at("x-opencode-session").empty());
+        const acecode::RequestHeaders overrides{
+            {"X-OpenCode-Session", "custom-session"}, {"user-AGENT", "custom-agent"}};
+        headers = options.resolve_headers(overrides, url, &conversation, error);
+        ASSERT_TRUE(headers);
+        EXPECT_EQ(*headers, overrides);
+    }
+    for (const auto* url : {"https://opencode.ai/inference/openai/v1/chat/completions",
+                            "https://opencode.ai/inference/go-other/v1/chat/completions",
+                            "https://opencode.ai.example.org/inference/go/v1/messages",
+                            "https://opencode.ai@elsewhere.test/inference/go/v1/responses"}) {
+        const auto headers = options.resolve_headers({}, url, &conversation, error);
+        ASSERT_TRUE(headers);
+        EXPECT_TRUE(headers->empty()) << url;
+    }
+}
+
+TEST(ProviderFactory, OpenCodeGoRetainsGeneratedSessionAcrossStreamRetry) {
+    std::mutex mutex;
+    std::vector<std::string> sessions;
+    LocalHttpServer server([&](httplib::Server& http) {
+        http.Post("/chat/completions", [&](const httplib::Request& req, httplib::Response& res) {
+            std::lock_guard<std::mutex> lock(mutex);
+            sessions.push_back(req.get_header_value("x-opencode-session"));
+            if (sessions.size() == 1) {
+                res.status = 503;
+                res.set_header("Retry-After", "0");
+                res.set_content(R"({"error":{"message":"temporarily unavailable"}})", "application/json");
+                return;
+            }
+            res.set_content("data: {\"choices\":[{\"delta\":{\"content\":\"OK\"},\"finish_reason\":\"stop\"}]}\n\n"
+                            "data: [DONE]\n\n", "text/event-stream");
+        });
+    });
+    auto profile = openai_profile(server.base_url());
+    profile.models_dev_provider_id = "opencode-go";
+    auto provider = create_provider_from_entry(profile);
+    ASSERT_TRUE(provider);
+    std::string answer;
+    provider->chat_stream({user_message()}, {}, [&](const auto& event) {
+        if (event.type == acecode::StreamEventType::Delta) answer += event.content;
+    });
+    EXPECT_EQ(answer, "OK");
+    std::lock_guard<std::mutex> lock(mutex);
+    ASSERT_EQ(sessions.size(), 2u);
+    EXPECT_FALSE(sessions[0].empty());
+    EXPECT_EQ(sessions[0], sessions[1]);
 }
 
 TEST(ProviderFactory, OpenAiProfileInheritsGlobalRequestHeadersWhenEntryOmitsThem) {

@@ -6,6 +6,7 @@
 #include "agent/transcript/conversation_history.hpp"
 #include "agent/worker/agent_task_queue.hpp"
 #include "session/request_context_record.hpp"
+#include "session/session_manager.hpp"
 #include "utils/logger.hpp"
 
 #include <algorithm>
@@ -92,8 +93,12 @@ SideChatResult AgentLoop::stream_side_chat(
     const SideChatToolCallback& on_tool, const SideChatMainSessionSender& send_to_main,
     const SideChatInputOptions& input) {
     ensure_side_question_context();
+    auto side_input = input;
+    auto session_id = session_manager_ ? session_manager_->current_session_id() : std::string{};
+    if (session_id.empty()) session_id = request_builder_->fallback_session_key();
+    side_input.conversation_key = session_id + "/side";
     return side_questions_->stream(question, history, cancellation, callback,
-                                   side_chat_toolset(send_to_main, input.extra_read_denied), on_tool, input);
+                                   side_chat_toolset(send_to_main, input.extra_read_denied), on_tool, side_input);
 }
 
 } // namespace acecode

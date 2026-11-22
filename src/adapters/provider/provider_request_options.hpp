@@ -1,11 +1,14 @@
 #pragma once
 
 #include "config/saved_models.hpp"
+#include "config/request_headers.hpp"
 
 #include <optional>
 #include <string>
 
 namespace acecode {
+
+struct ChatRequestOptions;
 
 // Provider-neutral request settings copied from one saved model profile.
 // Missing values deliberately preserve each provider's legacy behavior.
@@ -24,6 +27,10 @@ struct ProviderRequestOptions {
     ReasoningWireProtocol reasoning_protocol = ReasoningWireProtocol::None;
     // 空 = 一个采样字段都不发,请求体与旧版本逐字节一致。
     ModelSamplingOptions sampling;
+    bool opencode_go = false;
+
+    std::optional<RequestHeaders> resolve_headers(const RequestHeaders& configured,
+        const std::string& url, const ChatRequestOptions* call, std::string& error) const;
 };
 
 // Write only configured fields. Anthropic omits min_p; Responses conversion

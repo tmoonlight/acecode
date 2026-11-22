@@ -105,6 +105,8 @@ OpenAI-compatible and Anthropic saved models can include optional
 
 `Content-Type` is controlled by ACECode and cannot be overridden. A custom `Authorization` header is allowed and overrides the built-in bearer header derived from `api_key`.
 
+Selecting **OpenCode Go** in the catalog automatically supplies `x-opencode-session` and the ACECode `User-Agent` for inference. Chat Completions, Responses and Anthropic Messages use the same policy. The routing ID stays stable across turns in a conversation. Each connection test receives a fresh ID. Existing profiles pointing at the official Go endpoint also receive these defaults. Explicit per-header overrides take precedence. [OpenCode Go client requirements](https://opencode.ai/docs/console/harnesses/#sessions)
+
 For legacy configs, the top-level `openai.request_headers` object is also accepted. It is used as a fallback for OpenAI-compatible saved model entries that do not define their own `request_headers`; per-model headers take precedence. Anthropic entries use only their own per-model `request_headers`.
 
 ## Important Rule

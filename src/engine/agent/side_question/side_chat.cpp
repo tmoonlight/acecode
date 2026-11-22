@@ -4,6 +4,7 @@
 #include "provider/text_tool_call_recovery.hpp"
 #include "tool/tool_executor.hpp"
 #include "utils/encoding.hpp"
+#include "utils/uuid.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -288,11 +289,14 @@ SideChatResult run_side_chat(
         if (callback) callback(visible, false);
     };
 
+    ChatRequestOptions request_options;
+    request_options.prompt_cache_key = input.conversation_key.empty()
+        ? generate_uuid_v7() : input.conversation_key;
     try {
         while (true) {
             const std::size_t step_start = answer.size();
             SideChatStep step;
-            provider->chat_stream(context, request_tools, [&](const StreamEvent& event) {
+            provider->chat_stream_with_options(context, request_tools, request_options, [&](const StreamEvent& event) {
                 if (cancellation.aborted.load()) return;
                 switch (event.type) {
                 case StreamEventType::Delta:

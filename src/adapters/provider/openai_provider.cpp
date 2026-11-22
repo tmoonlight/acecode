@@ -6,7 +6,6 @@
 #include "text_tool_call_recovery.hpp"
 #include "session/session_history_recovery.hpp"
 #include "image/image_processor.hpp"
-#include "config/request_headers.hpp"
 #include "session/attachment_prompt_context.hpp"
 #include "session/attachment_store.hpp"
 #include "session/output_attachments.hpp"
@@ -1250,7 +1249,7 @@ ChatResponse OpenAiCompatProvider::chat_cancellable_impl(
         headers["Authorization"] = "Bearer " + api_key_;
     }
     std::string header_error;
-    auto resolved_headers = resolve_request_headers(request_headers_, header_error);
+    auto resolved_headers = request_options_.resolve_headers(request_headers_, url, call_options, header_error);
     if (!resolved_headers.has_value()) {
         return make_chat_error_response(make_provider_error(
             ProviderErrorKind::Unknown,

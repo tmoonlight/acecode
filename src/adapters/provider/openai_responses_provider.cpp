@@ -104,16 +104,13 @@ void emit_error(const StreamCallback& callback, const ProviderErrorInfo& info,
     callback(event);
 }
 
-std::optional<cpr::Header> request_headers(const std::string& api_key,
-    const std::map<std::string, std::string>& configured, bool stream,
-    std::string& error) {
-    const auto resolved = resolve_request_headers(configured, error);
-    if (!resolved) return std::nullopt;
+cpr::Header request_headers(const std::string& api_key,
+    const RequestHeaders& resolved, bool stream) {
     cpr::Header headers{{"Content-Type", "application/json"},
         {"Accept", stream ? "text/event-stream" : "application/json"}};
     if (stream) headers["Accept-Encoding"] = "identity";
     if (!api_key.empty()) headers["Authorization"] = "Bearer " + api_key;
-    for (const auto& [name, value] : *resolved) headers[name] = value;
+    for (const auto& [name, value] : resolved) headers[name] = value;
     return headers;
 }
 
@@ -226,16 +223,17 @@ ChatResponse OpenAiResponsesProvider::chat_impl(
         return failed_response(request_error(ProviderErrorKind::Unknown,
             0, model_, "Could not build Responses request: " + error));
     }
-    const auto headers = request_headers(api_key_, request_headers_, false, error);
-    if (!headers) {
+    const auto url = request_url();
+    const auto resolved = request_options_.resolve_headers(request_headers_, url, options, error);
+    if (!resolved) {
         return failed_response(request_error(ProviderErrorKind::Unknown, 0, model_, error));
     }
-    const auto url = request_url();
+    const auto headers = request_headers(api_key_, *resolved, false);
     cpr::Response upstream;
     do {
         if (cancelled()) return cancellation();
         const auto proxy = network::proxy_options_for(url);
-        upstream = cpr::Post(cpr::Url{url}, *headers, cpr::Body{body.dump()},
+        upstream = cpr::Post(cpr::Url{url}, headers, cpr::Body{body.dump()},
             network::build_ssl_options(proxy), proxy.proxies, proxy.auth,
             cpr::Timeout{stream_timeout_ms_},
             cpr::ProgressCallback{[abort_flag](cpr::cpr_off_t, cpr::cpr_off_t,
@@ -305,12 +303,13 @@ void OpenAiResponsesProvider::stream_impl(const std::vector<ChatMessage>& messag
             0, model_, "Could not build Responses request: " + error));
         return;
     }
-    const auto headers = request_headers(api_key_, request_headers_, true, error);
-    if (!headers) {
+    const auto url = request_url();
+    const auto resolved = request_options_.resolve_headers(request_headers_, url, options, error);
+    if (!resolved) {
         emit_error(callback, request_error(ProviderErrorKind::Unknown, 0, model_, error));
         return;
     }
-    const auto url = request_url();
+    const auto headers = request_headers(api_key_, *resolved, true);
     std::uint64_t retry_number = 0;
     for (;;) {
         if (cancelled()) {
@@ -404,7 +403,7 @@ void OpenAiResponsesProvider::stream_impl(const std::vector<ChatMessage>& messag
                 }};
             const auto proxy = network::proxy_options_for(url);
             session.SetOption(cpr::Url{url});
-            session.SetOption(*headers);
+            session.SetOption(headers);
             session.SetOption(cpr::Body{body.dump()});
             session.SetOption(cpr::ConnectTimeout{(std::min)(timeout_ms, kStreamConnectTimeoutCapMs)});
             session.SetOption(network::build_ssl_options(proxy));

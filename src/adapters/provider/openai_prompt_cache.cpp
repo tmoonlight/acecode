@@ -1,7 +1,6 @@
 #include "openai_provider.hpp"
 #include "utils/logger.hpp"
 #include "config/builtin_model_catalog.hpp"
-#include "config/request_headers.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -226,7 +225,7 @@ void OpenAiCompatProvider::chat_stream_impl(
         extra_headers["Authorization"] = "Bearer " + api_key_;
     }
     std::string header_error;
-    auto resolved_headers = resolve_request_headers(request_headers_, header_error);
+    auto resolved_headers = request_options_.resolve_headers(request_headers_, url, call_options, header_error);
     if (!resolved_headers.has_value()) {
         LOG_ERROR("OpenAI request_headers resolution failed: " + header_error);
         StreamEvent evt;

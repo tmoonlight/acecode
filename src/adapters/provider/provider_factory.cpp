@@ -55,6 +55,8 @@ ProviderRequestOptions request_options_from_entry(const ModelProfile& entry) {
     options.max_output_tokens = entry.max_output_tokens;
     options.reasoning = entry.reasoning;
     options.sampling = entry.sampling;
+    options.opencode_go = entry.models_dev_provider_id &&
+        equals_ascii_ci(*entry.models_dev_provider_id, "opencode-go");
     if (entry.provider == "anthropic" && entry.reasoning.has_value()) {
         options.reasoning_protocol = ReasoningWireProtocol::Anthropic;
     } else if (entry.provider == "openai" && entry.reasoning.has_value() &&
@@ -159,6 +161,7 @@ std::string canonical_plan_bytes(const EffectiveProviderBuildPlan& plan) {
     if (plan.uses_request_options) {
         append_string(out, plan.request_options.endpoint_mode);
         append_string(out, plan.request_options.api_protocol);
+        append_bool(out, plan.request_options.opencode_go);
         append_optional_int(out, plan.request_options.max_output_tokens);
         append_u64(out, static_cast<std::uint64_t>(
             plan.request_options.reasoning_protocol));
