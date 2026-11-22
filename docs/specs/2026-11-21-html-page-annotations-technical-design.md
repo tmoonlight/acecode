@@ -77,6 +77,8 @@
 | D6 | 已发卡片要不要「复制文本」 | **不给**。已发卡片一个按钮都没有 | 与 U3 一致：只读到极致，避免任何"能改"的暗示 |
 | D7 | 编辑中页签被关闭 | **存进 draftStore，卡片行转 `orphan`**，下次点铅笔接着改 | 不打断输入、不弹窗、不假装页面还在 |
 | D8 | 编辑态要不要把页面拉进批注模式 | **要拉回**：隐式 `start()`，页面进入批注模式 | 用户从卡片点铅笔本就是来改批注的，之后的点击自然就是批注意图；`start` 复位 `original`/`markers_hidden` 也符合"重新进入"的心理预期 |
+| D9 | 记录标识是否与文档绑定（#208 结论） | **不绑定**。`record.id` = `<page_id>:annotation:<n>`，`document_id` 降为记录属性，另存跨文档可用的 `locator` | 现行 `<document_id>:annotation:<n>` 在刷新后结构性失效（§4.12）；#209 的存储主键照此落 |
+| D10 | 保存时捕获是同步还是异步（#208 结论） | **异步补图**：`save` 立即入库广播，捕获 + 裁剪在后台完成后回写 `thumbnail` / `page_shot`；2s 超时判 `screenshot_unavailable` | 页面侧裁剪实测 P95 ≤ 37 ms（做了 `scale=1/dpr`），性能不是瓶颈；异步是为了不让直接操作动作等 CDP 往返，也为了让捕获失败不阻塞保存 |
 
 ---
 
@@ -354,13 +356,18 @@ return {source: n?._debugSource ?? null, components: stack.slice(0, 8)};
 **时机前移**：不是发送时截，而是**每次 `save` 截一张**。保存那一刻页面正停在目标上，是坐标最准的时刻；等到发送时页面可能已经导航、重放、或干脆关了。
 
 ```
-save
- → 视口捕获一次（Windows Page.captureScreenshot 视口，scale = 1/dpr；mac takeSnapshot 视口）
- → 按目标 rect（并集 + padding）本地裁剪
- → 缩到宽 ≤ 512px，存进 record.thumbnail（PNG data URL）
- → 同一张视口原图另存为该页的 page_shot（每页只留最新一张，供已发消息卡片）
- → 该条记录带图成立；失败也不阻塞 save
+save（同步返回，不等捕获）
+ → 记录立刻入库并广播（thumbnail 为空，screenshot_pending:true）
+ → 后台：视口捕获一次（Windows Page.captureScreenshot 视口，scale = 1/dpr；mac takeSnapshot 视口）
+ → 后台：按目标 rect（并集 + padding）裁剪（坐标即 CSS 像素，不乘 DPR）
+ → 后台：缩到宽 ≤ 512px → record.thumbnail（PNG data URL）
+ → 后台：同一张视口原图另存为该页的 page_shot（每页只留最新一张，供已发消息卡片）
+ → 回写记录 + bump revision + 广播（卡片缩略图与已发卡片配图就位）
+ → 失败 / 2s 超时：screenshot_unavailable:true，不重试，save 本身不受影响
 ```
+
+- **异步（D10）**：`save` 是直接操作动作，用户对它的感知是「立刻」。捕获串在返回路径上会让图钉出现时间取决于 CDP 往返，而缩略图并不紧急。异步也让「捕获失败」退化为一次字段更新，而不是一次交互失败。
+- **`scale = 1/dpr` 是硬要求（#208 实测）**：DPR2 下不做修正，捕获图是 5120×2880（4.6 MB PNG），保存路径 P95 达 238 ms；做了修正是 2560×1440、P95 37 ms。见 `2026-11-22-html-page-annotations-t0-findings.md`。
 
 - 一次捕获出两张图，分工固定：
   - `record.thumbnail`（局部，≤512px）——待发卡片的 24px 缩略图 + 发送时该条的 attachment；
@@ -515,7 +522,30 @@ adjustable = record.state === 'live' && 页签存活 && document_id 匹配
 2. 存活页签的图钉与预览（`sync`）
 3. 输入框上方的卡片（store 订阅）
 
-**已发消息卡片只读**：不给铅笔、不给垃圾桶、不给「复制」、不给「回到页面修改」（D6：一个按钮都不给）。卡片本身只有「整屏截屏 + 页面标题 + `N 条注释`」，明细在悬停浮层里，浮层内的条目同样不可编辑。消息是 transcript，agent 已按旧描述执行过，能改就等于改历史；留一个「复制」也会让人以为下一步能改。用户想「改完再让 agent 做一次」，就是在页面上重新批注一条新的——这件事必须是显式的、留痕的。
+**已发消息卡片只读**：不给铅笔、不给垃圾桶、不给「复制」、不给「回到页面修改」（D6：一个按钮都不给）。卡片本身只有「整屏截屏 + 页面标题 + `N 条注释`」，明细在悬停浮层里，浮层内的条目同样不可编辑。消息是 transcript，agent 已按旧描述执行过，能改就等于改历史；留一个「复制」只会让人以为下一步能改。用户想「改完再让 agent 做一次」，就是在页面上重新批注一条新的——这件事必须是显式的、留痕的。
+
+### 4.12 记录标识与定位符（D9）
+
+**结论**：`record.id` 不能和文档绑定。现行 `<document_id>:annotation:<n>` 在刷新后结构性失效——`document_id` 内含自增 epoch（`page_annotation_session.hpp:213`），替换时 epoch+1 且 `document_id_` 清空（`:143-168`），记录 id（`:381`）指向一个不存在的文档代；页内 runtime 按 `document_id` 建键，换文档即 `dispose()`（`page_annotation_runtime.hpp:9-12`），图钉随之消失（`:359-375`），元素标识 `target-N` 是新 runtime 里重新数出来的序号（`:28, 217`）。完整因果链与实测见 `2026-11-22-html-page-annotations-t0-findings.md`。
+
+```
+record.id       = <page_id>:annotation:<n>     // 会话内稳定，n 按 page_id 分组连续
+record.page_id  = 所属页签
+record.page_url = 保存时的 URL（重放要求精确匹配）
+record.document_id = 保存时的文档代（只用于判定 live / replayable，不做主键）
+record.locator  = 跨文档可用的结构定位符
+```
+
+**`locator` 是新增字段**，`save` 时生成一次，之后只读。此前 `targets[].locator` 只有 `tag#id`（`page_annotation_runtime.hpp:97`），对没有 `id` 的元素退化成 `div`，撑不起 §4.6 的 `locate()`。生成顺序（逐级降级，取第一个稳定命中的）：
+
+1. `data-testid` / `data-test` / `aria-label` 唯一命中；
+2. CSS 结构路径：从目标到 `documentElement` 的 `tag:nth-of-type(k)` 链（跳过 `data-ace-*` 注入节点与批注 overlay）；
+3. 文本指纹：`tag` + 归一化文本前 80 字符的滚动哈希；
+4. 同级索引：父路径 + `nth-of-type`，最弱，只在 1~3 都失败时用。
+
+**`target.id`（`target-N`）只在同一 runtime 内有效**，不跨文档、不进主键；跨文档一律走 `locator`。
+
+**`stale` 的判定不依赖 locator 命中率**：定位不到、定位到但实时值 ≠ `old_value`、文本节点结构变化，三者都判 `stale`（§4.6 的四条硬约束不变）。
 
 ---
 
