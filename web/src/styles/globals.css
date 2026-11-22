@@ -2742,8 +2742,6 @@ body {
   cursor: pointer;
   user-select: none;
 }
-.ace-sidebar-pinned-session-row:active,
-.ace-sidebar-workspace-session-row:active,
 .ace-sidebar-session-reordering .ace-sidebar-pinned-session-row,
 .ace-sidebar-session-reordering .ace-sidebar-workspace-session-row {
   cursor: grabbing;
@@ -5173,7 +5171,6 @@ a.ace-thread-link:focus-visible {
   cursor: pointer;
   user-select: none;
 }
-.ace-preview-details-tab:active,
 .ace-preview-tab-reordering .ace-preview-details-tab {
   cursor: grabbing;
 }
