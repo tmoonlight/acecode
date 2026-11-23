@@ -11,6 +11,7 @@ import {
   isSafeMermaidResourceValue,
   MAX_MERMAID_SOURCE_BYTES,
   mermaidConfig,
+  mermaidFailureNote,
   mermaidTheme,
   neutralizeMermaidMarkup,
   prepareMermaidRenderSource,
@@ -155,11 +156,10 @@ await test('source gate passes attribute-free Mermaid label line breaks through 
     source: reportedLabelBreakFlowchart,
   });
 
-  // 已经编码过的 HTML 尖括号仍然拒绝:改写只处理原文里的 `<`,不去猜实体背后的意图。
-  assert.equal(
-    inspectMermaidSource('flowchart TD\nA[first&lt;br&gt;second] --> B').reason,
-    'html',
-  );
+  // 已经编码过的尖括号(HTML 实体)不再拒绝:换成 Mermaid 自己的实体码,与改写原文尖括号是同一个结果。
+  const encoded = 'flowchart TD\nA[first&lt;br&gt;second] --> B';
+  assert.equal(inspectMermaidSource(encoded).ok, true);
+  assert.equal(prepareMermaidRenderSource(encoded, 'flowchart'), 'flowchart TD\nA[first#lt;br#gt;second] --> B');
 });
 
 // 场景:讲代码的图在标签里写 `<cachePath>`、`List<String>`、`i<n`,甚至 `<script>` 这类原文。
@@ -292,15 +292,15 @@ await test('source gate accepts official static Mermaid styling unchanged', () =
   }
 });
 
-await test('source gate rejects interaction and unsafe CSS before Mermaid', () => {
+await test('source gate rejects unsafe CSS before Mermaid and drops interaction statements', () => {
+  // 点击 / 链接语句不再让整张图退回源码:闸门放行,交给 Mermaid 的文本里这一句换成空行。
   const interactive = [
-    'flowchart TD\nA --> B\nclick A callback',
-    'flowchart TD\nA --> B\nhref A target',
-    'flowchart TD\nA --> B\ncall A handler',
-    'sequenceDiagram\nlinks Alice: {"Home": "/home"}',
+    ['flowchart TD\nA --> B\nclick A callback', 'flowchart', 'flowchart TD\nA --> B\n'],
+    ['sequenceDiagram\nlinks Alice: {"Home": "/home"}\nAlice->>Bob: hi', 'sequence', 'sequenceDiagram\n\nAlice->>Bob: hi'],
   ];
-  for (const source of interactive) {
-    assert.equal(inspectMermaidSource(source).reason, 'interactive', source);
+  for (const [source, family, expected] of interactive) {
+    assert.equal(inspectMermaidSource(source).ok, true, source);
+    assert.equal(prepareMermaidRenderSource(source, family), expected, source);
   }
 
   const unsafeStyles = [
@@ -336,17 +336,23 @@ await test('source gate rejects interaction and unsafe CSS before Mermaid', () =
   }
 });
 
-await test('source gate rejects directives, active syntax, unsafe HTML, and resources', () => {
+await test('source gate rejects only what cannot be taken out: image shapes and style resources', () => {
   const rejected = [
+    'flowchart TD\nA@{ img: "https://example.test/x.png" }',
+    'flowchart TD\nA --> B\nstyle A fill:url(https://example.test/x.svg)',
+    '---\nconfig:\n  theme: dark\nflowchart TD\nA --> B',
+  ];
+  for (const source of rejected) assert.equal(inspectMermaidSource(source).ok, false, source);
+
+  // 以前整张拒绝、现在改写后照画的:front matter、指令、点击语句,以及标签里的 `$$`、`![..](..)`。
+  const accepted = [
     '---\nconfig:\n  theme: dark\n---\nflowchart TD\nA --> B',
     '%%{init: {"theme": "dark"}}%%\nflowchart TD\nA --> B',
-    'flowchart TD\nA@{ img: "https://example.test/x.png" }',
     'flowchart TD\nA --> B\nclick A "https://example.test"',
-    'flowchart TD\nA --> B\nstyle A fill:url(https://example.test/x.svg)',
     'flowchart TD\nA[$$x^2$$] --> B',
     'sequenceDiagram\nAlice->>Bob: ![image](asset.png)',
   ];
-  for (const source of rejected) assert.equal(inspectMermaidSource(source).ok, false, source);
+  for (const source of accepted) assert.equal(inspectMermaidSource(source).ok, true, source);
 
   const oversized = `flowchart TD\nA[${'x'.repeat(MAX_MERMAID_SOURCE_BYTES)}]`;
   assert.equal(inspectMermaidSource(oversized).reason, 'too-large');
@@ -582,8 +588,8 @@ await test('render adapter submits safe label breaks and neutralizes other HTML 
   assert.equal(calls.find((call) => call[0] === 'render')[2], neutral);
 
   calls.length = 0;
-  assert.equal(await render('flowchart TD\nA[first&lt;br&gt;second] --> B', 'light'), null);
-  assert.equal(calls.length, 0);
+  assert.equal((await render('flowchart TD\nA[first&lt;br&gt;second] --> B', 'light')).width, 160);
+  assert.equal(calls.find((call) => call[0] === 'parse')[1], 'flowchart TD\nA[first#lt;br#gt;second] --> B');
 });
 
 await test('render adapter submits the exact styled HTTP flowchart and gates unsafe styles', async () => {
@@ -605,7 +611,10 @@ await test('render adapter submits the exact styled HTTP flowchart and gates uns
   assert.equal(calls.find((call) => call[0] === 'render')[2], reportedStyledHttpFlowchart);
 
   const before = calls.length;
-  assert.equal(await render('flowchart TD\nA --> B\nstyle A behavior:unsafe', 'light'), null);
+  assert.deepEqual(
+    (await render('flowchart TD\nA --> B\nstyle A behavior:unsafe', 'light')).failure,
+    { stage: 'gate', reason: 'unsafe-style', line: 0 },
+  );
   assert.equal(calls.length, before);
 });
 
@@ -627,16 +636,169 @@ await test('serialized render adapter gates before Mermaid and preserves fallbac
   assert.equal(calls[0][1], 'dark');
 
   const before = calls.length;
-  assert.equal(await render('pie\ntitle Unsafe family', 'light'), null);
+  assert.deepEqual(
+    (await render('pie\ntitle Unsafe family', 'light')).failure,
+    { stage: 'gate', reason: 'unsupported-family', line: 0 },
+  );
   assert.equal(calls.length, before);
 
   runtime.render = async () => { throw new Error('render failed'); };
-  assert.equal(await render(samples.state, 'light'), null);
+  assert.deepEqual(
+    (await render(samples.state, 'light')).failure,
+    { stage: 'render', reason: 'render failed', line: 0 },
+  );
+});
+
+// 场景:模型写的流程图标签没加引号却带括号,官方解析器报错。
+// 期望:适配器把常见语法小错修一遍(给标签补引号)再解析;修好了就用修过的文本绘制,并在结果上
+// 标 repaired;原始源码不变(复制、导出仍用原文)。合法的图不经过修复,交给解析器的就是原文。
+// 回归:这类图以前直接显示成源码,用户反馈「mermaid 没转换出来」的多数是这种。
+await test('render adapter repairs common syntax slips after a parse failure', async () => {
+  const parsed = [];
+  const rendered = [];
+  const runtime = {
+    initialize() {},
+    async parse(source) {
+      parsed.push(source);
+      // 模拟官方解析器:方括号标签里出现没加引号的圆括号就报错。
+      if (/\[[^\]"]*\(/.test(source)) throw new Error('Parse error on line 2:\n...A[调用 init() 方法]\n-----^\nExpecting ...');
+      return true;
+    },
+    async render(id, source) { rendered.push(source); return { svg: safeSvg }; },
+  };
+  const render = createMermaidRenderAdapter({ runtime, DOMParserType: DOMParser, XMLSerializerType: XMLSerializer });
+
+  const broken = 'flowchart TD\nA[调用 init() 方法] --> B';
+  const result = await render(broken, 'light');
+  assert.equal(result.repaired, true);
+  assert.equal(result.width, 160);
+  assert.deepEqual(parsed, [broken, 'flowchart TD\nA["调用 init() 方法"] --> B']);
+  assert.deepEqual(rendered, ['flowchart TD\nA["调用 init() 方法"] --> B']);
+
+  parsed.length = 0;
+  const valid = await render(samples.flowchart, 'light');
+  assert.equal(valid.repaired, undefined);
+  assert.deepEqual(parsed, [samples.flowchart]);
+});
+
+// 场景:修也修不好的语法错误;以及绘制前的模型检查发现了图片地址。
+// 期望:语法错误返回 stage=parse,行号按原文算(图前面的 front matter 换成了空行,Mermaid 报的行号
+// 要加回去);模型检查不过返回 stage=gate、reason=external-resource,而且绝不调用绘制(绘制时浏览器
+// 会当场去取那张图)。
+await test('render adapter reports where it failed and never renders a model with resources', async () => {
+  const rendered = [];
+  let model = {};
+  const runtime = {
+    initialize() {},
+    async parse(source) {
+      if (source.includes('???')) throw new Error('Parse error on line 2:\n...B --> ???\n-----^');
+      return true;
+    },
+    mermaidAPI: { async getDiagramFromText() { return { db: model }; } },
+    async render(id, source) { rendered.push(source); return { svg: safeSvg }; },
+  };
+  const render = createMermaidRenderAdapter({ runtime, DOMParserType: DOMParser, XMLSerializerType: XMLSerializer });
+
+  const failed = await render('---\ntitle: x\n---\nflowchart TD\nB --> ???', 'light');
+  assert.equal(failed.failure.stage, 'parse');
+  assert.equal(failed.failure.line, 5);
+  assert.match(failed.failure.reason, /^Parse error on line 2/);
+
+  model = { actors: new Map([['A', { properties: { icon: 'https://example.test/p.png' } }]]) };
+  assert.deepEqual(
+    (await render(samples.sequence, 'light')).failure,
+    { stage: 'gate', reason: 'external-resource', line: 0 },
+  );
+  assert.deepEqual(rendered, []);
+
+  model = { actors: new Map([['A', { properties: { class: 'hot' } }]]) };
+  assert.equal((await render(samples.sequence, 'light')).width, 160);
+  assert.equal(rendered.length, 1);
+
+  // 带了 mermaidAPI 却取不到模型:不画。
+  runtime.mermaidAPI = {};
+  assert.equal((await render(samples.sequence, 'light')).failure.stage, 'render');
+  assert.equal(rendered.length, 1);
+});
+
+// 场景:画不出来时显示在源码下方的那行说明。问题反馈过来时往往只有一张照片或截图,从图上要能看出卡在哪一层。
+// 期望:每一层的说明各不相同;语法错误带得出行号就带;空内容不显示说明。
+await test('failure notes tell the layers apart', () => {
+  const note = (stage, reason = '', line = 0) => mermaidFailureNote({ stage, reason, line });
+  assert.equal(note('parse', 'Parse error', 7), '第 7 行语法有误');
+  assert.equal(note('parse'), '图表语法有误');
+  assert.equal(note('load'), '图表组件加载失败');
+  assert.equal(note('gate', 'unsupported-family'), '暂不支持这种图表类型');
+  assert.equal(note('gate', 'too-large'), '图表过大');
+  assert.equal(note('gate', 'external-resource'), '图表含有不支持的写法');
+  assert.equal(note('gate', 'empty'), '');
+  assert.equal(note('sanitize'), '图表绘制结果未通过检查');
+  assert.equal(note('render'), '图表绘制失败');
+  assert.equal(new Set(['parse', 'load', 'sanitize', 'render'].map((stage) => note(stage))).size, 4);
+});
+
+// 场景:流程图 / 类图 / 状态图 / ER 图的标签用 SVG 文字画时,Mermaid 没把 `#quot;`、`#35;`、`#123;`
+// 这类实体码还原成字符,图上原样显示 `&quot;`。这正是它的文档教人在标签里写引号的办法,自动修复
+// 给标签补引号时也要用到。
+// 期望:SVG 检查通过之后,把文字节点里剩下的 `&quot;` `&apos;` `&#十进制;` `&#x十六进制;` 还原成字符;
+// 只改文字,不产生标记(还原出来的 `<` 序列化后仍是转义的);控制字符和非法码点原样留着。
+await test('SVG post-processing decodes entity codes Mermaid left in label text', () => {
+  const svg = safeSvg.replace(
+    '<tspan>Safe</tspan>',
+    '<tspan>say &amp;quot;hi&amp;quot; &amp;apos;x&amp;apos; C&amp;#35; &amp;#123;a&amp;#x7D; &amp;#60;b&amp;#62; &amp;#0; &amp;#xD800; &amp;lt;</tspan>',
+  );
+  const result = sanitizeMermaidSvg(svg, { DOMParserType: DOMParser, XMLSerializerType: XMLSerializer });
+  const text = new DOMParser().parseFromString(result.svg, 'image/svg+xml').getElementsByTagName('tspan')[0].textContent;
+  assert.equal(text, 'say "hi" \'x\' C# {a} <b> &#0; &#xD800; &lt;');
+  assert.ok(!result.svg.includes('<b>'));
+  assert.equal(new DOMParser().parseFromString(result.svg, 'image/svg+xml').getElementsByTagName('b').length, 0);
+});
+
+// 场景:Mermaid 围栏写在引用块里(`> ```mermaid`),或者列表项下面。
+// 期望:收尾围栏前面的 `>` 不影响「围栏是否完整」的判断,照样产出可绘制的图框;没写完的围栏
+// (回复被截断)仍然是普通代码块。
+// 回归:引用块里的图永远被当成没写完,一直显示源码。
+await test('Mermaid fences inside blockquotes and lists still become diagram frames', () => {
+  const quoted = ['> 流程如下:', '>', '> ```mermaid', '> flowchart TD', '> A --> B', '> ```'].join('\n');
+  assert.match(renderMarkdown(quoted), /data-mermaid-diagram="source"/);
+  const nested = ['> > ```mermaid', '> > flowchart TD', '> > A --> B', '> > ```'].join('\n');
+  assert.match(renderMarkdown(nested), /data-mermaid-diagram="source"/);
+  const listed = ['1. 调用链:', '', '   ```mermaid', '   flowchart TD', '   A --> B', '   ```'].join('\n');
+  assert.match(renderMarkdown(listed), /data-mermaid-diagram="source"/);
+
+  const unclosed = ['> ```mermaid', '> flowchart TD', '> A --> B'].join('\n');
+  assert.ok(!renderMarkdown(unclosed).includes('data-mermaid-diagram='));
+});
+
+// 场景:模型漏写了围栏的语言名,或者把图类型当语言名写(```flowchart、```sequenceDiagram、```mmd)。
+// 期望:内容第一行是五种可绘制图类型的开头(前面可以有指令 / front matter)时照样当图画,图框与
+// 写了 mermaid 的完全一样;内容不是图的、写了别的语言名(text、markdown)的、五种以外的图类型,
+// 仍然是普通代码块。
+// 回归:这类围栏以前只显示源码,用户看到的就是一段 `flowchart TD ...` 文字。
+await test('fences without the mermaid info string are recognized by their first line', () => {
+  const body = 'flowchart TD\nA --> B';
+  const fenced = (info, content = body) => renderMarkdown(`\`\`\`${info}\n${content}\n\`\`\``);
+  for (const info of ['', 'flowchart', 'Flowchart', 'graph', 'mmd']) {
+    assert.match(fenced(info), /data-mermaid-diagram="source"/, info);
+    assert.match(fenced(info), /data-code-lang="mermaid"/, info);
+  }
+  assert.match(fenced('sequenceDiagram', samples.sequence), /data-mermaid-diagram="source"/);
+  assert.match(fenced('', `%%{init: {"theme": "dark"}}%%\n${body}`), /data-mermaid-diagram="source"/);
+
+  for (const [info, content] of [
+    ['text', body],
+    ['markdown', body],
+    ['', 'npm install\nflowchart TD'],
+    ['', 'pie title 占比\n"A" : 40'],
+    ['flowchart', 'not a diagram'],
+  ]) {
+    assert.ok(!fenced(info, content).includes('data-mermaid-diagram='), `${info}: ${content}`);
+  }
 });
 
 const tick = () => new Promise((resolve) => setImmediate(resolve));
 
-function rendererFixture({ deferred = false } = {}) {
+function rendererFixture({ deferred = false, result = { svg: safeSvg, width: 160, height: 80 } } = {}) {
   const element = () => ({
     attributes: new Map(), style: {}, children: [], listeners: new Map(),
     setAttribute(name, value) { this.attributes.set(name, value); },
@@ -683,7 +845,6 @@ function rendererFixture({ deferred = false } = {}) {
     dispatchEvent(event) { events.push(event); return true; },
   };
   doc.defaultView = win;
-  const result = { svg: safeSvg, width: 160, height: 80 };
   const stop = installMermaidRenderer(win, doc, (source, theme) => {
     let resolve;
     const pending = new Promise((done) => { resolve = () => done(result); });
@@ -692,7 +853,7 @@ function rendererFixture({ deferred = false } = {}) {
     return pending;
   });
   return {
-    root, panel, frame, target, calls, events, stop,
+    root, panel, frame, target, calls, events, stop, win,
     image: () => target.children[0]?.children[0],
     transition: (node, type = 'transitionend') => transitions.get(type)?.({ target: node, propertyName: 'background-color' }),
     mutate(node, attributeName) {
@@ -791,4 +952,46 @@ await test('background transitions refresh at their settled color and unsubscrib
   page.transition(page.panel);
   await tick();
   assert.equal(page.calls.length, rendered);
+});
+
+// 场景:图画不出来(这里是第 3 行语法有误);随后源码被改对,重新绘制成功。
+// 期望:失败时源码照旧显示,绘制区里多一行说明,框上记下卡在哪一层(data-mermaid-error);
+// 恢复成待绘制状态时这两样都清掉。
+// 回归:以前失败和「还没画」看起来一模一样,用户和我们都不知道是哪一层出的问题。
+await test('a failed diagram shows a one-line note and records the failing layer', async () => {
+  const page = rendererFixture({ result: { failure: { stage: 'parse', reason: 'Parse error on line 3', line: 3 } } });
+  try {
+    await tick();
+    assert.equal(page.frame.getAttribute('data-mermaid-diagram'), 'error');
+    assert.equal(page.frame.getAttribute('data-mermaid-error'), 'parse: Parse error on line 3');
+    assert.equal(page.target.children.length, 1);
+    assert.equal(page.target.children[0].className, 'ace-mermaid-error-note');
+    assert.equal(page.target.children[0].textContent, '第 3 行语法有误');
+    assert.equal(page.target.getAttribute('aria-busy'), 'false');
+
+    // 背景变了会重新绘制:先回到待绘制状态,说明和记录都要清掉。
+    page.frame.setAttribute('data-mermaid-diagram', 'ready');
+    page.panel.background = '#111111';
+    page.mutate(page.panel, 'style');
+    assert.equal(page.frame.getAttribute('data-mermaid-error'), null);
+    assert.equal(page.target.children.length, 0);
+  } finally { page.stop(); }
+});
+
+// 场景:mermaid 组件本身没取到(页面开着的时候前端换了新版本,按需加载的文件名已经变了)。
+// 期望:说明后面带一个「重新加载」按钮,点了就重新加载页面(桌面版里按 F5 不管用);别的失败不带按钮。
+await test('a diagram whose component failed to load offers a reload button', async () => {
+  const page = rendererFixture({ result: { failure: { stage: 'load', reason: 'Failed to fetch dynamically imported module', line: 0 } } });
+  try {
+    await tick();
+    const note = page.target.children[0];
+    assert.equal(note.textContent, '图表组件加载失败');
+    assert.equal(note.children.length, 1);
+    assert.equal(note.children[0].className, 'ace-mermaid-error-action');
+    assert.equal(note.children[0].textContent, '重新加载');
+    let reloads = 0;
+    page.win.location = { reload() { reloads += 1; } };
+    note.children[0].emit('click');
+    assert.equal(reloads, 1);
+  } finally { page.stop(); }
 });

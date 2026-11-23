@@ -1,11 +1,31 @@
 import { adaptMermaidBackgroundFills, mermaidTheme, mermaidThemeVariables } from './mermaidTheme.js';
 import { registerMermaidExportTarget } from './mermaidExport.js';
 import { dispatchMermaidPreview } from './mermaidPreview.js';
+import { repairMermaidSource } from './mermaidRepair.js';
+import {
+  inspectMermaidModel,
+  inspectMermaidSource,
+  MAX_MERMAID_SOURCE_BYTES,
+  mermaidErrorLine,
+  prepareMermaidRenderSource,
+} from './mermaidSource.js';
 
 export { mermaidTheme } from './mermaidTheme.js';
+export { repairMermaidSource } from './mermaidRepair.js';
+export {
+  dropMermaidInteractions,
+  escapeMermaidSequenceText,
+  inspectMermaidModel,
+  inspectMermaidSource,
+  MAX_MERMAID_SOURCE_BYTES,
+  MAX_MERMAID_SOURCE_LINES,
+  mermaidErrorLine,
+  neutralizeMermaidMarkup,
+  normalizeMermaidEntities,
+  prepareMermaidRenderSource,
+  stripMermaidPreamble,
+} from './mermaidSource.js';
 
-export const MAX_MERMAID_SOURCE_BYTES = 64 * 1024;
-export const MAX_MERMAID_SOURCE_LINES = 1000;
 export const MAX_MERMAID_EDGES = 500;
 export const MAX_MERMAID_SVG_BYTES = 4 * 1024 * 1024;
 export const MAX_MERMAID_SVG_DIMENSION = 32768;
@@ -16,62 +36,6 @@ const DIAGRAM_SELECTOR = '[data-mermaid-diagram]';
 const SOURCE_DIAGRAM_SELECTOR = '[data-mermaid-diagram="source"]';
 const SOURCE_SELECTOR = '[data-mermaid-source="true"]';
 const TARGET_SELECTOR = '[data-mermaid-render-target="true"]';
-const SAFE_MERMAID_LABEL_BREAK = /<br[ \t]*\/?>/gi;
-
-// 标签里像 HTML 标签的文字(`<cachePath>`、`List<String>`、`<img src=x>`)交给 Mermaid 之前改写成
-// 它自己的实体码 `#lt;` / `#gt;`:Mermaid 拿到的源码里除了 `<br>` 不再有能被当成标签的 `<`,图上
-// 照原样显示尖括号。以前这类图整张退回源码,而讲代码的图几乎都带这种文字。能配成一对的 `<...>`
-// 连右尖括号一起改(flowchart 会吞掉标签里裸的 `>`);右尖括号前是 `-` `=` `.` 的不算一对,那多半是
-// 连线箭头 `-->`。构建会拒绝 lookbehind,这里只能用前瞻写。
-const MERMAID_MARKUP_TOKEN = /<br[ \t]*\/?>|<(\/?[A-Za-z](?:[^<>[\](){}|\r\n]*[^-=.<>[\](){}|\r\n])?)>|<(?=\/?[A-Za-z])/gi;
-
-export function neutralizeMermaidMarkup(source) {
-  return String(source || '').replace(MERMAID_MARKUP_TOKEN, (match, inner) => {
-    if (inner !== undefined) return `#lt;${inner}#gt;`;
-    return match === '<' ? '#lt;' : match;
-  });
-}
-
-// 时序图的消息、注释和 loop / alt 这类分组标题里,`;` 被 Mermaid 当成换行(后半句成了一条语法错误
-// 的新语句,整张图画不出来),`#` 之后的内容被当成注释悄悄截掉。这几处文字里的 `;` `#` 改写成实体码,
-// 已经是实体码的(`#59;`、`#lt;`)原样保留。
-const SEQUENCE_BLOCK_STATEMENT = /^(\s*(?:loop|alt|else|opt|par|and|critical|option|break)\b)(.*)$/i;
-const SEQUENCE_TEXT_HEAD = /^\s*note\b|--?[>x)|\\/]/i;
-// Mermaid 预处理会把同一行里「style…:…#…;」(classDef 同理)的最后一个分号删掉,给样式里的颜色值
-// 让路,行里插进去的实体码会被它吃掉分号。时序图行尾多一个 `;` 只是一条空语句,先垫一个给它删。
-const MERMAID_STYLE_SEMICOLON_STRIP = /(?:style|classDef).*:\S*#.*;/;
-
-function escapeSequenceText(text) {
-  return text.replace(/#\w+;|[#;]/g, (match) => {
-    if (match === '#') return '#35;';
-    if (match === ';') return '#59;';
-    return match;
-  });
-}
-
-export function escapeMermaidSequenceText(source) {
-  return String(source || '').split('\n').map((line) => {
-    let head;
-    let text;
-    const block = line.match(SEQUENCE_BLOCK_STATEMENT);
-    if (block) {
-      [, head, text] = block;
-    } else {
-      const colon = line.indexOf(':');
-      if (colon < 0 || !SEQUENCE_TEXT_HEAD.test(line.slice(0, colon))) return line;
-      head = line.slice(0, colon + 1);
-      text = line.slice(colon + 1);
-    }
-    const escaped = head + escapeSequenceText(text);
-    return MERMAID_STYLE_SEMICOLON_STRIP.test(escaped) ? `${escaped};` : escaped;
-  }).join('\n');
-}
-
-// 真正交给 Mermaid 的文本。复制按钮、退回显示和导出仍用原始源码。
-export function prepareMermaidRenderSource(source, family) {
-  const neutral = neutralizeMermaidMarkup(source);
-  return family === 'sequence' ? escapeMermaidSequenceText(neutral) : neutral;
-}
 
 const ALLOWED_SVG_ELEMENTS = new Set([
   'circle',
@@ -109,69 +73,8 @@ const ALLOWED_SVG_ELEMENTS = new Set([
   'tspan',
 ]);
 
-const FAMILY_HEADERS = [
-  { family: 'flowchart', pattern: /^(?:flowchart|graph)\s+(?:TB|TD|BT|RL|LR)\s*;?(?:\s+%%.*)?$/ },
-  { family: 'state', pattern: /^stateDiagram(?:-v2)?\s*;?(?:\s+%%.*)?$/ },
-  { family: 'class', pattern: /^classDiagram\s*;?(?:\s+%%.*)?$/ },
-  { family: 'er', pattern: /^erDiagram\s*;?(?:\s+%%.*)?$/ },
-  { family: 'sequence', pattern: /^sequenceDiagram\s*;?(?:\s+%%.*)?$/ },
-];
-
 function utf8ByteLength(value) {
   return new TextEncoder().encode(String(value || '')).byteLength;
-}
-
-function rejected(reason) {
-  return { ok: false, reason };
-}
-
-export function inspectMermaidSource(value) {
-  const source = String(value || '').replace(/\r\n?/g, '\n');
-  if (!source.trim()) return rejected('empty');
-  if (utf8ByteLength(source) > MAX_MERMAID_SOURCE_BYTES) return rejected('too-large');
-
-  const lines = source.split('\n');
-  if (lines.length > MAX_MERMAID_SOURCE_LINES) return rejected('too-many-lines');
-  if (/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(source)) {
-    return rejected('control-character');
-  }
-
-  const firstMeaningful = lines.find((line) => {
-    const trimmed = line.trim();
-    return trimmed && !/^%%(?!\{)/.test(trimmed);
-  })?.trim() || '';
-  if (firstMeaningful === '---') return rejected('frontmatter');
-
-  const family = FAMILY_HEADERS.find(({ pattern }) => pattern.test(firstMeaningful))?.family;
-  if (!family) return rejected('unsupported-family');
-
-  if (/%%\s*\{/.test(source)) return rejected('directive');
-  if (/@\s*\{/.test(source)) return rejected('generalized-shape');
-  // 标签形状的文字不再拒绝,渲染前由 neutralizeMermaidMarkup 改写成实体码;这里按改写后的文本
-  // 自检一遍,保证交给 Mermaid 的内容里除了 `<br>` 没有标签。
-  const htmlSafetySource = neutralizeMermaidMarkup(source).replace(SAFE_MERMAID_LABEL_BREAK, '');
-  if (/<\/?[A-Za-z][^>\r\n]*>/i.test(htmlSafetySource)
-      || /&(?:lt|gt|#0*60|#x0*3c);/i.test(source)) {
-    return rejected('html');
-  }
-  if (/!\s*\[/.test(source) || /\][ \t]*\(/.test(source)) return rejected('markdown-link');
-  if (/\$\$/.test(source)) return rejected('math-label');
-  if (/\bfa[blrs]?:fa-[\w-]+/i.test(source)) return rejected('icon-label');
-  // 标签文字里的 `file://`、`javascript:`、`https://` 只是文字:能生成链接 / 外部资源的写法(click、
-  // href、link、Markdown 链接、`@{ img }`、图标)上下各有专门的拒绝,渲染结果还要过 sanitizeMermaidSvg
-  // (属性值里带协议或 `//` 整张作废)并且只以 <img> 显示。这里只拦样式语句里的 url();标签里的
-  // `getUrl()`、`saveUrl (...)` 是代码文字,不算。
-  if (/^\s*(?:style|classDef|linkStyle)\b[^\n]*url\s*\(/im.test(source)) {
-    return rejected('external-resource');
-  }
-  if (/(?:expression\s*\(|-moz-binding\b|behavior\s*:|@(?:import|font-face|namespace|supports|media|document|page)\b)/i.test(source)) {
-    return rejected('unsafe-style');
-  }
-  if (/(?:^|[\r\n;])\s*(?:click|href|links?|callback|call)\b/im.test(source)) {
-    return rejected('interactive');
-  }
-
-  return { ok: true, family, source };
 }
 
 export function mermaidConfig(theme) {
@@ -258,6 +161,31 @@ function hasParserError(documentNode) {
   }
 }
 
+// 标签用 SVG 文字画(htmlLabels 关着)时,流程图 / 类图 / 状态图 / ER 图只把 `#lt;` `#gt;` `#amp;`
+// 还原成字符,`#quot;`、`#35;` 这类在图上原样显示成 `&quot;`、`&#35;`(时序图没有这个问题)。
+// 这些正是 Mermaid 文档教人在标签里写引号、井号的办法,这里替它补上最后一步。
+const LEFTOVER_ENTITY = /&(quot|apos|#\d{1,7}|#x[0-9a-f]{1,6});/gi;
+
+function decodeLeftoverEntities(elements) {
+  for (const element of elements) {
+    const name = String(element.localName || element.nodeName || '').toLowerCase();
+    if (name !== 'text' && name !== 'tspan') continue;
+    for (let node = element.firstChild; node; node = node.nextSibling) {
+      if (node.nodeType !== 3 || !node.data || !node.data.includes('&')) continue;
+      const decoded = node.data.replace(LEFTOVER_ENTITY, (match, body) => {
+        const entity = body.toLowerCase();
+        if (entity === 'quot') return '"';
+        if (entity === 'apos') return "'";
+        const code = entity[1] === 'x' ? Number.parseInt(entity.slice(2), 16) : Number.parseInt(entity.slice(1), 10);
+        // 控制字符、代理区和超出范围的码点不是合法的 XML 文字,原样留着。
+        if (!(code >= 0x20 && code <= 0x10FFFF) || (code >= 0xD800 && code <= 0xDFFF)) return match;
+        return String.fromCodePoint(code);
+      });
+      if (decoded !== node.data) node.data = decoded;
+    }
+  }
+}
+
 export function sanitizeMermaidSvg(svg, {
   DOMParserType = globalThis.DOMParser,
   XMLSerializerType = globalThis.XMLSerializer,
@@ -328,7 +256,9 @@ export function sanitizeMermaidSvg(svg, {
     return null;
   }
 
-  // 安全检查全部通过后才改颜色;写回的只有 rgb()/rgba() 字面量。
+  // 安全检查全部通过后才改内容。先把没解开的实体码还原成字符(只改文字节点的文本,不产生标记)。
+  decodeLeftoverEntities(elements);
+  // 再改颜色;写回的只有 rgb()/rgba() 字面量。
   if (theme) adaptMermaidBackgroundFills(root, theme, resolveColor ? { resolveColor } : undefined);
 
   let serialized;
@@ -359,6 +289,36 @@ export function loadMermaidRuntime() {
   return mermaidRuntimePromise;
 }
 
+function errorText(error) {
+  if (!error) return '';
+  try {
+    return String(typeof error.message === 'string' ? error.message : error).slice(0, 400);
+  } catch {
+    return '';
+  }
+}
+
+// 画不出来时的返回值:stage 是卡在哪一层(gate 闸门 / load 组件没加载到 / parse 语法 /
+// render 绘制 / sanitize 结果没过检查),reason 是该层给的原因,line 是能对回原文时的行号。
+export function mermaidFailure(stage, reason = '', { line = 0 } = {}) {
+  return { failure: { stage, reason: String(reason || ''), line: Number(line) || 0 } };
+}
+
+// 显示在源码下方的一行说明。问题反馈过来时往往只有一张照片或截图,从图上要能看出卡在哪一层。
+export function mermaidFailureNote(failure) {
+  const stage = failure?.stage;
+  if (stage === 'load') return '图表组件加载失败';
+  if (stage === 'parse') return failure.line > 0 ? `第 ${failure.line} 行语法有误` : '图表语法有误';
+  if (stage === 'sanitize') return '图表绘制结果未通过检查';
+  if (stage === 'gate') {
+    if (failure.reason === 'unsupported-family') return '暂不支持这种图表类型';
+    if (failure.reason === 'too-large' || failure.reason === 'too-many-lines') return '图表过大';
+    if (failure.reason === 'empty') return '';
+    return '图表含有不支持的写法';
+  }
+  return '图表绘制失败';
+}
+
 export function createMermaidRenderAdapter({
   runtime = null,
   DOMParserType = globalThis.DOMParser,
@@ -366,20 +326,68 @@ export function createMermaidRenderAdapter({
 } = {}) {
   let queue = Promise.resolve();
 
+  // 解析 → 检查解析出来的模型 → 绘制。失败返回 { stage, error },不抛。
+  const draw = async (engine, renderSource) => {
+    try {
+      if (await engine.parse(renderSource) === false) return { stage: 'parse', error: null };
+    } catch (error) {
+      return { stage: 'parse', error };
+    }
+    // 真正的 mermaid 一定带 mermaidAPI;带了却取不到模型就不画(测试用的替身没有 mermaidAPI)。
+    if (engine.mermaidAPI) {
+      let reason;
+      try {
+        reason = inspectMermaidModel((await engine.mermaidAPI.getDiagramFromText(renderSource))?.db);
+      } catch (error) {
+        return { stage: 'render', error };
+      }
+      if (reason) return { stage: 'gate', error: new Error(reason) };
+    }
+    try {
+      const rendered = await engine.render(`ace-mermaid-${nextRenderId++}`, renderSource);
+      return { svg: rendered?.svg };
+    } catch (error) {
+      return { stage: 'render', error };
+    }
+  };
+
   const run = async (source, theme) => {
     const inspected = inspectMermaidSource(source);
-    if (!inspected.ok) return null;
+    if (!inspected.ok) return mermaidFailure('gate', inspected.reason);
+    let engine;
     try {
-      const engine = runtime || await loadMermaidRuntime();
+      engine = runtime || await loadMermaidRuntime();
+    } catch (error) {
+      return mermaidFailure('load', errorText(error));
+    }
+    try {
       engine.initialize(mermaidConfig(theme));
       const renderSource = prepareMermaidRenderSource(inspected.source, inspected.family);
-      const parsed = await engine.parse(renderSource, { suppressErrors: true });
-      if (parsed === false) return null;
-      const id = `ace-mermaid-${nextRenderId++}`;
-      const rendered = await engine.render(id, renderSource);
-      return sanitizeMermaidSvg(rendered?.svg, { DOMParserType, XMLSerializerType, theme });
-    } catch {
-      return null;
+      let drawn = await draw(engine, renderSource);
+      let repaired = false;
+      if (!drawn.svg) {
+        // 模型常见的语法小错修一遍再试;修过的文本要重新过一遍闸门。
+        const candidate = repairMermaidSource(renderSource, inspected.family, errorText(drawn.error));
+        if (candidate !== renderSource && inspectMermaidSource(candidate).ok) {
+          const second = await draw(engine, candidate);
+          if (second.svg) {
+            drawn = second;
+            repaired = true;
+          }
+        }
+      }
+      if (!drawn.svg) {
+        // 报错文字里的行号从 1 起(error.hash.line 从 0 起,不用它)。
+        const reported = /\bon line (\d+)/i.exec(errorText(drawn.error))?.[1];
+        return mermaidFailure(drawn.stage, errorText(drawn.error), {
+          line: drawn.stage === 'parse' ? mermaidErrorLine(renderSource, Number(reported), inspected.family) : 0,
+        });
+      }
+      const clean = sanitizeMermaidSvg(drawn.svg, { DOMParserType, XMLSerializerType, theme });
+      if (!clean) return mermaidFailure('sanitize', '');
+      return repaired ? { ...clean, repaired: true } : clean;
+    } catch (error) {
+      return mermaidFailure('render', errorText(error));
     }
   };
 
@@ -425,7 +433,34 @@ export function installMermaidRenderer(
     target?.replaceChildren();
     target?.setAttribute('aria-busy', 'false');
     frame.removeAttribute('data-mermaid-theme');
+    frame.removeAttribute('data-mermaid-error');
     setState(frame, 'source');
+  };
+  // 画不出来:源码照旧显示,下方加一行说明,卡在哪一层记在框上。
+  const showFailure = (frame, target, failure) => {
+    const note = mermaidFailureNote(failure);
+    const children = [];
+    if (note) {
+      const owner = frame.ownerDocument || doc;
+      const line = owner.createElement('div');
+      line.className = 'ace-mermaid-error-note';
+      line.textContent = note;
+      // 组件没取到多半是页面开着的时候前端换了新版本,重新加载页面就好。给一个按钮:桌面版里
+      // 按 F5 不管用。
+      if (failure.stage === 'load') {
+        const reload = owner.createElement('button');
+        reload.type = 'button';
+        reload.className = 'ace-mermaid-error-action';
+        reload.textContent = '重新加载';
+        reload.addEventListener('click', () => win?.location?.reload?.());
+        line.append(reload);
+      }
+      children.push(line);
+    }
+    target.replaceChildren(...children);
+    target.setAttribute('aria-busy', 'false');
+    frame.setAttribute('data-mermaid-error', [failure.stage, failure.reason].filter(Boolean).join(': ').slice(0, 400));
+    setState(frame, 'error');
   };
 
   const renderFrame = async (frame) => {
@@ -450,9 +485,8 @@ export function installMermaidRenderer(
       schedule();
       return;
     }
-    if (!result) {
-      target.setAttribute('aria-busy', 'false');
-      setState(frame, 'error');
+    if (!result?.svg) {
+      showFailure(frame, target, result?.failure || { stage: 'render', reason: '' });
       return;
     }
 
@@ -519,9 +553,7 @@ export function installMermaidRenderer(
         schedule();
         return;
       }
-      target.replaceChildren();
-      target.setAttribute('aria-busy', 'false');
-      setState(frame, 'error');
+      showFailure(frame, target, { stage: 'image', reason: '' });
     }, { once: true });
     image.src = objectUrl;
     previewTrigger.append(image);

@@ -3,9 +3,10 @@
 namespace acecode {
 namespace {
 
-// mermaid 部分。类型清单与拒绝写法对齐 web/src/lib/mermaidRenderer.js 的
-// FAMILY_HEADERS / inspectMermaidSource 与 TUI 的 mermaid_renderer.cpp:两端都只认
-// 这五种;其余写法在 Web 上会退回源码。改这里之前先看那两处。
+// mermaid 部分。类型清单对齐 web/src/lib/mermaidSource.js 的 FAMILY_HEADERS /
+// inspectMermaidSource 与 TUI 的 mermaid_renderer.cpp:两端都只认这五种。下面列的
+// 「会显示成源码」的写法是按较严的一端写的:Web 现在对其中多数改写后照画
+// (见 docs/web-chat/mermaid-rendering.md),提示词仍让模型避开,不用跟着放宽。
 std::string mermaid_part(DiagramSurface surface) {
     std::string out;
     out += "# Diagrams\n\n";

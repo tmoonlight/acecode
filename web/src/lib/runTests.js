@@ -69,6 +69,8 @@ import './scheduledTaskCreation.test.js';
 import './desktopWindowBackground.test.js';
 import './desktopTaskbarBadge.test.js';
 import './topBarWindowDrag.test.js';
+import './mermaidSource.test.js';
+import './mermaidRepair.test.js';
 import './mermaidRenderer.test.js';
 import './mermaidPreview.test.js';
 import './mermaidExport.test.js';
