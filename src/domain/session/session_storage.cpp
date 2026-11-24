@@ -1,5 +1,6 @@
 #include "llm/message_predicates.hpp"
 #include "session_storage.hpp"
+#include "archived_session_index.hpp"
 #include "inter_agent_message.hpp"
 #include "session_load_metrics.hpp"
 #include "session_file_reader.hpp"
@@ -305,21 +306,15 @@ bool SessionStorage::write_meta(const std::string& meta_path, const SessionMeta&
     j["provider"] = meta.provider;
     j["model"] = meta.model;
     if (meta.model_activated_at_ms > 0) j["model_activated_at_ms"] = meta.model_activated_at_ms;
-    if (!meta.model_preset.empty()) {
-        j["model_preset"] = meta.model_preset;
-    }
+    if (!meta.model_preset.empty()) j["model_preset"] = meta.model_preset;
     if (meta.reasoning_effort.has_value()) {
         j["reasoning_effort"] = *meta.reasoning_effort;
     }
     if (!meta.sampling.empty()) {
         j["sampling"] = model_sampling_options_to_json(meta.sampling);
     }
-    if (!meta.title.empty()) {
-        j["title"] = meta.title;
-    }
-    if (!meta.title_source.empty()) {
-        j["title_source"] = meta.title_source;
-    }
+    if (!meta.title.empty()) j["title"] = meta.title;
+    if (!meta.title_source.empty()) j["title_source"] = meta.title_source;
     if (!meta.input_draft.empty()) {
         j["input_draft"] = meta.input_draft;
     }
@@ -388,7 +383,9 @@ bool SessionStorage::write_meta(const std::string& meta_path, const SessionMeta&
 
     std::error_code ec;
     fs::create_directories(path_from_utf8(meta_path).parent_path(), ec);
-    return atomic_write_file(meta_path, j.dump(2) + '\n');
+    if (!atomic_write_file(meta_path, j.dump(2) + '\n')) return false;
+    note_archived_session_meta(meta_path, meta); // 落盘之后再登记,见 archived_session_index.hpp
+    return true;
 }
 
 SessionMeta SessionStorage::read_meta(const std::string& meta_path, bool* explicitly_empty) {

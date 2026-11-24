@@ -817,7 +817,10 @@ started.
 
 Returns `SessionSummary[]` for a workspace. Without `archived=1`, active and
 unarchived disk sessions are returned. With `archived=1`, only archived disk
-sessions are returned.
+sessions are returned; they come from the archived-session index
+(`<data_dir>/archived-sessions.json`, see
+[archived-session-index.md](archived-session-index.md)), so only the indexed
+metadata files are opened after the first listing of each directory.
 
 Listing reads session metadata only; it does not open JSONL transcripts to
 backfill legacy summary or count fields.

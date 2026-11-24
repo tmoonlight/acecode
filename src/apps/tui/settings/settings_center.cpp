@@ -12,6 +12,7 @@
 #include "workspace/workspace_registry.hpp"
 #include "network/proxy_resolver.hpp"
 #include "provider/auth/github_auth.hpp"
+#include "session/archived_session_index.hpp"
 #include "session/session_storage.hpp"
 #include "session/session_tree_purge.hpp"
 #include "session/session_usage_ledger.hpp"
@@ -1258,13 +1259,9 @@ struct SettingsCenter::Impl {
                 try {
                     for (const auto& scope :
                          discover_workspace_scopes(cwd, acecode_dir)) {
-                        for (const auto& meta :
-                             SessionStorage::list_sessions(
+                        for (const auto& meta : list_archived_session_metadata(
                                  scope.project_dir)) {
-                            if (!meta.archived ||
-                                !meta.parent_session_id.empty()) {
-                                continue;
-                            }
+                            if (!meta.parent_session_id.empty()) continue;
                             loaded.push_back({
                                 scope.project_dir,
                                 scope.name,

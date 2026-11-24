@@ -526,6 +526,8 @@ struct WebServer::Impl {
         const std::string& id) const;
     std::string no_workspace_cache_root() const;
     std::vector<SessionMeta> no_workspace_disk_sessions() const;
+    // 无工作区的已归档会话,走归档索引而不是逐个目录整读。
+    std::vector<SessionMeta> archived_no_workspace_disk_sessions() const;
     // 反馈弹窗「最近会话记录」:这些工作区加上无工作区会话里最近更新的 limit 条。
     // 走侧栏那份 meta 缓存,不为每个工作区重新读一遍全部会话文件。
     nlohmann::json recent_feedback_sessions(
