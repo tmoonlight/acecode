@@ -114,7 +114,7 @@ export function GitSessionPill({
         <button
           type="button"
           className={clsx(
-            'inline-flex items-center gap-1.5 px-2.5 py-1 transition-colors',
+            'inline-flex items-center gap-1.5 px-2.5 py-0.5 transition-colors',
             model.branchInteractive
               ? 'hover:bg-surface-hi cursor-pointer'
               : 'text-fg-mute cursor-not-allowed opacity-60',
@@ -144,7 +144,7 @@ export function GitSessionPill({
         <div className="w-px self-stretch bg-border" aria-hidden="true" />
         <label
           className={clsx(
-            'inline-flex items-center gap-1.5 px-2.5 py-1 select-none transition-colors',
+            'inline-flex items-center gap-1.5 px-2.5 py-0.5 select-none transition-colors',
             model.interactive ? 'hover:bg-surface-hi cursor-pointer' : 'cursor-default',
           )}
           title={model.worktreeBadge

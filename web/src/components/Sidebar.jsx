@@ -4302,7 +4302,7 @@ export function Sidebar({
           <BrandLogo width="20" height="20" className="ace-brand-logo block shrink-0" />
           <span className="text-[15px] font-bold tracking-tight">ACECode</span>
           {appVersionLabel && (
-            <span className="truncate text-[11px] font-medium leading-none text-fg-mute opacity-75 tabular-nums">
+            <span className="truncate text-[11px] font-medium text-fg-mute opacity-75 tabular-nums">
               {appVersionLabel}
             </span>
           )}
