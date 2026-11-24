@@ -7887,7 +7887,9 @@ div.ace-markdown-opaque > div.ace-markdown-opaque-rendered {
   position: relative;
   z-index: 1;
 }
-/* 1.2 会截掉中文分支名 / worktree 名的底部(见 .ace-composer-adaptive-chip)。 */
+/* 1.2 会截掉中文分支名 / worktree 名的底部(见 .ace-composer-adaptive-chip)。
+   行高从 1.2 加到 1.5 多出的 3.6px 由两半的上下内边距(py-1 → py-0.5)抵掉,
+   胶囊外高不变;只改行高会让它在所有平台都高出约 4px。 */
 .ace-git-pill { line-height: 1.5; }
 .ace-git-pill-checkbox {
   width: 13px;

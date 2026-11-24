@@ -259,6 +259,49 @@ run('composer footer text keeps a metric-safe line height on Linux CJK fonts', (
   );
 });
 
+run('git pill fits tall fonts without growing taller', () => {
+  // 触发场景:新会话输入框下方的分支 / worktree 胶囊,分支名带中文或 g、y、p 这类
+  // 下伸字母,系统字体是 Linux 上的 Noto Sans CJK(字体框约 1.45em)。
+  // 期望行为:文字所在的行高不低于字体框(1.5),同时胶囊外高与改动前一致。
+  // 回归表现:行高 1.2 时下伸部分被裁掉约 1.3px;只把行高加到 1.5 而不减内边距,
+  // 胶囊在所有平台从约 25px 变成约 29px。12px 字号下 1.5 - 1.2 = 3.6px,
+  // 正好由上下各减 2px 的内边距(py-1 → py-0.5)抵掉。
+  const styles = source('styles/globals.css');
+  const pill = source('components/GitSessionPill.jsx');
+
+  assert.match(styles, /\.ace-git-pill\s*\{[^}]*line-height: 1\.5;/s);
+  assert.equal(pill.match(/px-2\.5 py-0\.5 /g)?.length, 2);
+  assert.doesNotMatch(pill, /px-2\.5 py-1 /);
+});
+
+run('no truncated label squeezes its line box down to the font size', () => {
+  // 触发场景:同一个元素既用 truncate(overflow: hidden)又用 leading-none
+  // (line-height: 1)。这时元素高度只有 1em,而字体框普遍高于 1em
+  // (Segoe UI 约 1.33em,Noto Sans CJK 约 1.45em),超出的部分被自己裁掉。
+  // 期望行为:会截断的文字不把行高压到 1,固定高度交给外层容器。
+  // 回归表现:侧栏版本号是预发布版本(如 v1.0.35-pre.1)时,p 的下伸部分被裁掉
+  // 约 1.7px,Windows 上同样出现。
+  // 输入框里的引用卡片是另一种写法:leading-none 在 24px 高的卡片上,truncate 在
+  // 里面的文字上,行高靠继承传下去,结果一样(文字底部被裁约 1.7px),单独断言。
+  const inputBar = source('components/InputBar.jsx');
+  assert.equal(inputBar.match(/"group h-6 max-w-\[260px\] [^"]*"/g)?.length, 2);
+  assert.doesNotMatch(inputBar, /"group h-6 max-w-\[260px\] [^"]*leading-none[^"]*"/);
+
+  const componentsDir = path.join(srcRoot, 'components');
+  const offenders = [];
+  for (const entry of fs.readdirSync(componentsDir, { recursive: true })) {
+    if (!String(entry).endsWith('.jsx')) continue;
+    const text = fs.readFileSync(path.join(componentsDir, String(entry)), 'utf8');
+    for (const literal of text.matchAll(/(["'`])([^"'`\n]*)\1/g)) {
+      const tokens = literal[2].split(/\s+/);
+      if (tokens.includes('truncate') && tokens.includes('leading-none')) {
+        offenders.push(`${entry}: ${literal[2]}`);
+      }
+    }
+  }
+  assert.deepEqual(offenders, []);
+});
+
 run('model settings and refresh use independent model-menu header actions', () => {
   const component = source('components/ComposerSessionControls.jsx');
   const styles = source('styles/globals.css');
