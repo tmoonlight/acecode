@@ -252,6 +252,8 @@ struct UpdateJobStatus {
     bool cancel_requested = false;
     bool automatic = false;
     int automatic_failures = 0;
+    // 回滚任务:target_version 是比当前低的旧版本,前端按回滚的文案与重试方式处理。
+    bool rollback = false;
 };
 
 struct UpdateJobRuntime {

@@ -26,6 +26,10 @@ struct UpdateReleaseSummary {
     std::string version;
     std::string published_at;
     std::string notes;
+    // rollback_package_for_release 判定可以回滚到这个版本(见 manifest.hpp)。
+    bool rollback_available = false;
+    // 可回滚时,本平台回滚包在清单里声明的大小。
+    std::optional<std::uintmax_t> rollback_package_size;
 };
 
 struct UpdateCheckResult {

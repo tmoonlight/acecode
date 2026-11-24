@@ -31,8 +31,16 @@ import {
   isInstalledColorTheme,
   isValidColorTheme,
 } from './lib/colorTheme.js';
+import {
+  applyCodeThemeAttribute,
+  effectiveCodeTheme,
+  isValidCodeTheme,
+  naturalCodeTheme,
+  normalizeCodeTheme,
+} from './lib/codeTheme.js';
 
 const STORAGE_KEY = 'ace.theme';
+const CODE_THEME_STORAGE_KEY = 'ace.codeTheme';
 const THEME_VARIANT_STORAGE_KEY = 'ace.themeVariant';
 const THEME_EFFECTS_STORAGE_KEY = 'ace.themeEffects';
 const THEME_SOUNDS_STORAGE_KEY = 'ace.themeSounds';
@@ -48,6 +56,10 @@ const ThemeCtx = createContext({
   themeSoundStyle: null,
   themeVariantOptions: NO_VARIANTS,
   activeThemeVariant: null,
+  codeThemePreference: 'auto',
+  codeTheme: 'light',
+  naturalCodeTheme: 'light',
+  setCodeTheme: () => {},
   toggle: () => {},
   set: () => {},
   setColorTheme: () => {},
@@ -91,6 +103,12 @@ export function ThemeProvider({ children }) {
     THEME_SOUNDS_STORAGE_KEY,
     initialAppearance.themeSounds,
     isValidEffects,
+  );
+  // 代码明暗同样以 daemon 为准(App 经外观偏好写回),localStorage 只画首帧。
+  const [codeThemePreference, setCodeThemePreference] = usePreference(
+    CODE_THEME_STORAGE_KEY,
+    initialAppearance.codeTheme,
+    isValidCodeTheme,
   );
   const [systemTheme, setSystemTheme] = useState(() => effectiveAppearanceTheme('system'));
   const [installedThemes, setInstalledThemes] = useState({});
@@ -187,6 +205,13 @@ export function ThemeProvider({ children }) {
   const variantOptions = useMemo(() => (activeTheme ? themeVariantOptions(activeTheme) : NO_VARIANTS), [activeTheme]);
   const activeThemeVariant = activeTheme ? selectThemeVariant(activeTheme, themeVariant)?.id || null : null;
   const theme = installedTheme?.mode || (colorTheme === EVA_THEME_ID ? 'light' : themeMode === 'system' ? systemTheme : themeMode);
+  const installedCodeBg = activeTheme ? resolveThemeVariant(activeTheme, themeVariant)?.colors?.['code-bg'] : null;
+  const codeThemeNatural = naturalCodeTheme({ mode: theme, installedCodeBg });
+  const codeTheme = effectiveCodeTheme({
+    preference: codeThemePreference,
+    natural: codeThemeNatural,
+    installed: isInstalledColorTheme(colorTheme),
+  });
 
   useLayoutEffect(() => {
     const root = document.documentElement;
@@ -209,6 +234,17 @@ export function ThemeProvider({ children }) {
     return clearInstalledTheme;
   }, [colorTheme, theme, installedTheme, themeVariant, themeEffects]);
 
+  // 只有代码明暗变了、界面明暗没变(用户点了代码块上的切换按钮)时直接切,不走全局
+  // 颜色过渡;跟着界面一起换明暗时与界面同步过渡。
+  const codeThemeModeRef = useRef(null);
+  useLayoutEffect(() => {
+    const previousMode = codeThemeModeRef.current;
+    codeThemeModeRef.current = theme;
+    applyCodeThemeAttribute(document.documentElement, codeTheme, {
+      instant: previousMode !== null && previousMode === theme,
+    });
+  }, [codeTheme, theme]);
+
   const toggle = useCallback(() => setTheme(theme === 'dark' ? 'light' : 'dark'), [setTheme, theme]);
   const set    = useCallback((t) => setTheme(isValidTheme(t) ? t : 'system'), [setTheme]);
   const setColorTheme = useCallback(
@@ -227,6 +263,10 @@ export function ThemeProvider({ children }) {
     (value) => setThemeSoundsPreference(value !== false),
     [setThemeSoundsPreference],
   );
+  const setCodeTheme = useCallback(
+    (value) => setCodeThemePreference(normalizeCodeTheme(value)),
+    [setCodeThemePreference],
+  );
 
   return (
     <ThemeCtx.Provider value={{
@@ -234,6 +274,7 @@ export function ThemeProvider({ children }) {
       themeVariant, themeEffects, setThemeVariant, setThemeEffects, themeChrome,
       themeVariantOptions: variantOptions, activeThemeVariant,
       themeSounds, setThemeSounds, themeSoundStyle: soundStyle,
+      codeThemePreference, codeTheme, naturalCodeTheme: codeThemeNatural, setCodeTheme,
     }}>
       {children}
       <HudEffects

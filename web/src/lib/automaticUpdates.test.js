@@ -196,3 +196,62 @@ await test('changing daemon connection invalidates pending automatic work', asyn
   assert.equal(f.calls.start, 0); assert.equal(f.timers.size, 0); assert.deepEqual(f.notices, []);
   f.controller.stop();
 });
+
+// 场景:已是最新版本(没有可用更新)时,用户在版本更新记录里点「回滚到此版本」并确认。
+// 期望:不受「没有可用更新」限制,带 rollback_version 发一次请求(不带 automatic),
+//      启动期间 startingRollback 是目标版本、旧的失败任务不再显示;任务失败时报「回滚失败」;
+//      之后重试仍是回滚;有任务在跑时再点不会重复发请求。
+await test('rollback starts without an available update and reports rollback outcomes', async () => {
+  const requests = [];
+  const pending = deferred();
+  const f = fixture({
+    getUpdateStatus: async () => ({ status: 'up_to_date', update_available: false, latest_version: '2.0.0' }),
+    startUpdate: async (body) => {
+      requests.push(body);
+      await pending.promise;
+      return { job_id: `rb-${requests.length}`, state: 'running', rollback: true, target_version: '1.9.0' };
+    },
+    getUpdateJob: async (id) => ({ job_id: id, state: 'failed', rollback: true,
+      target_version: '1.9.0', error: 'checksum mismatch' }),
+  });
+  await f.controller.start();
+  f.controller.setJob({ job_id: 'old', state: 'failed', target_version: '2.0.0' });
+  const work = f.controller.startRollback(' 1.9.0 ');
+  await flush();
+  assert.equal(f.controller.getSnapshot().starting, true);
+  assert.equal(f.controller.getSnapshot().startingRollback, '1.9.0');
+  assert.equal(f.controller.getSnapshot().job, null);
+  assert.equal(f.controller.startRollback('1.9.0'), work);
+  pending.resolve(); await work;
+  assert.deepEqual(requests, [{ rollback_version: '1.9.0' }]);
+  assert.equal(f.controller.getSnapshot().startingRollback, '');
+  assert.equal(f.controller.getSnapshot().dialogOpen, true);
+  await f.advance(350);
+  assert.equal(f.controller.getSnapshot().job.state, 'failed');
+  assert.equal(f.notices.at(-1).kind, 'err');
+  assert.equal(f.notices.at(-1).text, '回滚失败:checksum mismatch');
+  await f.controller.startRollback('1.9.0');
+  assert.deepEqual(requests.at(-1), { rollback_version: '1.9.0' });
+  assert.equal(f.calls.start, 0);
+  f.controller.stop();
+});
+
+// 场景:daemon 拒绝回滚(例如版本不在可回滚范围,409 ROLLBACK_UNAVAILABLE,没有 job)。
+// 期望:提示「启动回滚失败」并带上服务端原因,starting 复位;空版本号不发请求。
+await test('rejected rollback requests surface the daemon reason and reset starting', async () => {
+  let requests = 0;
+  const f = fixture({
+    startUpdate: async () => {
+      requests += 1;
+      throw Object.assign(new Error('version 1.0.17 is not available for rollback'), { status: 409 });
+    },
+  });
+  await f.controller.start();
+  await f.controller.startRollback('   ');
+  assert.equal(requests, 0);
+  await f.controller.startRollback('1.0.17');
+  assert.equal(requests, 1);
+  assert.equal(f.controller.getSnapshot().starting, false);
+  assert.equal(f.notices.at(-1).text, '启动回滚失败:version 1.0.17 is not available for rollback');
+  f.controller.stop();
+});

@@ -144,7 +144,7 @@ await applyLocalePreference('zh-CN', { cache: false });
 const moduleScopeFixtures = [
   {
     file: 'lib/topBarQuickActions.js',
-    copy: ['新对话', '定时任务', '查找内容', '设置', '外观', '关于 ACECode', '检查更新', '退出 ACECode'],
+    copy: ['新对话', '定时任务', '查找内容', '设置', '外观', '关于 ACECode', '检查更新', '已存在的链接', '退出 ACECode'],
   },
   {
     file: 'lib/sidebarNavigation.js',

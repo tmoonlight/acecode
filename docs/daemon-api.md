@@ -4110,7 +4110,8 @@ Returns:
   "theme_sounds": true,
   "subagent_avatar_style": "geometric",
   "follow_up_prompts": true,
-  "busy_send_mode": "steer"
+  "busy_send_mode": "steer",
+  "code_theme": "auto"
 }
 ```
 
@@ -4149,6 +4150,15 @@ send button) does while a turn is running: `steer` inserts the message into the
 running turn, `queue` sends it after the turn; Ctrl+Enter always does the other.
 Both are persisted and rejected with `400` when malformed; they are not part of
 the Desktop appearance bootstrap, so the client applies them after this GET.
+
+`code_theme` is the light/dark palette of code blocks and source file previews:
+`auto` (default) follows the interface's light/dark mode, `light` / `dark` is
+the switch in the corner of every code block and next to the file preview's
+`⋯` menu. The client clears it back to `auto` in the same write that changes
+`theme`, `color_theme`, or `theme_variant`; installed theme packages keep their
+own code colors and ignore it. It is persisted, included in the Desktop
+appearance bootstrap, and any other value is rejected with `400`; a config
+file without the key or holding an unknown value loads as `auto`.
 
 ### `PUT /api/config/ui-preferences`
 
@@ -5133,6 +5143,13 @@ lists, hashes, and URLs are not duplicated into each entry. Legacy entries with
 missing notes are returned with `notes: ""`. `http_status` and `error` are
 included when present.
 
+Each release also carries `rollback_available`. It is `true` only when the
+release was published on or after 2026-11-01 (UTC date of `published_at`;
+entries without a date never qualify), its semantic version is strictly older
+than the running version, and the manifest publishes a package for this
+client's updater target with a safe file name and a lowercase 64-hex
+`sha256`. The WebUI shows 「回滚到此版本」 only on those rows.
+
 `status` can also be `up_to_date`, `no_compatible_package`, `invalid_config`,
 `unsupported_target`, `manifest_unavailable`, or `manifest_invalid`.
 `no_compatible_package` means the manifest contains a newer semantic version but
@@ -5182,6 +5199,23 @@ behavior. Jobs return `automatic` and `automatic_failures` (0–3). The latter
 counts consecutive automatic installation failures for the same target in the
 current daemon lifetime; successful installation or a new target resets it.
 Precheck and progress-query failures are not installation failures.
+
+The body `{"rollback_version":"1.0.33"}` (a leading `v` is accepted) starts a
+rollback job instead of an upgrade. The version is only matched against the
+manifest; the package URL, size, and checksum always come from the manifest
+entry. The request is rejected with `400 BAD_REQUEST` when the value is not a
+non-empty string or is combined with `"automatic":true`, and with
+`409 ROLLBACK_UNAVAILABLE` (top-level `log_path` plus the detailed `status`
+object) when the manifest cannot be read or that release does not have
+`rollback_available: true`. A rejected rollback leaves settings unchanged.
+Otherwise, before registering the job and under the same exclusive config lock,
+the daemon persists `upgrade.auto_update = false` so the old version is not
+upgraded again automatically; if that write fails it returns
+`500 PERSIST_FAILED` and starts nothing. The in-progress and pending-restart
+rules below apply unchanged. Rollback jobs report `rollback: true`, with
+`target_version` set to the manifest's version string; all jobs include the
+`rollback` field. Installation uses the same download, checksum, staging,
+version probe, backup and file-replacement path as an upgrade.
 
 The GUI keeps the startup check and then checks every independently randomized
 10–120 minutes regardless of this setting. Automatic check failures are silent

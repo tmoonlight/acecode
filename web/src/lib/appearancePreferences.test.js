@@ -11,10 +11,10 @@ import {
 } from './appearancePreferences.js';
 
 // 主题风格与动效开关的默认值:空风格 = 主题的第一个风格,动效默认开;子代理头像默认是花瓣;
-// 输入框默认显示预测消息、回复中 Enter 插话(与加这两项设置之前的行为一致)。
+// 输入框默认显示预测消息、回复中 Enter 插话(与加这两项设置之前的行为一致);代码明暗默认跟随主题。
 const THEME_STYLE_DEFAULTS = Object.freeze({
   themeVariant: '', themeEffects: true, themeSounds: true, subagentAvatarStyle: 'geometric',
-  followUpPrompts: true, busySendMode: 'steer',
+  followUpPrompts: true, busySendMode: 'steer', codeTheme: 'auto',
 });
 
 async function run(name, fn) {
@@ -121,6 +121,7 @@ await run('API serialization sends a complete compatibility snapshot', () => {
     subagent_avatar_style: 'geometric',
     follow_up_prompts: true,
     busy_send_mode: 'steer',
+    code_theme: 'auto',
   });
 });
 
@@ -411,4 +412,55 @@ await run('输入框设置缺省为预测开与插话，经 API 读回并在其�
   assert.equal(saves.at(-1).busy_send_mode, 'steer');
   assert.equal(saves.at(-1).follow_up_prompts, true);
   assert.equal(saves.at(-1).font_size, 'large');
+});
+
+// 场景:代码块 / 文件预览右上角手动切换代码明暗(lib/codeTheme.js),结果和主题一样存在 daemon 的
+// web_ui.code_theme 里,桌面版每个工作区端口不同、本地存储留不住。
+// 期望:缺省与不认识的值都按 auto(跟随主题);light / dark 经启动注入、接口返回能读到,改字号等
+// 其它外观设置时随整份快照原样发给 daemon;旧 daemon 的返回里没有这个键时按 auto,不能把整份
+// 外观偏好判成无效。
+await run('代码明暗缺省跟随主题，手动值经启动注入、API、其它偏好修改后保持', async () => {
+  assert.equal(normalizeAppearancePreferences({}).codeTheme, 'auto');
+  assert.equal(normalizeAppearancePreferences({ code_theme: 'sepia' }).codeTheme, 'auto');
+  assert.equal(normalizeAppearancePreferences({ codeTheme: 'dark' }).codeTheme, 'dark');
+  const canonical = { theme: 'light', color_theme: 'blue', font_size: 'medium', code_theme: 'dark' };
+  assert.equal(initialAppearancePreferences({ __ACECODE_APPEARANCE__: canonical }).codeTheme, 'dark');
+  assert.equal(parseAppearancePreferences(canonical).codeTheme, 'dark');
+  assert.equal(parseAppearancePreferences({ theme: 'dark', color_theme: 'orange', font_size: 'small' }).codeTheme, 'auto');
+
+  const saves = [];
+  const applied = [];
+  const controller = createAppearancePersistenceController({
+    initial: {}, apply: (value) => applied.push(value.codeTheme),
+    save: async (value) => { saves.push(value); return value; },
+  });
+  assert.equal(controller.restore(canonical), true);
+  await controller.change({ fontSize: 'large' });
+  assert.equal(saves[0].code_theme, 'dark');
+  const switching = controller.change({ codeTheme: 'light' });
+  assert.equal(applied.at(-1), 'light');
+  await switching;
+  assert.equal(saves.at(-1).code_theme, 'light');
+  assert.equal(saves.at(-1).font_size, 'large');
+});
+
+// 场景:用户把代码切成深色后又去换了主题(界面明暗、配色主题、主题变体任一项)。
+// 期望:手动的代码明暗作废,回到 auto 跟随新主题;同一次修改里显式带了代码明暗就以它为准;
+// 只改字号这类无关设置、或「换」成当前已经是的主题,都不清掉手动值。
+await run('换主题时手动代码明暗回到跟随，无关修改与同值修改保留', async () => {
+  const base = { theme: 'light', colorTheme: 'blue', fontSize: 'medium', themeVariant: '', codeTheme: 'dark' };
+  const after = async (patch) => {
+    const controller = createAppearancePersistenceController({
+      initial: base, apply: () => {}, save: async (value) => value,
+    });
+    await controller.change(patch);
+    return controller.current().codeTheme;
+  };
+  assert.equal(await after({ theme: 'dark' }), 'auto');
+  assert.equal(await after({ theme: 'system' }), 'auto');
+  assert.equal(await after({ colorTheme: 'orange' }), 'auto');
+  assert.equal(await after({ themeVariant: 'night' }), 'auto');
+  assert.equal(await after({ theme: 'dark', codeTheme: 'light' }), 'light');
+  assert.equal(await after({ fontSize: 'large' }), 'dark');
+  assert.equal(await after({ theme: 'light', colorTheme: 'blue' }), 'dark');
 });

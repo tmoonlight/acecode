@@ -237,6 +237,9 @@ struct WebUiPreferencesConfig {
     // What Enter does while a turn is running: `steer` inserts the message into
     // the running turn, `queue` sends it after the turn. Ctrl+Enter does the other.
     std::string busy_send_mode = "steer";   // steer | queue
+    // Code blocks and source previews: `auto` follows the light/dark theme; `light` /
+    // `dark` is the user's manual switch, cleared by the WebUI when the theme changes.
+    std::string code_theme = "auto";   // auto | light | dark
 };
 
 struct ModelsDevConfig {
@@ -734,6 +737,9 @@ bool is_valid_web_ui_font_size(const std::string& font_size);
 bool is_valid_web_ui_subagent_avatar_style(const std::string& style);
 inline bool is_valid_web_ui_busy_send_mode(const std::string& mode) {
     return mode == "steer" || mode == "queue";
+}
+inline bool is_valid_web_ui_code_theme(const std::string& value) {
+    return value == "auto" || value == "light" || value == "dark";
 }
 // Empty, or 1-24 chars of lowercase ASCII words joined by single hyphens.
 bool is_valid_web_ui_theme_variant(const std::string& variant);

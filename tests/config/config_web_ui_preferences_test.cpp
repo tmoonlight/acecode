@@ -340,6 +340,45 @@ TEST(ConfigWebUiPreferencesSubagentAvatarStyle, PixelRoundTripsAndDefaultIsOmitt
     std::filesystem::remove(path, ec);
 }
 
+// 场景:用户在代码块 / 文件预览右上角把代码切成浅色或深色(web_ui.code_theme),
+// 桌面版每个工作区端口不同、浏览器本地存储留不住,只能存在 config.json 里。
+// 期望:默认 auto(跟随主题)不落盘;light / dark 写进去能读回;旧配置没有这个键、
+// 值不认识或类型不对时按 auto 加载,不影响同段的其它外观设置;校验函数只认这三个值。
+TEST(ConfigWebUiPreferencesCodeTheme, ManualValueRoundTripsAndInvalidFallsBackToAuto) {
+    EXPECT_EQ(WebUiPreferencesConfig{}.code_theme, "auto");
+    EXPECT_TRUE(is_valid_web_ui_code_theme("auto"));
+    EXPECT_TRUE(is_valid_web_ui_code_theme("light"));
+    EXPECT_TRUE(is_valid_web_ui_code_theme("dark"));
+    EXPECT_FALSE(is_valid_web_ui_code_theme(""));
+    EXPECT_FALSE(is_valid_web_ui_code_theme("Dark"));
+
+    const auto path = temp_config_path("code-theme");
+    AppConfig cfg;
+    cfg.web_ui.code_theme = "dark";
+    save_config(cfg, path.string());
+    {
+        std::ifstream input(path);
+        EXPECT_EQ(nlohmann::json::parse(input)["web_ui"]["code_theme"], "dark");
+    }
+    EXPECT_EQ(load_config_from_path(path.string()).web_ui.code_theme, "dark");
+    cfg.web_ui.code_theme = "auto";
+    save_config(cfg, path.string());
+    {
+        std::ifstream input(path);
+        EXPECT_FALSE(nlohmann::json::parse(input).contains("web_ui"));
+    }
+    for (const auto& value : {nlohmann::json{{"font_size", "large"}},
+                              nlohmann::json{{"font_size", "large"}, {"code_theme", "sepia"}},
+                              nlohmann::json{{"font_size", "large"}, {"code_theme", 1}}}) {
+        write_json(path, {{"web_ui", value}});
+        const auto loaded = load_config_from_path(path.string());
+        EXPECT_EQ(loaded.web_ui.code_theme, "auto") << value.dump();
+        EXPECT_EQ(loaded.web_ui.font_size, "large") << value.dump();
+    }
+    std::error_code ec;
+    std::filesystem::remove(path, ec);
+}
+
 // 场景:主题风格 ID 的格式校验(配置文件、REST 与前端共用同一规则)。
 // 期望:空串表示主题默认风格;只接受 1-24 位小写字母数字、单个连字符分隔的词。
 // 大写、首尾或连续连字符、超长、非 ASCII 都拒绝——它会直接写进 HTML 属性。

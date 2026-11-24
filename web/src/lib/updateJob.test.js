@@ -7,7 +7,9 @@ import {
   requestDesktopUpdateRestart,
   updateDialogMode,
   updateJobCanCancel,
+  updateDialogAllowsRollback,
   updateJobIsActive,
+  updateJobIsRollback,
   updateJobPhaseLabel,
   updateJobProgress,
   updateRestartMessage,
@@ -92,17 +94,19 @@ await test('release history normalization keeps ordered non-empty plain-text not
     { version: '0.7.9', notes: '   ' },
     { version: '', notes: 'missing version' },
     null,
-    { version: '0.7.8', notes: 'Earlier tip' },
+    { version: '0.7.8', notes: 'Earlier tip', rollback_available: true },
   ]), [
     {
       version: '0.8.0',
       published_at: '2026-07-20T08:00:00Z',
       notes: 'First line\nSecond line',
+      rollback_available: false,
     },
     {
       version: '0.7.8',
       published_at: '',
       notes: 'Earlier tip',
+      rollback_available: true,
     },
   ]);
 });
@@ -136,6 +140,39 @@ await test('desktop restart helper accepts structured native success', async () 
   });
   assert.deepEqual(calls, ['restart']);
   assert.deepEqual(result, { ok: true });
+});
+
+// 场景:版本更新记录里点了「回滚到此版本」,daemon 返回带 rollback: true 的任务。
+// 期望:标题 / 阶段文字说「回滚」而不是「升级」;重启提示不再说「旧版本」;
+//      只有没有任务在跑、也没有等待重启的安装时才给出回滚按钮。
+await test('rollback jobs use rollback copy and only idle dialogs offer rollback', () => {
+  const rollback = { rollback: true };
+  assert.equal(updateJobIsRollback(rollback), true);
+  assert.equal(updateJobIsRollback({ rollback: 'true' }), false);
+  assert.equal(updateJobPhaseLabel({ ...rollback, state: 'succeeded' }), '回滚完成');
+  assert.equal(updateJobPhaseLabel({ ...rollback, state: 'failed' }), '回滚失败');
+  assert.equal(updateJobPhaseLabel({ ...rollback, state: 'cancelled' }), '回滚已取消');
+  assert.equal(
+    updateJobPhaseLabel({ ...rollback, state: 'running', cancel_requested: true }),
+    '正在取消回滚',
+  );
+  assert.equal(
+    updateJobPhaseLabel({ ...rollback, state: 'running', phase: 'downloading' }),
+    '正在下载安装包',
+  );
+  assert.equal(updateJobPhaseLabel({ state: 'succeeded' }), '升级安装完成');
+  assert.equal(
+    updateRestartMessage({ ...rollback, state: 'succeeded', restart_required: true }),
+    '回滚已安装。请完全退出并重新启动 ACECode。',
+  );
+  for (const mode of ['confirm', 'up_to_date', 'failure', 'cancelled']) {
+    assert.equal(updateDialogAllowsRollback(mode), true, mode);
+  }
+  for (const mode of ['running', 'success', 'store_managed']) {
+    assert.equal(updateDialogAllowsRollback(mode), false, mode);
+  }
+  assert.equal(updateDialogAllowsRollback('confirm', { starting: true }), false);
+  assert.equal(updateDialogAllowsRollback('failure', { restarting: true }), false);
 });
 
 await test('desktop restart helper rejects unavailable and failed native restarts', async () => {

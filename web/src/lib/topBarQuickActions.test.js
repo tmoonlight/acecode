@@ -32,6 +32,7 @@ test('top-bar quick actions keep the requested labels and order', () => {
       { id: 'appearance', label: '外观', group: 'application' },
       { id: 'about', label: '关于 ACECode', group: 'application' },
       { id: 'check-updates', label: '检查更新', group: 'application' },
+      { id: 'existing-links', label: '已存在的链接', group: 'application' },
       { id: 'exit', label: '退出 ACECode', group: 'exit' },
     ],
   );
@@ -40,7 +41,7 @@ test('top-bar quick actions keep the requested labels and order', () => {
 test('top-bar quick actions separate navigation, application, and exit groups', () => {
   assert.deepEqual(
     TOPBAR_QUICK_ACTIONS.map((_, index) => topBarQuickActionNeedsSeparator(index)),
-    [false, false, false, true, false, false, false, false, true],
+    [false, false, false, true, false, false, false, false, false, true],
   );
 });
 
@@ -55,6 +56,7 @@ test('top-bar quick actions invoke only their matching callbacks', () => {
     onAppearance: () => calls.push('appearance'),
     onAbout: () => calls.push('about'),
     onCheckUpdates: () => calls.push('check-updates'),
+    onOpenSharingLinks: () => calls.push('existing-links'),
     onExit: () => calls.push('exit'),
   };
 
@@ -70,6 +72,7 @@ test('top-bar quick actions invoke only their matching callbacks', () => {
     'appearance',
     'about',
     'check-updates',
+    'existing-links',
     'exit',
   ]);
 });
@@ -119,8 +122,8 @@ test('android app quick menu drops desktop-only actions and keeps separators tid
   assert.deepEqual([...ANDROID_HIDDEN_QUICK_ACTIONS], ['virtual-office', 'check-updates', 'exit']);
   assert.deepEqual(
     android.map((action) => action.id),
-    ['new-session', 'new-loop', 'find-content', 'settings', 'appearance', 'about'],
+    ['new-session', 'new-loop', 'find-content', 'settings', 'appearance', 'about', 'existing-links'],
   );
   const separators = android.map((_, index) => topBarQuickActionNeedsSeparator(index, android));
-  assert.deepEqual(separators, [false, false, false, true, false, false]);
+  assert.deepEqual(separators, [false, false, false, true, false, false, false]);
 });

@@ -253,6 +253,7 @@ import './usePreference.test.js';
 import './colorTheme.test.js';
 import './colorThemeArchitecture.test.js';
 import './appearancePreferences.test.js';
+import './codeTheme.test.js';
 import './appearancePersistenceArchitecture.test.js';
 import './uiPrefs.test.js';
 import './singleLayout.test.js';

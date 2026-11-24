@@ -74,6 +74,14 @@ export const TOPBAR_QUICK_ACTIONS = Object.freeze([
     group: 'application',
   }),
   Object.freeze({
+    id: 'existing-links',
+    label: '已存在的链接',
+    icon: 'link',
+    iconSize: 16,
+    callback: 'onOpenSharingLinks',
+    group: 'application',
+  }),
+  Object.freeze({
     id: 'exit',
     label: '退出 ACECode',
     icon: 'close',

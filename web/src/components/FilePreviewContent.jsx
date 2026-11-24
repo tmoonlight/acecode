@@ -37,6 +37,7 @@ import {
 } from '../lib/filePreviewScroll.js';
 import { createPortal } from 'react-dom';
 import { FilePreviewMenu } from './FilePreviewMenu.jsx';
+import { CodeThemeToggleButton } from './CodeThemeToggleButton.jsx';
 import { VsIcon } from './Icon.jsx';
 import { ImageLightbox } from './ImageLightbox.jsx';
 import {
@@ -722,9 +723,13 @@ export function FilePreviewContent({
       </div>
     );
   }
+  // 源码视图(含 Markdown 的源码模式)在 ⋯ 左边放代码明暗切换;渲染后的 Markdown 里每个代码块自带。
+  const codeThemeButton = showMarkdownRendered ? null : (
+    <CodeThemeToggleButton className="ace-preview-details-action" size={16} />
+  );
   return (
     <div className="flex-1 flex flex-col overflow-hidden" {...previewAttrs}>
-      {renderMenu(actions)}
+      {renderMenu(actions, codeThemeButton)}
       <div
         className={clsx('relative flex-1 min-h-0 ace-side-preview-code', editing && 'is-editing')}
         data-wrap={wrapPreview ? 'true' : 'false'}

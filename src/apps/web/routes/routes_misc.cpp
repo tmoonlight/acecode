@@ -9,6 +9,7 @@
 #include "provider/model_probe_cache.hpp"
 #include "upgrade/diagnostics.hpp"
 #include "utils/encoding.hpp"
+#include "utils/semver.hpp"
 
 #include <algorithm>
 #include <fstream>
@@ -49,6 +50,22 @@ json ui_locale_to_json(const UiConfig& config) {
 
 bool update_job_is_active(const UpdateJobStatus& status) {
     return status.state == "pending" || status.state == "running";
+}
+
+// 回滚目标只认清单里标了 rollback_available 的版本(版本号按语义比较,v 前缀可有可无)。
+const acecode::upgrade::UpdateReleaseSummary* find_rollback_release(
+    const acecode::upgrade::UpdateCheckResult& result,
+    const std::string& requested_version) {
+    const auto requested = acecode::upgrade::parse_sem_version(requested_version);
+    if (!requested) return nullptr;
+    for (const auto& release : result.releases) {
+        if (!release.rollback_available) continue;
+        const auto parsed = acecode::upgrade::parse_sem_version(release.version);
+        if (parsed && acecode::upgrade::compare_sem_version(*parsed, *requested) == 0) {
+            return &release;
+        }
+    }
+    return nullptr;
 }
 
 std::string recovery_config_path(const WebServerDeps& deps) {
@@ -96,6 +113,7 @@ json update_job_to_json(const UpdateJobStatus& status) {
         {"cancel_requested", status.cancel_requested},
         {"automatic", status.automatic},
         {"automatic_failures", status.automatic_failures},
+        {"rollback", status.rollback},
         {"can_cancel", update_job_can_cancel(status)},
     };
     if (status.bytes_total) out["bytes_total"] = *status.bytes_total;
@@ -1392,18 +1410,33 @@ void WebServer::Impl::register_ui_preferences() {
             };
 
             bool automatic = false;
+            // 回滚:用户在版本更新记录里点了「回滚到此版本」。只拿它去清单里对版本号,
+            // 下载地址与校验值一律取自清单。
+            std::string rollback_version;
             if (!req.body.empty()) {
                 const auto body = json::parse(req.body, nullptr, false);
+                const bool automatic_requested = body.is_object() && body.contains("automatic") &&
+                    body["automatic"].is_boolean() && body["automatic"].get<bool>();
+                const bool bad_rollback = body.is_object() && body.contains("rollback_version") &&
+                    (!body["rollback_version"].is_string() ||
+                     body["rollback_version"].get<std::string>().empty() ||
+                     automatic_requested);
                 if (!body.is_object() ||
-                    (body.contains("automatic") && !body["automatic"].is_boolean())) {
+                    (body.contains("automatic") && !body["automatic"].is_boolean()) ||
+                    bad_rollback) {
                     crow::response r(400);
                     r.add_header("Content-Type", "application/json");
                     r.body = json{{"error", "BAD_REQUEST"},
-                                  {"message", "expected {automatic: boolean}"}}.dump();
+                                  {"message", "expected {automatic: boolean} or "
+                                              "{rollback_version: non-empty string}"}}.dump();
                     return with_cors(req, std::move(r));
                 }
                 automatic = body.value("automatic", false);
+                if (body.contains("rollback_version")) {
+                    rollback_version = body["rollback_version"].get<std::string>();
+                }
             }
+            const bool rollback = !rollback_version.empty();
             auto automatic_disabled = [&]() {
                 crow::response r(409);
                 r.add_header("Content-Type", "application/json");
@@ -1438,7 +1471,22 @@ void WebServer::Impl::register_ui_preferences() {
             }
             result = acecode::upgrade::check_for_update(config_snapshot,
                                                         ACECODE_VERSION, diagnostics.get());
-            if (!result.update_available()) {
+            const acecode::upgrade::UpdateReleaseSummary* rollback_release =
+                rollback ? find_rollback_release(result, rollback_version) : nullptr;
+            if (rollback && !rollback_release) {
+                crow::response r(409);
+                r.add_header("Content-Type", "application/json");
+                r.body = dump_update_json(json{
+                    {"error", "ROLLBACK_UNAVAILABLE"},
+                    {"message", !result.error.empty()
+                                    ? result.error
+                                    : "version " + rollback_version +
+                                          " is not available for rollback"},
+                    {"log_path", result.log_path},
+                    {"status", update_check_to_json(result)}});
+                return with_cors(req, std::move(r));
+            }
+            if (!rollback && !result.update_available()) {
                 const bool no_compatible_package =
                     result.status ==
                     acecode::upgrade::UpdateCheckStatus::NoCompatiblePackage;
@@ -1457,13 +1505,20 @@ void WebServer::Impl::register_ui_preferences() {
             UpdateJobStatus initial;
             initial.job_id = SessionStorage::generate_session_id();
             initial.current_version = ACECODE_VERSION;
-            initial.target_version = result.latest_version;
-            initial.bytes_total = result.package_size;
+            initial.target_version = rollback ? rollback_release->version : result.latest_version;
+            initial.bytes_total = rollback ? rollback_release->rollback_package_size
+                                           : result.package_size;
             initial.log_path = diagnostics->path();
             initial.log_error = diagnostics->error();
             initial.automatic = automatic;
+            initial.rollback = rollback;
             {
-                std::shared_lock<std::shared_mutex> config_lock(app_config_mu);
+                // 回滚要先把自动更新关掉并落盘,否则装回旧版后马上又被自动升级回来;
+                // 关开关与登记任务在同一把(独占)配置锁里完成,其余请求只读配置。
+                std::shared_lock<std::shared_mutex> shared_config(app_config_mu, std::defer_lock);
+                std::unique_lock<std::shared_mutex> exclusive_config(app_config_mu, std::defer_lock);
+                if (rollback) exclusive_config.lock();
+                else shared_config.lock();
                 if (automatic && !deps.app_config->upgrade.auto_update) return automatic_disabled();
                 std::lock_guard<std::mutex> lock(update_job_runtime->mu);
                 if (auto response = pending_restart()) return std::move(*response);
@@ -1477,6 +1532,23 @@ void WebServer::Impl::register_ui_preferences() {
                         {"job", update_job_to_json(*update_job_runtime->current)}});
                     return with_cors(req, std::move(r));
                 }
+                if (rollback && deps.app_config->upgrade.auto_update) {
+                    SettingsMutationOptions options;
+                    options.config_path = deps.config_path;
+                    options.live_config = deps.app_config;
+                    const auto disabled = set_upgrade_settings(std::nullopt, false, options);
+                    diagnostics->record("rollback_auto_update_disabled", {
+                        {"ok", disabled.ok}, {"error", disabled.error}});
+                    if (!disabled.ok) {
+                        crow::response r(500);
+                        r.add_header("Content-Type", "application/json");
+                        r.body = dump_update_json(json{
+                            {"error", "PERSIST_FAILED"},
+                            {"message", "cannot turn off automatic updates before rollback: " +
+                                            disabled.error}});
+                        return with_cors(req, std::move(r));
+                    }
+                }
                 if (update_job_runtime->current &&
                     update_job_runtime->current->target_version == initial.target_version) {
                     initial.automatic_failures = update_job_runtime->current->automatic_failures;
@@ -1485,7 +1557,7 @@ void WebServer::Impl::register_ui_preferences() {
                 update_job_runtime->diagnostics = diagnostics;
             }
             diagnostics->record("job_created", {{"job_id", initial.job_id},
-                {"target_version", initial.target_version}});
+                {"target_version", initial.target_version}, {"rollback", initial.rollback}});
 
             auto runtime = update_job_runtime;
             auto injected_runner = deps.run_update_command;
@@ -1524,18 +1596,22 @@ void WebServer::Impl::register_ui_preferences() {
                     }
                 }
 
+                const std::string rollback_target =
+                    initial.rollback ? initial.target_version : std::string{};
                 std::string error;
                 int code = 1;
                 try {
                     if (injected_runner) {
                         code = injected_runner(
-                            config_snapshot, publish, cancellation_requested, &error);
+                            config_snapshot, publish, cancellation_requested, &error,
+                            rollback_target);
                     } else {
                         std::ostringstream output;
                         std::ostringstream errors;
                         code = acecode::upgrade::run_upgrade_command(
                             config_snapshot, "", ACECODE_VERSION,
-                            output, errors, false, publish, cancellation_requested, diagnostics.get());
+                            output, errors, false, publish, cancellation_requested, diagnostics.get(),
+                            rollback_target);
                         if (code != 0 && error.empty()) {
                             error = trim_update_error(errors.str());
                         }
@@ -2273,6 +2349,14 @@ void WebServer::Impl::register_ui_preferences() {
                                     "busy_send_mode must be steer or queue");
                 }
             }
+            if (body.contains("code_theme")) {
+                has_supported_field = true;
+                if (!body["code_theme"].is_string() ||
+                    !is_valid_web_ui_code_theme(body["code_theme"].get<std::string>())) {
+                    return json_err(400, "BAD_REQUEST",
+                                    "code_theme must be auto, light, or dark");
+                }
+            }
             if (!has_supported_field) {
                 return json_err(400, "BAD_REQUEST",
                                 "no supported UI preference field was provided");
@@ -2336,6 +2420,10 @@ void WebServer::Impl::register_ui_preferences() {
             if (body.contains("busy_send_mode")) {
                 deps.app_config->web_ui.busy_send_mode =
                     body["busy_send_mode"].get<std::string>();
+            }
+            if (body.contains("code_theme")) {
+                deps.app_config->web_ui.code_theme =
+                    body["code_theme"].get<std::string>();
             }
             try {
                 if (!deps.config_path.empty()) {

@@ -21,7 +21,10 @@ export function createUpdateController({
   isCurrentConnection = () => true,
   setTimer = setTimeout, clearTimer = clearTimeout,
 }) {
-  let state = { status: null, job: null, checking: false, starting: false, dialogOpen: false };
+  // startingRollback:回滚请求已发出、任务还没回来时的目标版本(弹窗据此显示回滚进度)。
+  let state = {
+    status: null, job: null, checking: false, starting: false, startingRollback: '', dialogOpen: false,
+  };
   const listeners = new Set();
   const notified = new Set();
   let active = false;
@@ -52,6 +55,17 @@ export function createUpdateController({
     }
     if (interactiveJobId !== job.job_id) return;
     publish({ dialogOpen: true });
+    if (job.rollback === true) {
+      if (job.state === 'succeeded') notify({
+        kind: 'ok',
+        text: desktopUpdateRestartAvailable()
+          ? '回滚完成，可立即重启 ACECode'
+          : '回滚完成，请完全退出并重新启动 ACECode',
+      });
+      else if (job.state === 'failed') notify({ kind: 'err', text: '回滚失败:' + (job.error || '未知错误') });
+      else if (job.state === 'cancelled') notify({ kind: 'info', text: '回滚已取消，当前安装未修改' });
+      return;
+    }
     if (job.state === 'succeeded') notify({
       kind: 'ok',
       text: desktopUpdateRestartAvailable()
@@ -128,6 +142,40 @@ export function createUpdateController({
     return work;
   }
 
+  // 回滚到版本更新记录里的某个旧版本。daemon 会在同一个请求里先关掉自动更新再登记任务,
+  // 所以这里不要求有可用更新;正在跑的任务和等待重启的安装仍然挡住新请求。
+  function startRollback(version) {
+    const target = typeof version === 'string' ? version.trim() : '';
+    if (!target || !live(generation) || starting || updateJobIsActive(state.job) || ready()) {
+      return starting || Promise.resolve();
+    }
+    const id = generation;
+    const work = Promise.resolve().then(async () => {
+      try {
+        // 上一个已结束(失败 / 取消)的任务不再展示,弹窗改显示这次回滚的启动进度。
+        publish({ starting: true, startingRollback: target, job: null });
+        const job = await api.startUpdate({ rollback_version: target });
+        if (!live(id)) return;
+        acceptJob(job, { interactive: true, terminal: true });
+        if (updateJobIsActive(job)) poll(job.job_id);
+      } catch (error) {
+        if (!live(id)) return;
+        if (error?.body?.job) {
+          const job = error.body.job;
+          acceptJob(job, { interactive: true, terminal: true });
+          if (updateJobIsActive(job)) poll(job.job_id);
+        } else {
+          notify({ kind: 'err', text: '启动回滚失败:' + (error?.message || '未知错误') });
+        }
+      } finally {
+        if (live(id)) publish({ starting: false, startingRollback: '' });
+        if (starting === work) starting = null;
+      }
+    });
+    starting = work;
+    return work;
+  }
+
   function schedule() {
     clearTimer(checkTimer);
     if (active) checkTimer = setTimer(() => { void check(); }, randomUpdateCheckDelay(random));
@@ -184,6 +232,7 @@ export function createUpdateController({
     subscribe(listener) { listeners.add(listener); return () => listeners.delete(listener); },
     check,
     startUpdate,
+    startRollback,
     refreshConfiguration() {
       if (!live(generation)) return;
       if (checking) refreshRequested = true;
@@ -217,7 +266,7 @@ export function createUpdateController({
       checking = null;
       starting = null;
       refreshRequested = false;
-      publish({ checking: false, starting: false });
+      publish({ checking: false, starting: false, startingRollback: '' });
     },
   };
 }

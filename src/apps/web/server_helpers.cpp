@@ -132,6 +132,7 @@ json ui_preferences_to_json(const WebUiPreferencesConfig& cfg) {
         {"subagent_avatar_style", cfg.subagent_avatar_style},
         {"follow_up_prompts", cfg.follow_up_prompts},
         {"busy_send_mode", cfg.busy_send_mode},
+        {"code_theme", cfg.code_theme},
     };
 }
 
@@ -155,6 +156,7 @@ json update_check_to_json(const acecode::upgrade::UpdateCheckResult& result) {
             {"version", release.version},
             {"published_at", release.published_at},
             {"notes", release.notes},
+            {"rollback_available", release.rollback_available},
         });
     }
     if (!result.package_file.empty()) out["package_file"] = result.package_file;

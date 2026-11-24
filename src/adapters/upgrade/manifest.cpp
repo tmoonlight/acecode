@@ -266,4 +266,62 @@ SelectionResult select_update_package(const UpdateManifest& manifest,
     return result;
 }
 
+std::optional<PackageInfo> rollback_package_for_release(const ReleaseInfo& release,
+                                                        const std::string& current_version,
+                                                        const std::string& target) {
+    // published_at 是 ISO 8601(UTC),前 10 个字符就是日期,按字典序比较即按日期比较。
+    const std::string earliest = kEarliestRollbackPublishedDate;
+    if (release.published_at.size() < earliest.size() ||
+        release.published_at.compare(0, earliest.size(), earliest) < 0) {
+        return std::nullopt;
+    }
+    const auto version = parse_sem_version(release.version);
+    const auto current = parse_sem_version(current_version);
+    if (!version || !current || compare_sem_version(*version, *current) >= 0) {
+        return std::nullopt;
+    }
+    for (const auto& pkg : release.packages) {
+        if (pkg.target != target) continue;
+        if (!is_safe_package_file(pkg.file) || !is_valid_sha256_hex(pkg.sha256)) {
+            return std::nullopt;
+        }
+        return pkg;
+    }
+    return std::nullopt;
+}
+
+SelectionResult select_rollback_package(const UpdateManifest& manifest,
+                                        const std::string& current_version,
+                                        const std::string& requested_version,
+                                        const std::string& target) {
+    SelectionResult result;
+    result.latest_version = manifest.latest;
+    const auto requested = parse_sem_version(requested_version);
+    if (!requested) {
+        result.status = SelectionStatus::NoCompatiblePackage;
+        result.error = "rollback version is not semantic: " + requested_version;
+        return result;
+    }
+    for (const auto& rel : manifest.releases) {
+        const auto parsed = parse_sem_version(rel.version);
+        if (!parsed || compare_sem_version(*parsed, *requested) != 0) continue;
+        auto package = rollback_package_for_release(rel, current_version, target);
+        if (!package) {
+            result.status = SelectionStatus::NoCompatiblePackage;
+            result.error = "version " + rel.version + " is not available for rollback on " +
+                           target + " (it must be published on or after " +
+                           kEarliestRollbackPublishedDate +
+                           ", be older than v" + current_version +
+                           " and ship a package for this platform)";
+            return result;
+        }
+        result.status = SelectionStatus::UpdateAvailable;
+        result.selected = SelectedPackage{rel.version, *parsed, std::move(*package)};
+        return result;
+    }
+    result.status = SelectionStatus::NoCompatiblePackage;
+    result.error = "version " + requested_version + " is not published in the update manifest";
+    return result;
+}
+
 } // namespace acecode::upgrade
