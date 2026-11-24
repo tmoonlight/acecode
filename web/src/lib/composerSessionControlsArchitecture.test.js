@@ -240,7 +240,22 @@ run('model selector leaves enough line height for lowercase descenders', () => {
 
   assert.match(
     styles,
-    /\.ace-composer-model-label\s*\{[^}]*line-height: 1\.35;/s,
+    /\.ace-composer-model-label\s*\{[^}]*line-height: 1\.5;/s,
+  );
+});
+
+run('composer footer text keeps a metric-safe line height on Linux CJK fonts', () => {
+  const styles = source('styles/globals.css');
+
+  // Linux 上 Noto Sans CJK 等字体的字体框高于 1em;line-height: 1 会让
+  // overflow: hidden 容器裁掉文字底部(目标 / 蜂群模式 / 完全访问权限)。
+  assert.match(
+    styles,
+    /\.ace-composer-adaptive-chip\s*\{[^}]*line-height: 1\.5;/s,
+  );
+  assert.match(
+    styles,
+    /\.ace-composer-control-button\s*\{[^}]*line-height: 1\.5;/s,
   );
 });
 
