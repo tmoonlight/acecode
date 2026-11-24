@@ -371,8 +371,9 @@ export function createFileContext({ path = '', kind = '', text = '' } = {}) {
 export function normalizeComposerContext(ctx = {}) {
   if (!ctx || typeof ctx !== 'object') return null;
   if ((ctx.type || '') !== SELECTION_CONTEXT_TYPE) {
+    const type = ctx.type || 'browser';
     const normalized = {
-      type: ctx.type || 'browser',
+      type,
       label: ctx.label || 'Browser',
       note: ctx.note || '',
     };
@@ -387,6 +388,12 @@ export function normalizeComposerContext(ctx = {}) {
         url: asString(ctx.source.url),
         title: asString(ctx.source.title),
       };
+    }
+    if (type === 'page_annotations') {
+      const version = Number(ctx.version);
+      normalized.version = Number.isInteger(version) && version > 0 ? version : 2;
+      normalized.pages = (Array.isArray(ctx.pages) ? ctx.pages : [])
+        .filter((page) => page && typeof page === 'object' && !Array.isArray(page));
     }
     return normalized;
   }

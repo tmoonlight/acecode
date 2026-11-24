@@ -5,6 +5,8 @@ import { transformWithEsbuild } from 'vite';
 import * as dialogKeyboard from './dialogKeyboard.js';
 import * as pageAnnotations from './pageAnnotations.js';
 import * as shortcutBindings from './shortcutBindings.js';
+import * as annotationSubmission from './annotationSubmission.js';
+import * as annotationFocus from './annotationFocus.js';
 
 const filename = new URL('../components/PageAnnotations.jsx', import.meta.url);
 const compiled = await transformWithEsbuild(fs.readFileSync(filename, 'utf8'), filename.pathname, {
@@ -15,6 +17,7 @@ function fixture(command) {
   const slots = [];
   const timers = new Map();
   const cleanups = [];
+  const toasts = [];
   let slot = 0;
   let sequence = 0;
   const React = {
@@ -35,6 +38,9 @@ function fixture(command) {
     React, module: { exports: {} },
     require: name => name === 'react' ? React : name.endsWith('/dialogKeyboard.js') ? dialogKeyboard
       : name.endsWith('/pageAnnotations.js') ? pageAnnotations
+        : name.endsWith('/annotationSubmission.js') ? annotationSubmission
+        : name.endsWith('/annotationFocus.js') ? annotationFocus
+        : name.endsWith('/Toast.jsx') ? { toast: options => toasts.push(options) }
         : name.endsWith('/shortcutBindings.js') ? shortcutBindings : { notifyNativeSurfaceOverlayChange() {} },
     document: { activeElement: null, body: {} },
     CSS: { supports: (_field, value) => value !== 'invalid' },
@@ -76,6 +82,7 @@ function fixture(command) {
     dispose() { cleanups.forEach(cleanup => cleanup?.()); },
     snapshot,
     document: context.document,
+    toasts,
   };
 }
 
@@ -244,6 +251,46 @@ const openEditor = page => {
 }
 
 {
+  const cleanups = [];
+  const savedSnapshot = { revision: 9, records: [{ id: 'record-9', number: 9 }] };
+  const page = fixture(async () => ({ok:true, annotations: savedSnapshot}));
+  const sessionId = 'popup-send-failure-session';
+  const order = [];
+  const onAnnotationsSaved = (next) => {
+    assert.deepEqual(next, savedSnapshot);
+    order.push('saved');
+  };
+  cleanups.push(annotationSubmission.registerAnnotationSubmitter(
+    sessionId,
+    async () => {
+      order.push('submit');
+      return { ok: false, error: 'offline' };
+    },
+  ));
+  let tree = page.render({
+    sessionId,
+    onAnnotationsSaved,
+  });
+  let submitted = 0;
+  tree.props.ref.current = { requestSubmit() { ++submitted; } };
+  const comment = () => find(tree, node => node.type === 'textarea' && node.props['aria-label'] === '批注描述');
+  comment().props.onChange({ target: { value: '这里加粗' } });
+  tree = page.render({ sessionId, onAnnotationsSaved });
+  tree.props.onKeyDown({ key: 'Enter', ctrlKey: true, target: comment(), preventDefault() {} });
+  assert.equal(submitted, 1, 'Ctrl+Enter requests the shared save-and-send path');
+  await tree.props.onSubmit({ preventDefault() {} });
+  await tick();
+  assert.deepEqual(order, ['saved', 'submit'],
+    'the saved record reaches the session outbox before the shared submit runs');
+  assert.equal(page.toasts.at(-1)?.kind, 'err');
+  assert.equal(page.toasts.at(-1)?.text, 'offline',
+    'a failed shared submission is surfaced instead of silently ignored');
+  cleanups.forEach(cleanup => cleanup());
+  page.dispose();
+  console.log('[pass] popup reports failed annotation sends after Ctrl+Enter');
+}
+
+{
   const page = fixture(async () => ({ok:true}));
   const viewport = { getBoundingClientRect: () => ({ left: 0, top: 0, width: 600, height: 400 }) };
   let tree = page.render({ viewportRef: { current: viewport } });
@@ -351,10 +398,10 @@ const openEditor = page => {
   assert.ok(/data-ace-native-overlay=\{snapshot\.selection_mode \? undefined : 'overlap'\}/.test(
     fs.readFileSync(new URL('../components/PageAnnotations.jsx', import.meta.url), 'utf8'),
   ));
-  assert.doesNotMatch(
+  assert.match(
     fs.readFileSync(new URL('../components/PageAnnotations.jsx', import.meta.url), 'utf8'),
-    /data-ace-native-overlay-bleed/,
-    'the card relies on the hole snapping to its own raster instead of a bleed ring',
+    /data-ace-native-overlay-square=\{snapshot\.selection_mode \? undefined : 'true'\}/,
+    'the card opts into a rectangular native hole and draws its own antialiased corner',
   );
   assert.match(styles, /\.ace-annotation-card\.is-adjusting \.ace-annotation-editor\s*\{[^}]*overflow-y:\s*auto[^}]*overflow-x:\s*hidden/s);
   assert.match(styles, /\.ace-annotation-card\.is-adjusting \.ace-annotation-editor\s*\{[^}]*max-height:\s*230px/s);
@@ -366,8 +413,10 @@ const openEditor = page => {
   // The scrolling editor must not butt the visible-text box against the
   // action bar divider.
   assert.match(styles, /\.ace-annotation-card\.is-adjusting \.ace-annotation-editor\s*\{[^}]*padding:\s*8px 0 2px/s);
-  assert.match(styles, /\.ace-annotation-toolbar\s*\{[^}]*transform:\s*translateX\(-50%\) translateZ\(0\)/s);
-  assert.doesNotMatch(styles, /\.ace-annotation-toolbar\s*\{[^}]*transform:\s*translateZ\(0\);/s);
+  assert.match(styles, /\.ace-annotation-toolbar\s*\{[^}]*transform:\s*translateX\(-50%\)/s);
+  assert.doesNotMatch(styles, /\.ace-annotation-toolbar\s*\{[^}]*translateZ\(0\)/s);
+  assert.doesNotMatch(styles, /\.ace-annotation-card\s*\{[^}]*translateZ\(0\)/s);
+  assert.doesNotMatch(styles, /\.ace-annotation-select-menu\s*\{[^}]*translateZ\(0\)/s);
   assert.match(styles, /\.ace-annotation-card:not\(\.is-adjusting\)\s*\{[^}]*justify-content:\s*center/s);
   assert.match(styles, /\.ace-annotation-card-header\s*\{[^}]*padding:\s*8px 46px 8px 6px/s);
   assert.doesNotMatch(styles, /\.ace-annotation-adjust\s*\{[^}]*position:\s*absolute/s);

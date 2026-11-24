@@ -184,8 +184,13 @@ TEST_F(SessionAnnotationStoreTest, EraseDropsOneRecordAndBumpsRevision) {
     EXPECT_GT(store->revision(), before);
     ASSERT_EQ(store->records("page-1").size(), 1u);
     EXPECT_EQ(store->records("page-1")[0]["description"], "keep");
-    // 删除不回退计数器，避免 id 复用。
-    EXPECT_EQ(store->next_number("page-1"), 3u);
+    // 下一号从仍存活的记录重算；已发出/删除的最高号不再抬高新记录。
+    EXPECT_EQ(store->next_number("page-1"), 2u);
+    store->append("page-1", {{"document_id", driver.session.document_id()},
+                             {"description", "replacement"}, {"targets", Json::array()},
+                             {"differences", Json::array()}, {"region", nullptr},
+                             {"status", "pending"}, {"valid", true}});
+    EXPECT_EQ(store->records("page-1").back()["id"], "page-1:annotation:2");
 }
 
 TEST_F(SessionAnnotationStoreTest, SnapshotIsServedByTheStoreNotTheTab) {
@@ -264,6 +269,33 @@ TEST_F(SessionAnnotationStoreTest, RemoveErasesRecordsWithoutDocumentCheck) {
         {"action", "remove"}, {"document_id", ""},
         {"record_ids", Json::array({"page-1:annotation:404"})},
     }, error));
+}
+
+TEST_F(SessionAnnotationStoreTest, RemovingAllSentRecordsRestartsNumberingAtOne) {
+    auto store = std::make_shared<SessionAnnotationStore>();
+    Driver driver(store, "page-1");
+    driver.start();
+    for (int index = 1; index <= 3; ++index) {
+        driver.select();
+        driver.save("sent-" + std::to_string(index));
+    }
+    ASSERT_EQ(driver.session.snapshot()["pending_count"], 3);
+    EXPECT_EQ(store->next_number("page-1"), 4u);
+
+    Json ids = Json::array();
+    for (const auto& record : store->records("page-1")) ids.push_back(record["id"]);
+    std::string error;
+    ASSERT_TRUE(driver.session.submission({
+        {"action", "remove"}, {"document_id", ""}, {"record_ids", ids},
+    }, error)) << error;
+    ASSERT_TRUE(store->records("page-1").empty());
+    EXPECT_EQ(store->next_number("page-1"), 1u);
+
+    driver.select();
+    driver.save("new round");
+    ASSERT_EQ(store->records("page-1").size(), 1u);
+    EXPECT_EQ(store->records("page-1")[0]["id"], "page-1:annotation:1");
+    EXPECT_EQ(store->records("page-1")[0]["number"], 1);
 }
 
 // 铅笔路径（#217）：改的是同一条记录，不新增、编号不变。

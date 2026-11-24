@@ -11,6 +11,7 @@ import taskLists from 'markdown-it-task-lists';
 import { classifyFileLink } from './fileLink.js';
 import { createMarkdownHighlightCache } from './markdownHighlightCache.js';
 import { markdownColorSwatches } from './markdownColorSwatches.js';
+import { mermaidFamilyOf, stripMermaidPreamble } from './mermaidSource.js';
 
 import hljs from 'highlight.js/lib/core';
 import c          from 'highlight.js/lib/languages/c';
@@ -90,7 +91,8 @@ function isCompleteFence(token, env) {
   const closingLine = lines[token.map[1] - 1];
   const marker = String(token.markup || '');
   if (!closingLine || marker.length < 3) return false;
-  const trimmed = closingLine.trimStart();
+  // 引用块里的围栏,收尾那一行前面带着 `>`(可以嵌套多层),先去掉再数围栏符号。
+  const trimmed = closingLine.replace(/^(?:[ \t]*>)+/, '').trimStart();
   let count = 0;
   while (count < trimmed.length && trimmed[count] === marker[0]) count += 1;
   return count >= marker.length && trimmed.slice(count).trim() === '';
@@ -135,6 +137,20 @@ function registeredLang(lang) {
 
 function plainCode(str, lang) {
   return { lang: registeredLang(lang), html: escapeHtml(str) };
+}
+
+// 围栏写了 mermaid 就是图。模型偶尔漏写语言名,或者把图类型当语言名写(```flowchart):这时
+// 内容第一行是可绘制的图类型开头(flowchart TD、sequenceDiagram ...)才算图。写了别的语言名
+// (text、markdown ...)的是有意展示源码,不算。
+const MERMAID_FENCE_ALIASES = new Set([
+  '', 'mmd', 'mermaidjs', 'flowchart', 'graph', 'sequence', 'sequencediagram', 'state',
+  'statediagram', 'statediagram-v2', 'class', 'classdiagram', 'er', 'erdiagram',
+]);
+
+function isMermaidFence(normalizedLang, content) {
+  if (normalizedLang === 'mermaid') return true;
+  if (!MERMAID_FENCE_ALIASES.has(normalizedLang)) return false;
+  return Boolean(mermaidFamilyOf(stripMermaidPreamble(String(content || '').replace(/\r\n?/g, '\n')) ?? ''));
 }
 
 function fenceLang(token) {
@@ -187,7 +203,7 @@ md.renderer.rules.fence = (tokens, idx, _options, env) => {
   const token = tokens[idx];
   const lang = fenceLang(token);
   const normalizedLang = normalizeLang(lang);
-  if (normalizedLang === 'mermaid'
+  if (isMermaidFence(normalizedLang, token.content)
       && String(token.content || '').trim()
       && isCompleteFence(token, env)) {
     const source = escapeHtml(token.content);

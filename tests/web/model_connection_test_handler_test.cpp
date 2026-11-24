@@ -8,7 +8,9 @@
 #include <atomic>
 #include <chrono>
 #include <functional>
+#include <mutex>
 #include <thread>
+#include <vector>
 
 namespace {
 
@@ -123,6 +125,32 @@ TEST(ModelConnectionTest, AceModelDefaultAndExplicitProtocolUseMatchingEndpoints
     EXPECT_EQ(responses_requests.load(), 2);
     EXPECT_EQ(chat_requests.load(), 1);
     EXPECT_FALSE(config.saved_models[0].api_protocol.has_value());
+}
+
+TEST(ModelConnectionTest, CatalogSelectedOpenCodeGoGetsIndependentRoutingIds) {
+    std::mutex mutex;
+    std::vector<std::string> sessions;
+    ModelTestServer upstream([&](httplib::Server& server) {
+        server.Post("/chat/completions", [&](const httplib::Request& req, httplib::Response& res) {
+            std::lock_guard<std::mutex> lock(mutex);
+            EXPECT_EQ(json::parse(req.body)["model"], "glm-5.3-flash");
+            sessions.push_back(req.get_header_value("x-opencode-session"));
+            reply_ok(res);
+        });
+    });
+    auto input = request_for(upstream);
+    input["model"] = "glm-5.3-flash";
+    input["models_dev_provider_id"] = "opencode-go";
+    EXPECT_EQ(test_model_connection(input, {}).status, 200);
+    EXPECT_EQ(test_model_connection(input, {}).status, 200);
+    input["models_dev_provider_id"] = "another-provider";
+    EXPECT_EQ(test_model_connection(input, {}).status, 200);
+    std::lock_guard<std::mutex> lock(mutex);
+    ASSERT_EQ(sessions.size(), 3u);
+    EXPECT_FALSE(sessions[0].empty());
+    EXPECT_FALSE(sessions[1].empty());
+    EXPECT_NE(sessions[0], sessions[1]);
+    EXPECT_TRUE(sessions[2].empty());
 }
 
 TEST(ModelConnectionTest, ResolvesCredentialReuseAndEditingWithoutMutation) {

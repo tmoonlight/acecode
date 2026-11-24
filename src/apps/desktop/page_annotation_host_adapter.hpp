@@ -151,6 +151,10 @@ void annotation_dispatch(const std::shared_ptr<Host>& host, const std::string& p
             const auto current = weak_page.lock();
             if (current_host && current && !current->closing && current_host->find_page(current->id) == current)
                 current_host->update_page(current, [serialized](AgentBrowserState& state) { state.page_annotations_json = serialized; });
+        }, [evaluate, document_id = page->annotations.document_id()](const std::vector<int>& numbers) {
+            const auto expression = page_annotation_runtime_expression(
+                page_annotation_remove_pins_payload(document_id, numbers));
+            evaluate(expression, [](bool, nlohmann::json) {});
         })) return;
     std::string expression;
     std::string error;

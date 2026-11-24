@@ -31,14 +31,24 @@ public:
     ) override { return chat_cancellable(messages, tools, nullptr); }
 
     ChatResponse chat_cancellable(const std::vector<ChatMessage>& messages,
-        const std::vector<ToolDef>& tools, const std::atomic<bool>* abort_flag) override;
+        const std::vector<ToolDef>& tools, const std::atomic<bool>* abort_flag) override {
+        return chat_with_options(messages, tools, {}, abort_flag);
+    }
+
+    ChatResponse chat_with_options(const std::vector<ChatMessage>& messages,
+        const std::vector<ToolDef>& tools, const ChatRequestOptions& options,
+        const std::atomic<bool>* abort_flag) override;
 
     void chat_stream(
         const std::vector<ChatMessage>& messages,
         const std::vector<ToolDef>& tools,
         const StreamCallback& callback,
         std::atomic<bool>* abort_flag = nullptr
-    ) override;
+    ) override { chat_stream_with_options(messages, tools, {}, callback, abort_flag); }
+
+    void chat_stream_with_options(const std::vector<ChatMessage>& messages,
+        const std::vector<ToolDef>& tools, const ChatRequestOptions& options,
+        const StreamCallback& callback, std::atomic<bool>* abort_flag) override;
 
     std::string name() const override { return "anthropic"; }
     bool is_authenticated() override { return !api_key_.empty(); }

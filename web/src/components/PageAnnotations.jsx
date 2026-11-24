@@ -5,14 +5,18 @@ import {
   pageAnnotationPopupDragPosition,
   pageAnnotationPopupPosition,
 } from '../lib/pageAnnotations.js';
-import { requestAnnotationSubmit } from '../lib/annotationSubmission.js';
+import {
+  localizedAnnotationSendError, requestAnnotationSubmit,
+} from '../lib/annotationSubmission.js';
 import { notifyNativeSurfaceOverlayChange } from '../lib/agentBrowserSurfaceCoordinator.js';
 import {
   setAnnotationChromeSuspended,
 } from '../lib/annotationChromeSuspension.js';
 import { dialogEnterAction, resolveDialogTabTarget } from '../lib/dialogKeyboard.js';
 import { isDismissShortcut, isShortcutComposing } from '../lib/shortcutBindings.js';
+import { focusAnnotationDescription } from '../lib/annotationFocus.js';
 import { PageAnnotationTextField } from './PageAnnotationTextField.jsx';
+import { toast } from './Toast.jsx';
 
 export function usePageAnnotations(pageId, nativeState) {
   const [snapshot, setSnapshot] = useState({ active: false, pending_count: 0 });
@@ -272,7 +276,9 @@ function fontSuggestions(value, previousValue) {
   return [...custom, ...fontFamilies];
 }
 
-export function PageAnnotationPopup({ snapshot, command, working, viewportRef, sessionId }) {
+export function PageAnnotationPopup({
+  snapshot, command, working, viewportRef, sessionId, onAnnotationsSaved,
+}) {
   const popupRef = useRef(null);
   const inputRef = useRef(null);
   const [description, setDescription] = useState('');
@@ -458,12 +464,23 @@ export function PageAnnotationPopup({ snapshot, command, working, viewportRef, s
   ]);
   useEffect(() => {
     const previousFocus = document.activeElement;
-    inputRef.current?.focus();
     return () => {
       notifyNativeSurfaceOverlayChange();
       if (previousFocus?.isConnected && document.activeElement === document.body) previousFocus.focus();
     };
   }, []);
+  useLayoutEffect(() => {
+    if (!snapshot.popup || snapshot.selection_mode) return undefined;
+    return focusAnnotationDescription(inputRef.current);
+  }, [
+    snapshot.popup,
+    snapshot.selection_mode,
+    snapshot.target?.id,
+    snapshot.region?.x,
+    snapshot.region?.y,
+    snapshot.region?.width,
+    snapshot.region?.height,
+  ]);
   useEffect(() => {
     if (!snapshot.selection_mode) inputRef.current?.focus();
   }, [snapshot.selection_mode]);
@@ -833,6 +850,7 @@ export function PageAnnotationPopup({ snapshot, command, working, viewportRef, s
       tabIndex={-1}
       aria-label="网页批注"
       data-ace-native-overlay={snapshot.selection_mode ? undefined : 'overlap'}
+      data-ace-native-overlay-square={snapshot.selection_mode ? undefined : 'true'}
       style={{
         ...(snapshot.selection_mode ? { display: 'none' } : {}),
         ...(pageBackground ? { '--ace-annotation-page-background': pageBackground } : {}),
@@ -852,7 +870,19 @@ export function PageAnnotationPopup({ snapshot, command, working, viewportRef, s
             const result = await command('save', { description });
             if (result?.ok === true && sendAfterSaveRef.current) {
               sendAfterSaveRef.current = false;
-              void requestAnnotationSubmit(sessionId);
+              onAnnotationsSaved?.(result.annotations);
+              void requestAnnotationSubmit(sessionId)
+                .then((sent) => {
+                  if (sent?.ok === false) {
+                    toast({ kind: 'err', text: localizedAnnotationSendError(sent.error) });
+                  }
+                })
+                .catch((error) => {
+                  toast({
+                    kind: 'err',
+                    text: localizedAnnotationSendError(error?.message || error),
+                  });
+                });
             } else if (result?.ok !== true) {
               sendAfterSaveRef.current = false;
             }
@@ -1034,6 +1064,7 @@ export function PageAnnotationPopup({ snapshot, command, working, viewportRef, s
           role="listbox"
           aria-label={`${selectMenu.label}选项`}
           data-ace-native-overlay="overlap"
+          data-ace-native-overlay-square="true"
           className="ace-annotation-select-menu"
           style={{ left: `${selectMenu.left}px`, top: `${selectMenu.top}px`, width: `${selectMenu.width}px` }}
         >
@@ -1060,6 +1091,7 @@ export function PageAnnotationPopup({ snapshot, command, working, viewportRef, s
         <div
           role="tooltip"
           data-ace-native-overlay="overlap"
+          data-ace-native-overlay-square="true"
           className="ace-annotation-tooltip"
           style={{ left: `${tooltip.left}px`, top: `${tooltip.top}px` }}
         >

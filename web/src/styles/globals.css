@@ -2742,8 +2742,6 @@ body {
   cursor: pointer;
   user-select: none;
 }
-.ace-sidebar-pinned-session-row:active,
-.ace-sidebar-workspace-session-row:active,
 .ace-sidebar-session-reordering .ace-sidebar-pinned-session-row,
 .ace-sidebar-session-reordering .ace-sidebar-workspace-session-row {
   cursor: grabbing;
@@ -3518,6 +3516,34 @@ body {
 }
 .ace-mermaid-diagram[data-mermaid-diagram="ready"] .ace-mermaid-source {
   display: none;
+}
+/* 画不出来时源码照旧显示,下方一行说明卡在哪(mermaidRenderer.js 的 mermaidFailureNote)。
+   说明排到源码后面,复制按钮才仍然落在代码块的右上角。 */
+.ace-mermaid-diagram[data-mermaid-diagram="error"] {
+  display: flex;
+  flex-direction: column;
+}
+.ace-mermaid-diagram[data-mermaid-diagram="error"] .ace-mermaid-render-target {
+  display: block;
+  order: 1;
+}
+.ace-mermaid-error-note {
+  padding: 4px 0 0;
+  color: var(--ace-fg-2);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.ace-mermaid-error-action {
+  margin-left: 8px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ace-accent);
+  font: inherit;
+  cursor: pointer;
+}
+.ace-mermaid-error-action:hover {
+  text-decoration: underline;
 }
 .ace-mermaid-preview-trigger {
   display: block;
@@ -5173,7 +5199,6 @@ a.ace-thread-link:focus-visible {
   cursor: pointer;
   user-select: none;
 }
-.ace-preview-details-tab:active,
 .ace-preview-tab-reordering .ace-preview-details-tab {
   cursor: grabbing;
 }
@@ -5576,7 +5601,6 @@ a.ace-thread-link:focus-visible {
 }
 .ace-page-annotation-message {
   width: min(280px, 100%);
-  overflow: hidden;
   border: 1px solid var(--ace-border);
   border-radius: 16px;
   background: var(--ace-surface);
@@ -5589,6 +5613,7 @@ a.ace-thread-link:focus-visible {
   height: 72px;
   padding: 0;
   border: 0;
+  overflow: hidden;
   background: transparent;
   cursor: zoom-in;
 }
@@ -5850,7 +5875,7 @@ a.ace-thread-link:focus-visible {
   z-index: 20;
   left: 50%;
   bottom: 16px;
-  transform: translateX(-50%) translateZ(0);
+  transform: translateX(-50%);
   display: flex;
   align-items: center;
   gap: 4px;
@@ -5995,7 +6020,6 @@ a.ace-thread-link:focus-visible {
   background: var(--ace-surface);
   color: var(--ace-fg);
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04), 0 10px 24px rgba(0, 0, 0, 0.1);
-  transform: translateZ(0);
   font-size: 14px;
 }
 .ace-annotation-card:not(.is-adjusting) {
@@ -6542,7 +6566,6 @@ a.ace-thread-link:focus-visible {
   border-radius: 12px;
   background: var(--ace-surface);
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04), 0 8px 20px rgba(0, 0, 0, 0.12);
-  transform: translateZ(0);
 }
 .ace-annotation-select-option {
   display: flex;

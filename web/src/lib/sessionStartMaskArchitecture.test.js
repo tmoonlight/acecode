@@ -75,7 +75,7 @@ run('等待期间发送与停止入口早退,不依赖遮罩是否已出现', ()
 
   assert.match(
     chat,
-    /if \(sessionRuntimeUnavailable\) return;\s*\/\/[^\n]*\n\s*if \(sessionStartMask\.isBlocking\(\)\) return;/,
+    /if \(sessionRuntimeUnavailable\) return fail\(\);\s*\/\/[^\n]*\n\s*if \(sessionStartMask\.isBlocking\(\)\) return fail\(\);/,
   );
   assert.match(
     between(chat, 'const stopCurrentWork = useStableCallback(', 'abort();'),

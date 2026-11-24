@@ -5,6 +5,7 @@ import { Modal } from './Modal.jsx';
 // 没有「调整」——页面没了，没有样式可比对；定位信息只读展示。
 export function PageAnnotationEditDialog({ record, onCancel, onSave, onDelete }) {
   const [description, setDescription] = useState(record?.description || '');
+  const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const inputRef = useRef(null);
   useEffect(() => {
@@ -18,6 +19,21 @@ export function PageAnnotationEditDialog({ record, onCancel, onSave, onDelete })
   const locator = Array.isArray(record.targets) && record.targets[0]?.locator
     ? String(record.targets[0].locator)
     : record.element;
+  const pageLabel = record.pageTitle || record.pageUrl || '页面';
+  const subtitle = record.state === 'orphan'
+    ? `${pageLabel} · 页面已关闭，只能修改文字`
+    : `${pageLabel} · 目标已失效，只能修改文字`;
+  const save = async () => {
+    setSaving(true);
+    try {
+      const saved = await onSave?.(record, description.trim());
+      if (saved !== false) setEditing(false);
+    } catch {
+      setEditing(true);
+    } finally {
+      setSaving(false);
+    }
+  };
   return (
     <Modal width={420} onClose={onCancel}>
       <div className="p-5">
@@ -25,7 +41,7 @@ export function PageAnnotationEditDialog({ record, onCancel, onSave, onDelete })
           {`编辑第 ${record.number} 条批注`}
         </h2>
         <p className="mt-1 text-[12px] leading-5 text-fg-2">
-          {`${record.pageTitle || record.pageUrl || '页面'} · 页面已关闭，只能修改文字`}
+          {subtitle}
         </p>
         <textarea
           ref={inputRef}
@@ -51,15 +67,23 @@ export function PageAnnotationEditDialog({ record, onCancel, onSave, onDelete })
               onClick={onCancel}>
               取消
             </button>
-            <button type="button"
-              className="h-8 rounded-lg bg-accent px-3 text-[13px] font-medium text-white disabled:opacity-50"
-              disabled={saving || !description.trim()}
-              onClick={() => {
-                setSaving(true);
-                Promise.resolve(onSave?.(record, description.trim())).finally(() => setSaving(false));
-              }}>
-              保存
-            </button>
+            {editing ? (
+              <button type="button"
+                className="h-8 rounded-lg bg-accent px-3 text-[13px] font-medium text-white disabled:opacity-50"
+                disabled={saving || !description.trim()}
+                onClick={save}>
+                保存
+              </button>
+            ) : (
+              <button type="button"
+                className="h-8 rounded-lg bg-accent px-3 text-[13px] font-medium text-white"
+                onClick={() => {
+                  setEditing(true);
+                  inputRef.current?.focus?.();
+                }}>
+                编辑
+              </button>
+            )}
           </div>
         </div>
       </div>

@@ -54,6 +54,7 @@ export function normalizeAnnotationRecord(record, page) {
 export function createAnnotationOutbox() {
   // pageId -> { id, url, title, closed, documentId, pageShot, records: [] }
   const pages = new Map();
+  const descriptionOverrides = new Map();
   const listeners = new Set();
   let snapshot = EMPTY_SNAPSHOT;
 
@@ -102,11 +103,16 @@ export function createAnnotationOutbox() {
       if (!pageId) return;
       const previous = pages.get(pageId);
       const records = pageSnapshot && Array.isArray(pageSnapshot.records)
-        ? pageSnapshot.records.map((record) => normalizeAnnotationRecord(record, {
-            id: pageId,
-            title: title || previous?.title || '',
-            url: url || previous?.url || '',
-          }))
+        ? pageSnapshot.records.map((record) => {
+            const normalized = normalizeAnnotationRecord(record, {
+              id: pageId,
+              title: title || previous?.title || '',
+              url: url || previous?.url || '',
+            });
+            return descriptionOverrides.has(normalized.id)
+              ? { ...normalized, description: descriptionOverrides.get(normalized.id) }
+              : normalized;
+          })
         : (previous?.records || []);
       const next = {
         id: pageId,
@@ -153,6 +159,7 @@ export function createAnnotationOutbox() {
     discardPage(pageId) {
       const page = pages.get(pageId);
       if (!page) return;
+      for (const record of page.records) descriptionOverrides.delete(record.id);
       pages.set(pageId, { ...page, records: [] });
       recompute();
     },
@@ -164,6 +171,7 @@ export function createAnnotationOutbox() {
         if (index < 0) continue;
         const records = page.records.slice();
         records[index] = { ...records[index], description: String(description ?? '') };
+        descriptionOverrides.set(id, records[index].description);
         pages.set(pageId, { ...page, records });
         recompute();
         return true;
@@ -177,6 +185,9 @@ export function createAnnotationOutbox() {
       for (const [pageId, page] of pages) {
         const next = page.records.filter((record) => !target.has(record.id));
         if (next.length !== page.records.length) {
+          for (const record of page.records) {
+            if (target.has(record.id)) descriptionOverrides.delete(record.id);
+          }
           pages.set(pageId, { ...page, records: next });
           changed = true;
         }
@@ -188,6 +199,7 @@ export function createAnnotationOutbox() {
     pagesWithPending: () => snapshot.pages.filter((page) => page.count > 0),
     reset() {
       pages.clear();
+      descriptionOverrides.clear();
       recompute();
     },
   };

@@ -410,6 +410,16 @@ inline constexpr const char kPageAnnotationRuntime[] = R"ACEANNOTATION(
           textPreview.setOriginal(false);
           styles.setOriginal(false);
           break;
+        case 'remove_pins': {
+          const released = new Set(Array.isArray(next.numbers) ? next.numbers : []);
+          for (let index = pins.length - 1; index >= 0; index -= 1) {
+            if (!released.has(pins[index].number)) continue;
+            pins[index].marker.remove();
+            pins[index].outline?.remove();
+            pins.splice(index, 1);
+          }
+          break;
+        }
         case 'original': original = next.enabled; textPreview.setOriginal(original); styles.setOriginal(original); break;
         case 'preview_style': {
           if (!active || !open || selectionMode || !connected(selected) || selectedId !== next.target_id) return {error:'stale_target'};

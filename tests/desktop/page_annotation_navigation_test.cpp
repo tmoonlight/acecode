@@ -130,6 +130,29 @@ TEST(PageAnnotationNavigation, PassivePollBoundsFlightsAndRejectsRetiredDocument
     EXPECT_EQ(page->annotations.revision(), revision);
 }
 
+TEST(PageAnnotationNavigation, PassivePollRetiresAStaleRuntimeDocument) {
+    auto host = std::make_shared<NavigationHost>();
+    const auto page = std::make_shared<NavigationPage>();
+    page->state.page_id = page->id;
+    page->state.content_state = kAgentBrowserContentStateLive;
+    host->pages.push_back(page);
+    std::string expression;
+    std::string error;
+    ASSERT_TRUE(page->annotations.prepare(page->id, {{"action", "start"}, {"document_id", ""}}, expression, error));
+    const std::string document = page->annotations.document_id();
+    page->annotations.fail(page->annotations.sequence());
+
+    std::function<void(bool, nlohmann::json)> done;
+    poll_annotations(std::weak_ptr<NavigationHost>(host),
+        [&](const auto&, const auto&, auto, const auto&, auto callback) { done = callback; });
+    ASSERT_TRUE(done);
+    done(true, {{"error", "stale_document"}});
+
+    EXPECT_TRUE(page->annotations.document_id().empty());
+    EXPECT_FALSE(page->annotations.document_id() == document);
+    EXPECT_EQ(host->updates, 1);
+}
+
 TEST(PageAnnotationNavigation, UiTickExpiresRequestsEvenWhenDocumentCannotBePolled) {
     const auto host = std::make_shared<NavigationHost>();
     const auto page = std::make_shared<NavigationPage>();

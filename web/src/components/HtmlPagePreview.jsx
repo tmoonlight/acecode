@@ -27,6 +27,7 @@ import {
   htmlSiteLinkToPath,
   htmlSiteRootUrl,
   isWindowsRedoKey,
+  normalizeTextCaret,
   normalizeTextRange,
   splitRangeStyles,
 } from '../lib/htmlPageFrame.js';
@@ -292,7 +293,8 @@ export default function HtmlPagePreview({
   const replay = useCallback((entry, direction) => {
     const forward = direction === 'redo';
     indexRef.current = forward ? entry.afterIndex : entry.beforeIndex;
-    pendingTextEditRef.current = 0;
+    // 改字中撤销 / 重做不结束改字:框里原地换回内容后接着改,之后交回的文字照常收。框内按 Ctrl+Z
+    // 之前已把打到一半的字交回来,这里不会和旧文字交错;改字真结束时框会发 textEditEnded。
     for (const op of forward ? entry.redo : [...entry.undo].reverse()) post(op);
     const sid = entry.sid && indexRef.current?.byId.has(entry.sid) ? entry.sid : 0;
     post({ type: 'select', sid });
@@ -380,15 +382,20 @@ export default function HtmlPagePreview({
     post({ type: 'beginTextEdit', sid, expected: innerSourceText(textRef.current, record) });
   }, [post]);
 
-  // 只接受外层自己发起的那一次改字(离开编辑模式时框内交回的最后一次也算)。
-  const commitText = useCallback((sid, html) => {
+  // 改字期间框里边打边交(停顿一下就交一次),每次都进同一条撤销栈:连续打字 1 秒内合成一步
+  // (merge),选区格式单独一步。只接受外层自己发起的这次改字,框报 textEditEnded 才作废。
+  // 合成一步时保留这一串最早的「之前」(撤销回到开始打字前,光标也回到那时),「之后」换成最新的。
+  const commitText = useCallback((sid, html, { caretBefore = null, caretAfter = null, merge = false } = {}) => {
     if (!sid || sid !== pendingTextEditRef.current) return;
-    pendingTextEditRef.current = 0;
     const record = indexRef.current?.byId.get(sid);
     const splice = innerContentSplice(record, html);
     if (!splice) return;
     const undoHtml = instrumentHtmlRange(textRef.current, indexRef.current, record.startTagEnd, record.endTagStart);
-    const entry = commit([splice], { sid });
+    const entry = commit([splice], {
+      sid,
+      mergeKey: merge ? `text:${sid}` : '',
+      undo: [{ type: 'setInner', sid, html: undoHtml, caret: caretBefore }],
+    });
     if (!entry) return;
     const updated = indexRef.current.byId.get(sid);
     if (!updated?.hasEndTag) return;
@@ -397,9 +404,11 @@ export default function HtmlPagePreview({
     );
     indexRef.current = index;
     entry.afterIndex = index;
-    entry.undo = [{ type: 'setInner', sid, html: undoHtml }];
     entry.redo = [{
-      type: 'setInner', sid, html: instrumentHtmlRange(entry.after, index, updated.startTagEnd, updated.endTagStart),
+      type: 'setInner',
+      sid,
+      html: instrumentHtmlRange(entry.after, index, updated.startTagEnd, updated.endTagStart),
+      caret: caretAfter,
     }];
     post({ type: 'assignSids', sid, ids: assigned });
   }, [commit, post]);
@@ -687,7 +696,13 @@ export default function HtmlPagePreview({
         updateTextRange(null);
         break;
       case 'textCommit':
-        if (typeof message.html === 'string') commitText(Number(message.sid) || 0, message.html);
+        if (typeof message.html === 'string') {
+          commitText(Number(message.sid) || 0, message.html, {
+            caretBefore: normalizeTextCaret(message.caretBefore),
+            caretAfter: normalizeTextCaret(message.caretAfter),
+            merge: message.merge === true,
+          });
+        }
         break;
       default:
         break;

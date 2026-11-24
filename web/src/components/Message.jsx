@@ -42,6 +42,7 @@ import { extractSessionReferences } from '../lib/sessionReference.js';
 import {
   annotationShotsByName,
   contentPartsWithoutAnnotationScreenshots,
+  pageAnnotationCardFromContexts,
   pageAnnotationMessageCopyText,
   parsePageAnnotationMessage,
 } from '../lib/pageAnnotationMessage.js';
@@ -332,9 +333,14 @@ function UserBubble({
     : !!content;
   const annotationCard = useMemo(() => parsePageAnnotationMessage(
     composerContent ? composerContentText(composerContent) : content,
-  ), [composerContent, content]);
+  ) || pageAnnotationCardFromContexts(contentParts), [composerContent, content, contentParts]);
   const annotationShots = useMemo(() => (annotationCard ? annotationShotsByName(contentParts) : null),
     [annotationCard, contentParts]);
+  const annotationCopyText = annotationCard?.fromContext
+    ? (composerContent
+      ? extractSessionReferences(composerContentClipboardText(composerContent)).displayText
+      : content)
+    : annotationCard?.text;
   // f300:2400 多万字符的旧消息整段进 pre-wrap 气泡会卡死页面。气泡只渲染有界预览,
   // 截断时显示 … 与「查看全文」(只读对话框);复制仍取全文。
   const messagePreview = useMemo(() => {
@@ -352,6 +358,27 @@ function UserBubble({
       ? extractSessionReferences(composerContentText(composerContent)).displayText
       : String(content ?? '');
   }, [fullTextOpen, composerContent, content]);
+  const naturalBubble = hasBubbleBody ? (
+    <div className="ace-user-message-bubble ace-chat-message-content min-w-0 max-w-full px-3.5 py-2 rounded-[14px] rounded-br-[4px] bg-accent-bg border border-accent-soft text-fg text-[13px] leading-[1.5] whitespace-pre-wrap break-words">
+      {messagePreview.composerContent ? (
+        <OrderedUserMessageBody composerContent={messagePreview.composerContent} contentParts={contentParts}
+          onOpenFilePreview={onOpenFilePreview} onLocateInFileTree={onLocateInFileTree} />
+      ) : <UserMessageBody content={messagePreview.text} />}
+      {messagePreview.truncated ? (
+        <>
+          {'…'}
+          <button
+            type="button"
+            className="ml-1 align-baseline text-[12px] text-accent hover:underline"
+            data-user-message-view-full="true"
+            onClick={() => setFullTextOpen(true)}
+          >
+            查看全文
+          </button>
+        </>
+      ) : null}
+    </div>
+  ) : null;
   return (
     <div className="self-end min-w-0 max-w-[70%] flex flex-col items-end gap-0.5 group">
       {fromSideChat && (
@@ -367,34 +394,15 @@ function UserBubble({
         annotationPresentations={annotationPresentations}
         align="right"
       />
-      {/* 用户正文与批注卡片同时存在（v2 载荷）：先显示说的话，再显示批注那一段。 */}
+      {/* 用户正文与批注卡片同时存在：先显示说的话，再显示只读批注卡片。 */}
       {annotationCard?.text ? (
         <div className="ace-user-message-bubble ace-chat-message-content min-w-0 max-w-full px-3.5 py-2 rounded-[14px] rounded-br-[4px] bg-accent-bg border border-accent-soft text-fg text-[13px] leading-[1.5] whitespace-pre-wrap break-words">
           {annotationCard.text}
         </div>
       ) : null}
+      {(!annotationCard || annotationCard.fromContext) ? naturalBubble : null}
       {annotationCard ? (
         <PageAnnotationMessageCard pages={annotationCard.pages} shots={annotationShots} />
-      ) : hasBubbleBody ? (
-        <div className="ace-user-message-bubble ace-chat-message-content min-w-0 max-w-full px-3.5 py-2 rounded-[14px] rounded-br-[4px] bg-accent-bg border border-accent-soft text-fg text-[13px] leading-[1.5] whitespace-pre-wrap break-words">
-          {messagePreview.composerContent ? (
-            <OrderedUserMessageBody composerContent={messagePreview.composerContent} contentParts={contentParts}
-              onOpenFilePreview={onOpenFilePreview} onLocateInFileTree={onLocateInFileTree} />
-          ) : <UserMessageBody content={messagePreview.text} />}
-          {messagePreview.truncated ? (
-            <>
-              {'…'}
-              <button
-                type="button"
-                className="ml-1 align-baseline text-[12px] text-accent hover:underline"
-                data-user-message-view-full="true"
-                onClick={() => setFullTextOpen(true)}
-              >
-                查看全文
-              </button>
-            </>
-          ) : null}
-        </div>
       ) : null}
       {fullTextOpen ? (
         <PastedTextDialog
@@ -410,7 +418,7 @@ function UserBubble({
           <MessageActions
             messageId={messageId}
             getCopyText={() => (annotationCard
-              ? pageAnnotationMessageCopyText(annotationCard)
+              ? pageAnnotationMessageCopyText(annotationCard, annotationCopyText)
               : (composerContent
                 ? extractSessionReferences(composerContentClipboardText(composerContent)).displayText
                 : content))}

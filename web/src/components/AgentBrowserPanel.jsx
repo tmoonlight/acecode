@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { clsx } from '../lib/format.js';
 import {
   AGENT_BROWSER_STATE_EVENT,
@@ -45,8 +45,6 @@ import { registerAnnotationEditor } from '../lib/annotationEdit.js';
 import { NavigationArrowIcon, RefreshIcon, VsIcon } from './Icon.jsx';
 import { toast } from './Toast.jsx';
 
-const EMPTY_OUTBOX = Object.freeze({ revision: 0, records: [], pages: [], pendingCount: 0 });
-
 const INITIAL_STATE = Object.freeze({
   supported: true,
   ready: false,
@@ -87,6 +85,14 @@ export function AgentBrowserPanel({
   const nativePageVisible = agentBrowserShowsNativePage(state);
   const surface = agentBrowserSurfacePresentation(state);
   const annotations = usePageAnnotations(pageId, state.page_id === pageId ? state.annotations : null);
+  const annotationPageBackground = useMemo(() => {
+    if (!annotations.snapshot?.active) return undefined;
+    const value = String(annotations.snapshot.page_background || '').trim();
+    if (!value) return undefined;
+    const supports = globalThis.CSS?.supports;
+    if (typeof supports === 'function' && !supports.call(globalThis.CSS, 'color', value)) return undefined;
+    return value;
+  }, [annotations.snapshot?.active, annotations.snapshot?.page_background]);
   // 记录归会话（Q33）：页签只把快照上报到会话级待发箱，关掉时降级为 orphan 而不是删除。
   const annotationOutbox = useMemo(() => annotationOutboxFor(sessionId, api), [sessionId, api]);
   useEffect(() => {
@@ -100,11 +106,6 @@ export function AgentBrowserPanel({
       snapshot: closed ? null : annotations.snapshot,
     });
   }, [annotationOutbox, pageId, state.url, state.title, state.closed, annotations.snapshot]);
-  const outboxSnapshot = useSyncExternalStore(
-    useCallback((listener) => (annotationOutbox ? annotationOutbox.subscribe(listener) : () => {}),
-      [annotationOutbox]),
-    useCallback(() => annotationOutbox?.getSnapshot() || EMPTY_OUTBOX, [annotationOutbox]),
-  );
   // 保存后补图（#212）：记录数一涨就说明刚存了一条，截一次视口、裁两张图回填。
   // 放在面板而不是保存命令里，是因为捕获是异步的，且失败不能阻塞保存。
   const captureStateRef = useRef({ pageId: '', count: 0 });
@@ -139,12 +140,13 @@ export function AgentBrowserPanel({
   const annotationsRef = useRef(annotations);
   annotationsRef.current = annotations;
   useEffect(() => {
-    if (!sessionId) return undefined;
+    if (!sessionId || !annotations.snapshot?.document_id) return undefined;
     return registerAnnotationEditor(pageId, async (record) => {
-      await selectAgentBrowserPage(pageId);
+      const selected = await selectAgentBrowserPage(pageId);
+      if (selected?.ok === false) return selected;
       return annotationsRef.current.command('edit_record', { record_id: record.id });
     });
-  }, [pageId, sessionId]);
+  }, [pageId, sessionId, annotations.snapshot?.document_id]);
 
   useEffect(() => {
     let cancelled = false;
@@ -338,6 +340,7 @@ export function AgentBrowserPanel({
         'data-ace-native-interaction',
         'data-ace-native-overlay',
         'data-ace-native-overlay-bleed',
+        'data-ace-native-overlay-square',
         'hidden',
         'style',
       ],
@@ -567,7 +570,13 @@ export function AgentBrowserPanel({
         </div>
       </div>
       <div className={clsx('ace-agent-browser-frame', agentActive && 'is-agent-active')}>
-        <div ref={viewportRef} className="ace-agent-browser-native-viewport">
+        <div
+          ref={viewportRef}
+          className="ace-agent-browser-native-viewport"
+          style={annotationPageBackground
+            ? { '--ace-annotation-page-background': annotationPageBackground }
+            : undefined}
+        >
           {nativePageVisible && annotations.snapshot.popup && (
             <PageAnnotationPopup
               key={`${pageId}:${annotations.snapshot.document_id}`}
@@ -576,11 +585,18 @@ export function AgentBrowserPanel({
               sessionId={sessionId}
               working={annotations.working}
               viewportRef={viewportRef}
+              onAnnotationsSaved={(next) => {
+                annotationOutbox?.observe({
+                  pageId,
+                  url: state.url,
+                  title: state.title,
+                  snapshot: next,
+                });
+              }}
             />
           )}
           <PageAnnotationSendBar pageId={pageId} snapshot={annotations.snapshot}
             api={api} sessionId={sessionId} page={state}
-            pendingTotal={outboxSnapshot.pendingCount}
             command={annotations.command} working={annotations.working} />
           {surface.kind === 'empty' && (
             <AgentBrowserNewTab

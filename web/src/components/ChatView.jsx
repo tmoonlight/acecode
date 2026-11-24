@@ -62,7 +62,10 @@ import {
 import { InputBar } from './InputBar.jsx';
 import { normalizeComposerPayload } from '../lib/composerSubmission.js';
 import { annotationOutboxFor } from '../lib/annotationOutbox.js';
-import { prepareAnnotationSubmission, registerAnnotationSubmitter, annotationSendOutcome } from '../lib/annotationSubmission.js';
+import {
+  annotationSendOutcome, localizedAnnotationSendError, prepareAnnotationSubmission,
+  registerAnnotationSubmitter,
+} from '../lib/annotationSubmission.js';
 import { PageAnnotationPendingCard } from './PageAnnotationPendingCard.jsx';
 import { PageAnnotationEditDialog } from './PageAnnotationEditDialog.jsx';
 import { requestAnnotationEdit } from '../lib/annotationEdit.js';
@@ -196,7 +199,8 @@ import { createPendingActionGuard } from '../lib/pendingActionGuard.js';
 import { homeComposerDraft } from '../lib/homeComposerDrafts.js';
 import {
   appendComposerText, composerContentAttachments, composerContentFromText, composerContentSignature,
-  composerContentText, normalizeComposerContent, reconcileComposerContentAttachments,
+  composerContentSubmissionText, composerContentText, normalizeComposerContent,
+  reconcileComposerContentAttachments,
 } from '../lib/composerContent.js';
 import { inlineVisualSendText } from '../lib/inlineVisualFrame.js';
 import { openExternalUrl } from '../lib/externalUrl.js';
@@ -3681,11 +3685,21 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
   // sendMode:'send'(Enter / 发送按钮)、'queue'(Ctrl+Enter,回复中排到回合结束)、
   // 'fork'(Ctrl+Alt+Enter,在分叉出的新会话里发送)。
   const submit = useStableCallback((text, { sendMode = 'send',
-    extraAttachments = null, annotationSettle = null,
+    extraAttachments = null, extraContexts = null, annotationSettle = null,
   } = {}) => {
-    if (sessionRuntimeUnavailable) return;
+    let annotationStatus = '';
+    const settleAnnotations = (status) => {
+      if (annotationStatus || !annotationSettle) return;
+      annotationStatus = status;
+      annotationSettle(status);
+    };
+    const fail = (error = '发送失败') => {
+      settleAnnotations('failed');
+      return { ok: false, error };
+    };
+    if (sessionRuntimeUnavailable) return fail();
     // 这个会话还在创建 / 建 worktree:遮罩出现之前也不接受第二次发送。
-    if (sessionStartMask.isBlocking()) return;
+    if (sessionStartMask.isBlocking()) return fail();
     const submittedContent = reconcileComposerContentAttachments(composerContentRef.current, composerAttachments);
     const activeAttachments = [
       ...(submittedContent
@@ -3694,12 +3708,13 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
       ...(Array.isArray(extraAttachments) ? extraAttachments : []),
     ];
     if (activeAttachments.some((item) => item.error || (!item.id && !item.pending_upload && !item.uploading))) {
-      toast({ kind: 'err', text: tr('composerAttachment.stagedUnavailable') });
-      return;
+      const message = tr('composerAttachment.stagedUnavailable');
+      toast({ kind: 'err', text: message });
+      return fail(message);
     }
     if (activeAttachments.some((item) => item.uploading)) {
       toast({ kind: 'err', text: '附件仍在上传，请稍后发送' });
-      return;
+      return fail('附件仍在上传，请稍后发送');
     }
     const pendingAttachmentLocalIds = activeAttachments
       .filter((item) => item?.pending_upload && item?.local_id)
@@ -3710,8 +3725,9 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
     );
     const hasPendingAttachments = pendingAttachmentLocalIds.length > 0;
     if (pendingAttachmentFiles.length !== pendingAttachmentLocalIds.length) {
-      toast({ kind: 'err', text: tr('composerAttachment.stagedUnavailable') });
-      return;
+      const message = tr('composerAttachment.stagedUnavailable');
+      toast({ kind: 'err', text: message });
+      return fail(message);
     }
     if (sid && hasPendingAttachments) {
       const pendingItems = activeAttachments.filter((item) => item?.pending_upload && item?.local_id);
@@ -3720,17 +3736,19 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
         // 暂存组已不在(例如从首页草稿带过来)时按保留的 File 直接上传。
         if (!commitDeferredPastes()) uploadPasteReservations(pendingAttachmentFiles);
         toast({ kind: 'info', text: '粘贴的文本正在上传，完成后请再发送' });
-        return;
+        return fail('粘贴的文本正在上传，完成后请再发送');
       }
       toast({ kind: 'err', text: tr('composerAttachment.uploadRequired') });
-      return;
+      return fail(tr('composerAttachment.uploadRequired'));
     }
     const payload = normalizeComposerPayload(
       text,
       activeAttachments,
-      composerContexts,
+      [...composerContexts, ...(Array.isArray(extraContexts) ? extraContexts : [])],
       swarmModeForSubmission(composerSwarmChoice, transcriptSwarmMode),
-      submittedContent,
+      // 批注正文已经由 prepareAnnotationSubmission 合并进 text。旧的空
+      // composer_content 会让服务端用空编辑器正文覆盖它，导致 400。
+      annotationSettle ? null : submittedContent,
     );
     // 提交那一刻输入框里的原文。发送回执回来时拿它比对,用户在等待窗口里
     // 写下的下一条就不会被这次发送的清理吞掉。
@@ -3739,13 +3757,13 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
     const hasExtras = payloadHasExtras(payload) || hasPendingAttachments;
     const hasSwarmMode = typeof payload.swarm_mode === 'string';
     if (!payload.text.trim() && !hasExtras) {
-      if (!retryUserMessageId || composerSubmitting || retrySubmissionRef.current) return;
+      if (!retryUserMessageId || composerSubmitting || retrySubmissionRef.current) return fail();
       const latest = transcript.getState();
       const latestRetryId = trailingUserMessageRetryId({
         ...latest, sessionId: sid, loadState: transcriptLoadState,
         disabled: readOnlyExternalSession || sessionRuntimeUnavailable,
       });
-      if (latestRetryId !== retryUserMessageId) return;
+      if (latestRetryId !== retryUserMessageId) return fail();
       const request = { sessionId: sid };
       retrySubmissionRef.current = request;
       setComposerSubmitting(true);
@@ -3762,7 +3780,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
           setComposerSubmitting(false);
           restoreChatInputFocusSoon(false);
         });
-      return;
+      return { ok: false, error: '发送失败' };
     }
     const route = inputRouteForPayload(payload);
     if (route.kind === 'paste_too_long') {
@@ -3772,12 +3790,16 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
         kind: 'err',
         text: `粘贴的文本太长，超出 /${route.command} 的上限（${route.limitBytes} 字节）。去掉命令可作为普通消息发送，或缩短内容`,
       });
-      return;
+      return fail();
     }
     const historyText = inputHistoryTextForPayload(payload);
     if (sendMode === 'fork' && route.kind === 'message') {
+      if (annotationSettle) return fail();
       sendInForkedSession({ payload, historyText, submittedComposerText, submittedComposerContent });
-      return;
+      return { ok: true };
+    }
+    if (annotationSettle && route.kind !== 'message') {
+      return fail();
     }
     if (route.kind === 'desktop_feedback') {
       if (!sid) {
@@ -4025,7 +4047,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
         });
       return;
     }
-    if (composerSubmitting) return;
+    if (composerSubmitting) return fail();
     // 用户再次主动发送 / 排队 = 解除「中断回合」带来的队列暂停:这条新消息先走,
     // 排队里的旧消息在它之后照常出队(与卡片栈上的「继续」同义)。
     const liveTranscript = transcript.getState();
@@ -4038,6 +4060,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
       // Ctrl+Enter = 排到回合结束。设置里「后续消息处理方式」选排队时两者对调(busySendAction)。
       // 正在停止时只能排队。
       const queuedId = enqueueInput(payload);
+      if (!queuedId) return fail();
       const steerTurnId = String(liveTranscript.activeTurnId || activeTurnId || '');
       const steer = busySendAction(sendMode, busySendMode) === 'steer';
       if (queuedId && steer && liveTranscript.busy && !liveTranscript.abortPending && steerTurnId) {
@@ -4047,7 +4070,8 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
       clearCurrentSessionDraft();
       clearComposerExtras();
       restoreChatInputFocusSoon(false);
-      return;
+      settleAnnotations('sent');
+      return { ok: true, status: 'queued' };
     }
     const targetSid = sid;
     restoreComposerFocusAfterSubmitRef.current = true;
@@ -4080,22 +4104,24 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
           send: sendInputOrBuiltin(targetSid, sessionSendPayload),
         })
       : sendInputOrBuiltin(targetSid, sessionSendPayload).then((value) => ({ status: 'accepted', value }));
-    delivery
+    return delivery
       .then((outcome) => {
         if (outcome.status === 'lost') {
           // 自查没查到：批注退回待发，提示可重试；这条消息本身也不当已接受。
-          annotationSettle?.(false);
+          settleAnnotations('failed');
           toast({ kind: 'err', text: '发送未确认，批注已退回待发，可重试' });
           if (sidRef.current === targetSid) {
             applyEvent({ type: 'busy_changed', payload: { busy: false } }, { emitEffects: false });
           }
-          return;
+          return { ok: false, status: 'lost', error: '发送未确认，批注已退回待发，可重试' };
         }
         if (outcome.status === 'unknown') {
           // 自查本身失败：不回滚，交给用户决定重试还是撤销。
           toast({ kind: 'info', text: '没有收到发送确认，消息可能仍在发送中' });
+          settleAnnotations('unknown');
+          return { ok: false, status: 'unknown', error: '没有收到发送确认，消息可能仍在发送中' };
         }
-        annotationSettle?.(true);
+        settleAnnotations('sent');
         const queued = outcome.value;
         if (!isBuiltin && sidRef.current === targetSid) {
           applyEvent(acceptedUserInputEvent(sessionSendPayload), { emitEffects: false });
@@ -4119,13 +4145,15 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
         }
         if (historyText.trim()) recordInputHistory(historyText);
         if (sidRef.current === targetSid && clearCurrentSessionDraft({ expectedText: submittedComposerText, expectedContent: submittedComposerContent })) clearComposerExtras();
+        return { ok: true, status: outcome.status, value: outcome.value };
       })
       .catch((e) => {
-        annotationSettle?.(false);
+        settleAnnotations('failed');
         toast({ kind: 'err', text: '发送失败:' + (e.message || '') });
         if (sidRef.current === targetSid) {
           applyEvent({ type: 'busy_changed', payload: { busy: false } }, { emitEffects: false });
         }
+        return { ok: false, error: '发送失败:' + (e.message || '') };
       })
       .finally(() => {
         if (sessionStartToken) sessionStartMask.end(sessionStartToken);
@@ -4146,25 +4174,45 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
     const targetSid = sidRef.current;
     const value = typeof text === 'string' ? text : composerValueRef.current;
     const records = annotationBox?.pendingRecords() || [];
-    if (!targetSid || !records.length) {
-      submit(value, { sendMode });
-      return { ok: true, annotations: 0 };
+    if (!records.length) {
+      return (await submit(value, { sendMode })) || { ok: false, error: '发送失败' };
     }
-    const prepared = await prepareAnnotationSubmission({
-      sessionId: targetSid,
-      text: value,
-      records,
-      outbox: annotationBox,
-      api,
-    });
-    submit(prepared.text, {
-      sendMode,
-      extraAttachments: prepared.shotAttachments,
-      annotationSettle: (ok) => {
-        prepared.settle(ok);
-        if (!ok) toast({ kind: 'err', text: '批注未发出，仍在待发列表里，可重试' });
-      },
-    });
+    if (!targetSid) return { ok: false, error: '请先打开一个对话再发送批注' };
+    const submissionText = composerContentSubmissionText(composerContentRef.current) || value;
+    let prepared;
+    try {
+      prepared = await prepareAnnotationSubmission({
+        sessionId: targetSid,
+        text: submissionText,
+        records,
+        outbox: annotationBox,
+        api,
+      });
+    } catch (error) {
+      const message = localizedAnnotationSendError(error?.message || error);
+      toast({ kind: 'err', text: message });
+      return { ok: false, error: message };
+    }
+    let result;
+    try {
+      result = await submit(prepared.text, {
+        sendMode,
+        extraAttachments: prepared.shotAttachments,
+        extraContexts: prepared.contexts,
+        annotationSettle: (status) => {
+          if (status === 'sent') prepared.settle(true);
+          else if (status === 'failed') {
+            toast({ kind: 'err', text: '批注未发出，仍在待发列表里，可重试' });
+          }
+        },
+      });
+    } catch (error) {
+      const message = localizedAnnotationSendError(error?.message || error);
+      toast({ kind: 'err', text: message });
+      return { ok: false, error: message };
+    }
+    if (result?.ok === false) return result;
+    if (result?.ok !== true) return { ok: false, error: '发送失败' };
     return { ok: true, annotations: records.length };
   });
 
@@ -4188,16 +4236,21 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
   // 删除待发批注：活页签走原生存储，已关闭页签只剩本地这份清单。
   const [editingAnnotation, setEditingAnnotation] = useState(null);
   const editAnnotationRecord = useStableCallback(async (record) => {
-    const page = annotationState.pages.find((item) => item.id === record.pageId);
-    if (page?.closed) {
-      setEditingAnnotation(record);
-      return;
-    }
-    const result = await requestAnnotationEdit(record.pageId, record);
+    const result = await requestAnnotationEdit(record.pageId, record, {
+      url: record.pageUrl,
+      pages: sessionBrowserPages,
+      tabs: previewTabs,
+      activate: (pageId) => showBrowserPage(pageId),
+    });
     if (result?.ok !== false) return;
-    if (result.error === 'Annotation target is invalid' || result.error === 'Unknown annotation') {
+    if (result.reason === 'missing_page'
+        || result.error === 'Annotation target is invalid'
+        || result.error === 'Unknown annotation'
+        || result.error === 'Annotation page is unavailable') {
       // 页签还开着但目标已没了：退化成只改文字（与页面已关闭同一形态）。
-      setEditingAnnotation(record);
+      setEditingAnnotation(result.reason === 'missing_page' || result.error === 'Annotation page is unavailable'
+        ? { ...record, state: 'orphan' }
+        : record);
       return;
     }
     toast({ kind: 'err', text: result.error || '无法回到该页面' });
@@ -6937,8 +6990,9 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
               record={editingAnnotation}
               onCancel={() => setEditingAnnotation(null)}
               onSave={(record, description) => {
-                annotationBox?.updateDescription(record.id, description);
-                setEditingAnnotation(null);
+                const saved = annotationBox?.updateDescription(record.id, description) === true;
+                if (!saved) toast({ kind: 'err', text: '保存失败' });
+                return saved;
               }}
               onDelete={(record) => {
                 deleteAnnotationRecord(record);
@@ -6982,6 +7036,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
             fileDropManagedExternally
             onFileDragActiveChange={setChatFileDropActive}
             submitting={composerSubmitting || reasoningSwitching}
+            hasPendingAnnotations={annotationState.pendingCount > 0}
             canRetryLastUserMessage={!!retryUserMessageId}
             queuePaused={!!queuePause}
             onResumeQueue={resumeQueue}

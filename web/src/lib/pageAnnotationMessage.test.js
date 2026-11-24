@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import {
   annotationShotsByName,
   contentPartsWithoutAnnotationScreenshots,
+  pageAnnotationCardFromContexts,
   pageAnnotationMessageCopyText,
   pageAnnotationScreenshot,
   parsePageAnnotationMessage,
@@ -32,12 +33,14 @@ assert.equal(JSON.stringify(card).includes('font-weight'), false);
 const modern = `把这两页的间距调一下\n\nPage annotations\n${JSON.stringify({
   version: 2,
   pages: [{
+    page_id: 'browser-32080-3',
     url: 'https://a.example/', title: '商品详情页', shot: 'page-annotations-c1-1.png',
     annotations: [
       { number: 1, element: 'div', description: '卡片间距太小', state: 'live' },
       { number: 2, element: 'input', description: '输入框边框太浅', state: 'orphan' },
     ],
   }, {
+    page_id: 'browser-32080-4',
     url: 'https://b.example/', title: '结算页', shot: 'page-annotations-c1-2.png',
     annotations: [{ number: 1, element: 'p', description: '这段文案要改', state: 'live' }],
   }],
@@ -51,24 +54,57 @@ assert.deepEqual(multi.comments.map((comment) => comment.element), ['div', 'inpu
 assert.equal(pageAnnotationMessageCopyText(multi),
   '把这两页的间距调一下\n\n商品详情页\n1 div 卡片间距太小\n2 input 输入框边框太浅\n结算页\n1 p 这段文案要改');
 
+const parts = [
+  { type: 'image', attachment: { id: 'shot', name: 'page-annotations-c1-1.png', mime_type: 'image/png', blob_url: '/shot.png' } },
+  { type: 'image', attachment: { id: 'other', name: 'photo.png', mime_type: 'image/png', blob_url: '/photo.png' } },
+];
+
+// 新消息：批注只存在于 browser_context，正文保持自然语言。
+const contextParts = [{
+  type: 'browser_context',
+  context: {
+    type: 'page_annotations',
+    version: 2,
+    pages: [{
+      page_id: 'browser-32080-3',
+      url: 'https://a.example/', title: '商品详情页', shot: 'page-annotations-c1-1.png',
+      annotations: [{ number: 1, element: 'div', description: '卡片间距太小', state: 'live' }],
+    }],
+  },
+}, ...parts];
+const contextual = pageAnnotationCardFromContexts(contextParts);
+assert.equal(contextual.text, '');
+assert.equal(contextual.fromContext, true);
+assert.deepEqual(contextual.pages.map((page) => page.title), ['商品详情页']);
+assert.deepEqual(contextual.comments.map((comment) => comment.description), ['卡片间距太小']);
+assert.equal(annotationShotsByName(contextParts).get('page-annotations-c1-1.png').id, 'shot');
+assert.equal(pageAnnotationMessageCopyText(contextual, '只显示自然语言正文'),
+  '只显示自然语言正文\n\ndiv 卡片间距太小');
+assert.equal(pageAnnotationCardFromContexts(parts), null);
+
 assert.equal(parsePageAnnotationMessage('Page annotations\nnot-json'), null);
 assert.equal(parsePageAnnotationMessage('普通消息'), null);
 // 正文里出现同名字样但后面不是载荷：不能误判成批注消息。
 assert.equal(parsePageAnnotationMessage('我提到了 Page annotations\n这句话'), null);
 
-const parts = [
-  { type: 'image', attachment: { id: 'shot', name: 'page-annotations-c1-1.png', mime_type: 'image/png', blob_url: '/shot.png' } },
-  { type: 'image', attachment: { id: 'other', name: 'photo.png', mime_type: 'image/png', blob_url: '/photo.png' } },
-];
 assert.equal(pageAnnotationScreenshot(parts).id, 'shot');
 assert.deepEqual([...annotationShotsByName(parts).keys()], ['page-annotations-c1-1.png']);
 assert.deepEqual(contentPartsWithoutAnnotationScreenshots(parts).map((part) => part.attachment.id), ['other']);
 
 const message = fs.readFileSync(new URL('../components/Message.jsx', import.meta.url), 'utf8');
 assert.match(message, /parsePageAnnotationMessage/);
+assert.match(message, /pageAnnotationCardFromContexts/);
 assert.match(message, /PageAnnotationMessageCard/);
 const cardComponent = fs.readFileSync(new URL('../components/PageAnnotationMessageCard.jsx', import.meta.url), 'utf8');
 assert.match(cardComponent, /条注释/);
 assert.match(cardComponent, /shots/);
+assert.doesNotMatch(cardComponent, /onEdit|onDelete|回到页面修改|铅笔|垃圾桶/,
+  'sent annotation cards stay read-only');
+const annotationStyles = fs.readFileSync(new URL('../styles/globals.css', import.meta.url), 'utf8');
+const cardStyle = annotationStyles.match(/\.ace-page-annotation-message\s*\{([^}]*)\}/s)?.[1] || '';
+assert.doesNotMatch(cardStyle, /overflow:\s*hidden/,
+  'the card must not clip its hover detail');
+const shotStyle = annotationStyles.match(/\.ace-page-annotation-message-shot\s*\{([^}]*)\}/s)?.[1] || '';
+assert.match(shotStyle, /overflow:\s*hidden/, 'the screenshot keeps rounded clipping');
 
 console.log('[pass] page annotation transcript renders as a card');

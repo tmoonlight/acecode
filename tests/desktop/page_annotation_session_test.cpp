@@ -382,6 +382,54 @@ TEST_F(PageAnnotationSessionTest, DocumentReplacementRetainsInvalidRecordsAndRej
     EXPECT_EQ(session.snapshot()["records"][1]["number"], 2);
 }
 
+TEST_F(PageAnnotationSessionTest, StaleRuntimeDocumentResetsSessionAndAllowsStaleStartSnapshot) {
+    start();
+    select();
+    save("Retained after reload");
+    const std::string retired_document = session.document_id();
+    ASSERT_TRUE(prepare(command("read"))) << error;
+
+    const Json stale{{"error", "stale_document"}};
+    ASSERT_TRUE(stale.is_object());
+    ASSERT_TRUE(stale["error"].is_string());
+    EXPECT_TRUE(session.complete(session.sequence(), stale, error)) << error;
+    EXPECT_TRUE(session.document_id().empty());
+    EXPECT_EQ(session.snapshot()["active"], false);
+    EXPECT_EQ(session.snapshot()["records"][0]["valid"], false);
+    EXPECT_EQ(session.snapshot()["records"][0]["invalid_reason"], "document_replaced");
+
+    // The WebUI may still hold the pre-reload snapshot when the user starts
+    // again. Start must establish a fresh generation instead of rejecting it.
+    ASSERT_TRUE(prepare({{"action", "start"}, {"document_id", retired_document}})) << error;
+    EXPECT_NE(session.document_id(), retired_document);
+    ASSERT_TRUE(session.complete(session.sequence(), result(), error)) << error;
+    EXPECT_EQ(session.snapshot()["active"], true);
+}
+
+TEST_F(PageAnnotationSessionTest, DocumentLossHelperRecognizesStaleRuntime) {
+    start();
+    const Json stale{{"error", "stale_document"}};
+    EXPECT_TRUE(session.recover_document_loss(stale));
+    EXPECT_TRUE(session.document_id().empty());
+}
+
+TEST_F(PageAnnotationSessionTest, FailedStartValidationDoesNotPoisonDocumentIdentity) {
+    start();
+    const std::string retired_document = session.document_id();
+    session.replace_document();
+
+    const auto sequence = session.sequence();
+    EXPECT_FALSE(prepare({{"action", "start"}}));
+    EXPECT_TRUE(session.document_id().empty());
+    EXPECT_EQ(session.sequence(), sequence);
+
+    ASSERT_TRUE(prepare({{"action", "start"}, {"document_id", retired_document}})) << error;
+    EXPECT_FALSE(session.document_id().empty());
+    EXPECT_NE(session.document_id(), retired_document);
+    ASSERT_TRUE(session.complete(session.sequence(), result(), error)) << error;
+    EXPECT_EQ(session.snapshot()["active"], true);
+}
+
 TEST_F(PageAnnotationSessionTest, SerializesCommandsAndDoesNotLetOldFailureReleaseNewOperation) {
     start();
     ASSERT_TRUE(prepare(command("read")));
@@ -619,7 +667,9 @@ TEST_F(PageAnnotationSessionTest, RemoveErasesExactlyTheNamedRecordsAndSurvivesD
     save("Second");
     auto request = command("remove");
     request["record_ids"] = Json::array({first["id"]});
-    ASSERT_TRUE(session.submission(request, error)) << error;
+    std::vector<int> removed;
+    ASSERT_TRUE(session.submission(request, error, &removed)) << error;
+    EXPECT_EQ(removed, std::vector<int>{1});
     auto snapshot = session.snapshot();
     EXPECT_EQ(snapshot["records"].size(), 1);
     EXPECT_EQ(snapshot["records"][0]["description"], "Second");
@@ -627,9 +677,45 @@ TEST_F(PageAnnotationSessionTest, RemoveErasesExactlyTheNamedRecordsAndSurvivesD
     session.replace_document();
     auto late = command("remove");
     late["record_ids"] = Json::array({snapshot["records"][0]["id"]});
-    ASSERT_TRUE(session.submission(late, error)) << error;
+    ASSERT_TRUE(session.submission(late, error, &removed)) << error;
+    EXPECT_EQ(removed, std::vector<int>{2});
     EXPECT_EQ(session.snapshot()["records"], Json::array());
     EXPECT_EQ(session.snapshot()["pending_count"], 0);
+}
+
+TEST_F(PageAnnotationSessionTest, RemovePinsRuntimeCommandCarriesDocumentIdentity) {
+    const auto payload = page_annotation_remove_pins_payload("page:document:1", {1, 3});
+    EXPECT_EQ(payload["action"], "remove_pins");
+    EXPECT_EQ(payload["document_id"], "page:document:1");
+    EXPECT_EQ(payload["numbers"], Json::array({1, 3}));
+}
+
+TEST_F(PageAnnotationSessionTest, HostSubmissionReportsRemovedNumbersForPinCleanup) {
+    start();
+    select();
+    save("First");
+    select();
+    save("Second");
+    const auto records = session.snapshot()["records"];
+    Json ids = Json::array();
+    for (const auto& record : records) ids.push_back(record["id"]);
+    auto request = command("remove");
+    request["record_ids"] = ids;
+
+    std::vector<int> removed_numbers;
+    std::string updated;
+    std::string completion;
+    ASSERT_TRUE(annotation_host_submission(
+        session, "page-1", request,
+        [&](std::string result) { completion = std::move(result); },
+        [&](std::string snapshot) { updated = std::move(snapshot); },
+        [&](const std::vector<int>& numbers) { removed_numbers = numbers; }));
+    const auto response = Json::parse(completion);
+    ASSERT_EQ(response["ok"], true) << completion;
+    EXPECT_EQ(removed_numbers, std::vector<int>({1, 2}));
+    ASSERT_FALSE(updated.empty());
+    EXPECT_TRUE(Json::parse(updated)["records"].empty());
+    EXPECT_TRUE(response["annotations"]["records"].empty());
 }
 
 TEST_F(PageAnnotationSessionTest, SubmissionRejectsUnknownMembershipAndRetiredLeaseActions) {

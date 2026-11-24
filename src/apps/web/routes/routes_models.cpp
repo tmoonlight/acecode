@@ -6,6 +6,7 @@
 #include "provider/models_dev_registry.hpp"
 #include "config/models_dev_catalog.hpp"
 #include "provider/models_dev_catalog_cache.hpp"
+#include "utils/url_encoding.hpp"
 
 #include <cstdlib>
 
@@ -154,6 +155,15 @@ void WebServer::Impl::register_models() {
         CROW_ROUTE(app, "/api/models/catalog/<string>").methods(crow::HTTPMethod::GET)
         ([this](const crow::request& req, const std::string& provider_id) {
             if (auto rej = require_auth(req)) return std::move(*rej);
+            const auto decoded_provider_id =
+                utils::percent_decode_path_segment(provider_id);
+            if (!decoded_provider_id.has_value()) {
+                crow::response r(400);
+                r.add_header("Content-Type", "application/json");
+                r.body = json{{"error", "BAD_REQUEST"},
+                              {"message", "invalid percent-encoding in provider id"}}.dump();
+                return with_cors(req, std::move(r));
+            }
             const std::string query = req.url_params.get("q")
                 ? req.url_params.get("q")
                 : "";
@@ -173,7 +183,7 @@ void WebServer::Impl::register_models() {
                     : static_cast<int>(parsed);
             }
             auto result = query_model_catalog_to_json(
-                all_providers(), provider_id, query, limit);
+                all_providers(), *decoded_provider_id, query, limit);
             if (!result.has_value()) {
                 crow::response r(404);
                 r.add_header("Content-Type", "application/json");
@@ -724,6 +734,12 @@ void WebServer::Impl::register_models() {
                 return with_cors(req, std::move(r));
             };
 
+            const auto decoded_name = utils::percent_decode_path_segment(url_name);
+            if (!decoded_name.has_value()) {
+                return json_err(400, "BAD_REQUEST",
+                                "invalid percent-encoding in model name");
+            }
+
             json body;
             try { body = json::parse(req.body); }
             catch (const std::exception& e) {
@@ -740,7 +756,7 @@ void WebServer::Impl::register_models() {
                 options.config_path = deps.config_path;
                 options.live_config = deps.app_config;
                 const auto result = update_saved_model_setting(
-                    url_name,
+                    *decoded_name,
                     *draft,
                     options);
                 if (!result.ok) {
@@ -759,7 +775,7 @@ void WebServer::Impl::register_models() {
                 }
 
                 refresh_image_generation_tool_locked();
-                // 找到刚改完的条目(name 可能与 url_name 不同)，并在解锁前
+                // 找到刚改完的条目(name 可能与 decoded_name 不同)，并在解锁前
                 // 复制；后续 registry 同步会自行获取同一 config 锁。
                 const auto found = std::find_if(
                     deps.app_config->saved_models.begin(),
@@ -773,8 +789,8 @@ void WebServer::Impl::register_models() {
                 }
                 updated = *found;
             }
-            if (deps.session_registry && updated.name == url_name) {
-                deps.session_registry->sync_model_context_window(url_name, updated);
+            if (deps.session_registry && updated.name == *decoded_name) {
+                deps.session_registry->sync_model_context_window(*decoded_name, updated);
             }
             crow::response r(200);
             r.add_header("Content-Type", "application/json");
@@ -797,12 +813,18 @@ void WebServer::Impl::register_models() {
                 return with_cors(req, std::move(r));
             };
 
+            const auto decoded_name = utils::percent_decode_path_segment(url_name);
+            if (!decoded_name.has_value()) {
+                return json_err(400, "BAD_REQUEST",
+                                "invalid percent-encoding in model name");
+            }
+
             std::lock_guard<std::shared_mutex> config_lock(app_config_mu);
             SettingsMutationOptions options;
             options.config_path = deps.config_path;
             options.live_config = deps.app_config;
             const auto result = remove_saved_model_setting(
-                url_name,
+                *decoded_name,
                 [this](const std::string& name) {
                     return deps.session_registry &&
                         deps.session_registry

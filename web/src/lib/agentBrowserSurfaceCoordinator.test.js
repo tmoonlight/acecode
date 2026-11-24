@@ -16,6 +16,7 @@ import {
   nativeSurfaceSupportsLocalOcclusion,
   nextAgentBrowserLayoutRequest,
   overlayBleed,
+  overlayUsesSquareHole,
   occlusionSquareCorners,
 } from './agentBrowserSurfaceCoordinator.js';
 
@@ -103,6 +104,15 @@ run('overlay bleed expands native occlusion holes so borders are not clipped', (
     ...menu,
     getAttribute: (name) => (name === 'data-ace-native-overlay-bleed' ? '0' : null),
   }), 0);
+  const square = {
+    getAttribute: (name) => (name === 'data-ace-native-overlay-square' ? 'true' : null),
+  };
+  assert.equal(overlayUsesSquareHole(square), true);
+  assert.equal(overlayBleed(square), 1);
+  assert.equal(overlayBleed({
+    ...square,
+    getAttribute: (name) => (name === 'data-ace-native-overlay-bleed' ? '3' : null),
+  }), 3);
 });
 
 run('registered bleed grows overlap occlusion rect and radius', () => {
@@ -461,6 +471,38 @@ run('rounded overlays carry their corner radius into native occlusion holes', ()
     [{ left: 900, top: 300, width: 20, height: 10, radius: 40 }],
     1,
   ), [{ x: 300, y: 180, width: 21, height: 11, radius: 5 }]);
+});
+
+run('annotation surfaces use rectangular holes so Chromium owns the rounded edge', () => {
+  const overlay = {
+    hidden: false,
+    getAttribute: (name) => ({
+      'data-ace-native-overlay': 'overlap',
+      'data-ace-native-overlay-square': 'true',
+    })[name] ?? null,
+    getBoundingClientRect: () => ({ left: 900, top: 300, width: 216, height: 300 }),
+  };
+  const doc = { querySelectorAll: () => [overlay] };
+  const win = {
+    getComputedStyle: () => ({
+      display: 'block',
+      visibility: 'visible',
+      opacity: '1',
+      pointerEvents: 'auto',
+      borderTopLeftRadius: '16px',
+      borderTopRightRadius: '16px',
+      borderBottomRightRadius: '16px',
+      borderBottomLeftRadius: '16px',
+    }),
+  };
+  assert.deepEqual(nativeSurfaceOverlayGeometryByDocument(browserRect, doc, win).occlusionRects, [{
+    left: 899,
+    top: 299,
+    right: 1117,
+    bottom: 601,
+    width: 218,
+    height: 302,
+  }]);
 });
 
 run('occlusion holes only merge when their corner radii agree', () => {

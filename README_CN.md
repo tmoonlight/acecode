@@ -35,7 +35,7 @@ ACECode 是一个能够理解项目上下文的 AI 编程智能体，提供可�
 
 在一个窗口中选择工作区、创建或回到已有任务、切换模型与权限、添加上下文，并持续查看智能体的工作过程。
 
-![ACECode Desktop 首页，展示工作区、任务、模型和权限控件](assets/readme/acecode-desktop.png)
+![ACECode Desktop 中的对话与任务面板，展示后台任务和子代理的执行结果](assets/readme/acecode-desktop-zh.png)
 
 ### 终端 TUI
 

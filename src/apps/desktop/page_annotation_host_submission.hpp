@@ -8,6 +8,7 @@ namespace acecode::desktop {
 using AnnotationEvaluation = std::function<void(const std::string&,
     std::function<void(bool, nlohmann::json)>)>;
 using AnnotationUpdate = std::function<void(const std::string&)>;
+using AnnotationRemoved = std::function<void(const std::vector<int>&)>;
 // 页面状态回报（轮询 / 交互结果）→ 记录失效状态；返回 false 表示回报本身不可信。
 using AnnotationLifecycle = std::function<bool(const nlohmann::json&)>;
 
@@ -19,8 +20,8 @@ AnnotationLifecycle annotation_lifecycle(std::weak_ptr<Host> weak, std::weak_ptr
         if (!host || !page || page->closing || host->find_page(page->id) != page) return false;
         const auto revision = page->annotations.revision();
         bool valid = false;
-        if (result.is_object() && result.contains("error") && result["error"] == "replaced_document") {
-            page->annotations.replace_document();
+        if (page->annotations.recover_document_loss(result)) {
+            valid = true;
         } else if (!page->annotations.navigation.blocked()) {
             valid = page->annotations.observe_lifecycle(result);
         }
@@ -60,14 +61,17 @@ void annotation_host_result(const std::weak_ptr<Host>& weak,
 // 提交（Q35），原生侧不再有 capture / validate / acknowledge / release 租约。
 inline bool annotation_host_submission(PageAnnotationSession& session,
     const std::string& page_id, const nlohmann::json& command,
-    const std::function<void(std::string)>& completion, AnnotationUpdate update) {
+    const std::function<void(std::string)>& completion, AnnotationUpdate update,
+    AnnotationRemoved removed = {}) {
     if (!command.is_object() || !command.contains("action") ||
         (command["action"] != "remove" && command["action"] != "attach_screenshot")) return false;
     std::string error;
-    if (!session.submission(command, error)) {
+    std::vector<int> removed_numbers;
+    if (!session.submission(command, error, &removed_numbers)) {
         completion(nlohmann::json{{"ok", false}, {"error", error}}.dump());
         return true;
     }
+    if (removed && !removed_numbers.empty()) removed(removed_numbers);
     const auto snapshot = session.snapshot();
     update(snapshot.dump());
     completion(nlohmann::json{{"ok", true}, {"page_id", page_id},

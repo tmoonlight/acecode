@@ -77,6 +77,27 @@ run('附件可在空文本时提交', () => {
   assert.equal(state.hasExtras, true);
 });
 
+run('待发批注可在空文本时提交,不被停止或继续语义覆盖', () => {
+  const idle = getInputBarActionState({ value: '', hasPendingAnnotations: true });
+  assert.equal(idle.mode, 'send');
+  assert.equal(idle.canSubmit, true);
+
+  const busy = getInputBarActionState({ value: '', busy: true, hasPendingAnnotations: true });
+  assert.equal(busy.mode, 'steer', '回复中发送批注仍是插话/排队,不是停止');
+  assert.equal(busy.canSubmit, true);
+
+  const paused = getInputBarActionState({ value: '', queuePaused: true, hasPendingAnnotations: true });
+  assert.equal(paused.mode, 'send', '有待发批注时按钮发送批注,不是继续队列');
+  assert.equal(paused.canSubmit, true);
+
+  assert.equal(getInputBarActionState({
+    value: '', hasPendingAnnotations: true, disabled: true,
+  }).canSubmit, false);
+  assert.equal(getInputBarActionState({
+    value: '', hasPendingAnnotations: true, submitting: true,
+  }).canSubmit, false);
+});
+
 run('blocking disabled 状态禁止发送和排队', () => {
   assert.equal(getInputBarActionState({ value: 'hello', busy: false, disabled: true }).canSubmit, false);
   assert.equal(getInputBarActionState({ value: 'hello', busy: true, disabled: true }).canSubmit, false);

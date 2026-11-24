@@ -13,6 +13,7 @@ public:
     std::vector<acecode::ChatMessage> received;
     std::vector<std::vector<acecode::ChatMessage>> requests;
     std::vector<std::vector<acecode::ToolDef>> tool_requests;
+    std::vector<std::string> conversation_keys;
     std::function<void(const acecode::StreamCallback&, std::atomic<bool>*)> emit;
     int calls = 0;
     bool tool_free = true;
@@ -20,6 +21,12 @@ public:
 
     acecode::ChatResponse chat(const std::vector<acecode::ChatMessage>&,
                                const std::vector<acecode::ToolDef>&) override { return {}; }
+    void chat_stream_with_options(const std::vector<acecode::ChatMessage>& messages,
+        const std::vector<acecode::ToolDef>& tools, const acecode::ChatRequestOptions& options,
+        const acecode::StreamCallback& callback, std::atomic<bool>* abort) override {
+        conversation_keys.push_back(options.prompt_cache_key);
+        chat_stream(messages, tools, callback, abort);
+    }
     void chat_stream(const std::vector<acecode::ChatMessage>& messages,
                      const std::vector<acecode::ToolDef>& tools,
                      const acecode::StreamCallback& callback,
@@ -318,6 +325,9 @@ TEST(SideChat, ReadOnlyToolResultFeedsBackBeforeFinalAnswer) {
     EXPECT_EQ(second.back().role, "tool");
     EXPECT_EQ(second.back().tool_call_id, "call_1");
     EXPECT_EQ(second.back().content, "FILE CONTENT");
+    ASSERT_EQ(provider->conversation_keys.size(), 2u);
+    EXPECT_FALSE(provider->conversation_keys.front().empty());
+    EXPECT_EQ(provider->conversation_keys.front(), provider->conversation_keys.back());
     ASSERT_EQ(tool_events.size(), 2u);
     EXPECT_EQ(tool_events[0].status, "running");
     EXPECT_EQ(tool_events[0].target, "src/a.cpp");

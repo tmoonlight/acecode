@@ -3,7 +3,6 @@
 #include "retry_policy.hpp"
 #include "openai_provider.hpp"
 #include "stream_diagnostic_capture.hpp"
-#include "config/request_headers.hpp"
 #include "network/proxy_resolver.hpp"
 #include "session/attachment_prompt_context.hpp"
 #include "session/attachment_store.hpp"
@@ -726,9 +725,9 @@ ChatResponse AnthropicProvider::parse_response(const nlohmann::json& j) {
     return resp;
 }
 
-ChatResponse AnthropicProvider::chat_cancellable(
+ChatResponse AnthropicProvider::chat_with_options(
     const std::vector<ChatMessage>& messages, const std::vector<ToolDef>& tools,
-    const std::atomic<bool>* abort_flag) {
+    const ChatRequestOptions& options, const std::atomic<bool>* abort_flag) {
     const auto interrupted = [&] {
         return make_chat_error_response(make_provider_error(
             ProviderErrorKind::UserCancelled, 0, name(), model_, {}, {},
@@ -748,7 +747,8 @@ ChatResponse AnthropicProvider::chat_cancellable(
         return make_chat_error_response(std::move(info));
     }
 
-    nlohmann::json body = build_request_body(messages, tools, false);
+    const std::vector<ToolDef> no_tools;
+    nlohmann::json body = build_request_body(messages, options.for_compaction ? no_tools : tools, false);
     const std::string url = base_url_ + "/messages";
 
     cpr::Header headers = {
@@ -757,7 +757,7 @@ ChatResponse AnthropicProvider::chat_cancellable(
         {"x-api-key", api_key_},
     };
     std::string header_error;
-    auto resolved_headers = resolve_request_headers(request_headers_, header_error);
+    auto resolved_headers = request_options_.resolve_headers(request_headers_, url, &options, header_error);
     if (!resolved_headers.has_value()) {
         return make_chat_error_response(make_provider_error(
             ProviderErrorKind::Unknown,
@@ -1281,9 +1281,10 @@ ChatResponse AnthropicProvider::parse_sse_stream(
     return last_accumulated;
 }
 
-void AnthropicProvider::chat_stream(
+void AnthropicProvider::chat_stream_with_options(
     const std::vector<ChatMessage>& messages,
     const std::vector<ToolDef>& tools,
+    const ChatRequestOptions& options,
     const StreamCallback& callback,
     std::atomic<bool>* abort_flag
 ) {
@@ -1304,10 +1305,9 @@ void AnthropicProvider::chat_stream(
     nlohmann::json body = build_request_body(messages, tools, true);
     const std::string url = base_url_ + "/messages";
 
-    std::map<std::string, std::string> extra_headers;
-    extra_headers["x-api-key"] = api_key_;
+    std::map<std::string, std::string> extra_headers{{"x-api-key", api_key_}};
     std::string header_error;
-    auto resolved_headers = resolve_request_headers(request_headers_, header_error);
+    auto resolved_headers = request_options_.resolve_headers(request_headers_, url, &options, header_error);
     if (!resolved_headers.has_value()) {
         LOG_ERROR("Anthropic request_headers resolution failed: " + header_error);
         StreamEvent evt;

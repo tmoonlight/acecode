@@ -20,6 +20,16 @@
 
 namespace acecode::desktop {
 
+inline std::string page_annotation_runtime_expression(const nlohmann::json& payload) {
+    return std::string(kPageAnnotationRuntime) + "(" + payload.dump() + "," +
+        kPageAnnotationTextRuntime + "," + kPageAnnotationStyleRuntime + ")";
+}
+
+inline nlohmann::json page_annotation_remove_pins_payload(
+    const std::string& document_id, const std::vector<int>& numbers) {
+    return {{"action", "remove_pins"}, {"document_id", document_id}, {"numbers", numbers}};
+}
+
 class PageAnnotationSession {
 public:
     using Json = nlohmann::json;
@@ -97,7 +107,8 @@ public:
                 {"revision", revision_}};
     }
 
-    bool submission(const Json& command, std::string& error) {
+    bool submission(const Json& command, std::string& error,
+                    std::vector<int>* removed_numbers = nullptr) {
         if (!command.is_object() || command.dump().size() > 262144 ||
             !command.contains("action") || !command["action"].is_string() ||
             !command.contains("document_id") || !command["document_id"].is_string()) {
@@ -168,6 +179,10 @@ public:
         }
         Json selected;
         if (!annotation_submission_records(command, store_->records(page_id_), selected, error)) return false;
+        if (removed_numbers) {
+            removed_numbers->clear();
+            for (const auto& gone : selected) removed_numbers->push_back(gone["number"].get<int>());
+        }
         auto& records = store_->mutable_records(page_id_);
         for (const auto& gone : selected) {
             records.erase(std::remove_if(records.begin(), records.end(),
@@ -205,6 +220,18 @@ public:
         ++revision_;
         requests.cancel("Annotation document replaced");
         requests.restart();
+    }
+
+    // The page runtime reports both a replaced root and a lost execution
+    // context as document-level errors. Native state must retire the old
+    // generation for either case; otherwise polling and exit keep addressing
+    // a runtime that no longer exists.
+    bool recover_document_loss(const Json& result) {
+        if (!result.is_object() || !result.contains("error") || !result["error"].is_string()) return false;
+        const auto& error = result["error"].get_ref<const std::string&>();
+        if (error != "replaced_document" && error != "stale_document") return false;
+        replace_document();
+        return true;
     }
 
     bool prepare(const std::string& page_id, const Json& command,
@@ -251,13 +278,22 @@ public:
             error = "Stale annotation page";
             return false;
         }
-        if (document_id_.empty() && action == "start") {
-            document_id_ = page_id + ":document:" + std::to_string(epoch_);
+        if (!command.contains("document_id") || !command["document_id"].is_string()) {
+            error = "Stale annotation document";
+            return false;
         }
-        if (!command.contains("document_id") || !command["document_id"].is_string() ||
-            (action != "start" && command["document_id"] != document_id_) ||
-            (action == "start" && command["document_id"] != "" &&
-             command["document_id"] != document_id_) || document_id_.empty()) {
+        if (action == "start") {
+            // Start is the only command allowed to establish a generation. A
+            // frontend snapshot may still echo the retired id while navigation
+            // completion is being published, so rebase instead of rejecting it.
+            if (!document_id_.empty() && command["document_id"] != "" &&
+                command["document_id"] != document_id_) {
+                replace_document();
+            }
+            if (document_id_.empty()) {
+                document_id_ = page_id + ":document:" + std::to_string(epoch_);
+            }
+        } else if (document_id_.empty() || command["document_id"] != document_id_) {
             error = "Stale annotation document";
             return false;
         }
@@ -370,8 +406,7 @@ public:
             payload["styles"] = command["styles"];
             if (command.contains("ratio_lock")) payload["ratio_lock"] = command["ratio_lock"];
         }
-        expression = std::string(kPageAnnotationRuntime) + "(" + payload.dump() + "," + kPageAnnotationTextRuntime +
-            "," + kPageAnnotationStyleRuntime + ")";
+        expression = page_annotation_runtime_expression(payload);
         busy_ = true;
         ++sequence_;
         return true;
@@ -405,12 +440,9 @@ public:
             return false;
         }
         busy_ = false;
+        if (recover_document_loss(result)) return true;
         if (result.is_object() && result.contains("error") && result["error"].is_string()) {
             const auto runtime_error = result["error"].get<std::string>();
-            if (runtime_error == "replaced_document") {
-                replace_document();
-                return true;
-            }
             if (runtime_error == "invalid_style_value") error = "Invalid style value";
             else if (runtime_error == "invalid_current_ratio") error = "Cannot lock zero or unresolved dimensions";
             else if (runtime_error == "original_view_active") error = "Leave original view before editing";

@@ -164,11 +164,23 @@ export function expandClientRect(rect, amount = 0) {
 // light halo around the surface once the page behind it is not white.
 export const NATIVE_SURFACE_IMPLICIT_OVERLAY_BLEED = 1;
 
+export function overlayUsesSquareHole(element) {
+  return element?.getAttribute?.('data-ace-native-overlay-square') === 'true';
+}
+
+// A native window region is a 1-bit bitmap, so a rounded hole always has
+// stepped corners no matter how closely its radius matches the CSS surface.
+// Annotation surfaces opt into a rectangular hole and let Chromium draw the
+// rounded border; the extra ring shows the page background instead of a
+// sawtooth of native region pixels.
+export const NATIVE_SURFACE_SQUARE_OVERLAY_BLEED = 1;
+
 export function overlayBleed(element) {
   const declared = element?.getAttribute?.('data-ace-native-overlay-bleed');
   if (declared !== null && declared !== undefined) {
     return Math.max(0, Math.min(8, Math.round(finiteNumber(declared))));
   }
+  if (overlayUsesSquareHole(element)) return NATIVE_SURFACE_SQUARE_OVERLAY_BLEED;
   return element?.matches?.(NATIVE_SURFACE_IMPLICIT_OVERLAY_SELECTOR)
     ? NATIVE_SURFACE_IMPLICIT_OVERLAY_BLEED
     : 0;
@@ -538,10 +550,8 @@ export function nativeSurfaceOverlayGeometryByDocument(
     if (mode !== 'overlap') continue;
     const bleed = overlayBleed(overlay);
     const measured = overlay.getBoundingClientRect?.();
-    // Implicit menus/tooltips grow by one CSS pixel; registered overlays grow
-    // only when they ask for it. The annotation card asks for none: its hole is
-    // snapped outward instead, so the card never paints a light halo over a
-    // coloured page.
+    // Implicit menus/tooltips and square-hole annotation surfaces grow by one
+    // CSS pixel; other registered overlays grow only when they ask for it.
     const overlayRect = bleed > 0 ? expandClientRect(measured, bleed) : measured;
     const intersection = intersectClientRects(surfaceRect, overlayRect);
     if (!intersection) continue;
@@ -549,10 +559,12 @@ export function nativeSurfaceOverlayGeometryByDocument(
     // has no faithful representative in document.elementFromPoint(), so DOM
     // hit testing must not veto a floating surface that explicitly promises to
     // appear above it.
-    const radius = overlayCornerRadius(overlay, win) + bleed;
+    const radius = overlayUsesSquareHole(overlay)
+      ? 0
+      : overlayCornerRadius(overlay, win) + bleed;
     const occlusion = { ...intersection };
     if (radius > 0) occlusion.radius = radius;
-    const squareCorners = occlusionSquareCorners(overlayRect, intersection);
+    const squareCorners = radius > 0 ? occlusionSquareCorners(overlayRect, intersection) : 0;
     if (squareCorners) occlusion.square_corners = squareCorners;
     result.occlusionRects.push(occlusion);
   }

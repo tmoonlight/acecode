@@ -1,4 +1,6 @@
-import { attachmentsFromContentParts, isImageAttachment } from './messageAttachments.js';
+import {
+  attachmentsFromContentParts, contextsFromContentParts, isImageAttachment,
+} from './messageAttachments.js';
 
 const HEADER = 'Page annotations\n';
 const SEPARATOR = '\n\nPage annotations\n';
@@ -50,6 +52,19 @@ function normalizePage(page, index) {
   };
 }
 
+function pageAnnotationCard(rawPages) {
+  const pages = (Array.isArray(rawPages) ? rawPages : [])
+    .map(normalizePage)
+    .filter((page) => page.comments.length > 0);
+  if (!pages.length) return null;
+  const comments = pages.flatMap((page) => page.comments);
+  return {
+    title: pages.length === 1 ? pages[0].title : '',
+    pages,
+    comments,
+  };
+}
+
 // 兼容两种载荷：
 //   v1 `Page annotations\n{page, annotations}`（旧消息，纯文本逐条）
 //   v2 `{用户正文}\n\nPage annotations\n{version, pages:[{title,url,shot,annotations}]}`
@@ -67,22 +82,29 @@ export function parsePageAnnotationMessage(text) {
   if (Array.isArray(payload.pages)) rawPages = payload.pages;
   else if (Array.isArray(payload.annotations)) rawPages = [{ ...(payload.page || {}), annotations: payload.annotations }];
   else return null;
-  const pages = rawPages.map(normalizePage).filter((page) => page.comments.length > 0);
-  if (!pages.length) return null;
-  const comments = pages.flatMap((page) => page.comments);
+  const card = pageAnnotationCard(rawPages);
+  if (!card) return null;
   return {
     text: split.head.trim(),
-    title: pages.length === 1 ? pages[0].title : '',
-    pages,
-    comments,
+    ...card,
   };
 }
 
+// 新消息把批注作为 browser_context 随消息保存；正文只保留用户输入。
+// 旧消息仍由 parsePageAnnotationMessage 兼容正文内嵌载荷。
+export function pageAnnotationCardFromContexts(contentParts) {
+  const context = contextsFromContentParts(contentParts)
+    .find((item) => item.type === 'page_annotations');
+  if (!context) return null;
+  const card = pageAnnotationCard(context.pages);
+  return card ? { text: '', ...card, fromContext: true } : null;
+}
+
 // 复制出去的是人读文本，不是原始载荷（PRD §6.7）。
-export function pageAnnotationMessageCopyText(card) {
+export function pageAnnotationMessageCopyText(card, text = card?.text) {
   if (!card) return '';
   const lines = [];
-  if (card.text) lines.push(card.text, '');
+  if (text) lines.push(text, '');
   const multiPage = (card.pages || []).length > 1;
   const showNumbers = card.comments.length > 1;
   for (const page of card.pages || []) {

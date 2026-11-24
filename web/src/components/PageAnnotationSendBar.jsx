@@ -2,13 +2,14 @@ import { useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { localizedAnnotationSendError, requestAnnotationSubmit } from '../lib/annotationSubmission.js';
 import { setAnnotationChromeSuspended } from '../lib/annotationChromeSuspension.js';
+import { pageAnnotationPendingCount } from '../lib/pageAnnotationCount.js';
 import { Modal } from './Modal.jsx';
 
 // 页内工具栏。发送按钮不自己拼载荷、不自己 POST——它触发输入框那一处的
-// submitWithAnnotations（Q35）。按钮上显示会话级待发总条数，否则用户会以为
-// 只发当前这一页。
+// submitWithAnnotations（Q35）。工具栏显示当前页的待发条数；会话总数只在
+// 输入框上方的待发卡片里展示。
 export function PageAnnotationSendBar({
-  pageId, snapshot, sessionId, pendingTotal, command, working,
+  pageId, snapshot, sessionId, command, working,
 }) {
   const barRef = useRef(null);
   const dragRef = useRef(null);
@@ -30,8 +31,7 @@ export function PageAnnotationSendBar({
   // 浮动工具栏只在批注模式里存在：选区（元素/区域）时隐藏，避免挡住 hover 轮廓；
   // 退出批注模式时也不能留下一个孤零零的发送按钮。
   if (!active || snapshot.selection_mode || snapshot.popup) return null;
-  const count = Number.isFinite(pendingTotal) ? pendingTotal
-    : (Number.isFinite(snapshot.pending_count) ? snapshot.pending_count : pending.length);
+  const count = pageAnnotationPendingCount(snapshot);
   const idle = !working && !sendState.working;
   const run = (action, fields) => {
     if (working) return;
@@ -115,7 +115,8 @@ export function PageAnnotationSendBar({
     ? snapshot.page_background
     : undefined;
   return (
-    <div ref={barRef} data-ace-native-overlay="overlap" className="ace-annotation-toolbar" role="toolbar" aria-label="正在批注"
+    <div ref={barRef} data-ace-native-overlay="overlap" data-ace-native-overlay-square="true"
+      className="ace-annotation-toolbar" role="toolbar" aria-label="正在批注"
       style={{
         ...(position ? { left: `${position.left}px`, top: `${position.top}px`, bottom: 'auto', transform: 'none' } : {}),
         ...(pageBackground ? { '--ace-annotation-page-background': pageBackground } : {}),
@@ -160,7 +161,8 @@ export function PageAnnotationSendBar({
         <CloseIcon />
       </button>
       {tooltip && createPortal(
-        <div role="tooltip" data-ace-native-overlay="overlap" className="ace-annotation-tooltip"
+        <div role="tooltip" data-ace-native-overlay="overlap" data-ace-native-overlay-square="true"
+          className="ace-annotation-tooltip"
           style={{ left: `${tooltip.left}px`, top: `${tooltip.top}px` }}>
           {tooltip.label}
         </div>,

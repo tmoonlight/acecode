@@ -73,8 +73,8 @@ try {
   run({action:'exit'});
   const ancestor = document.getElementById('ancestor');
   ancestor.remove(); document.body.prepend(ancestor);
-  const validation = run({action:'validate_batch',target_ids:ids,record_numbers:[1]});
-  check(!validation.valid && validation.invalid_numbers.includes(1), 'queued ancestor removal and reinsertion');
+  const validation = run({action:'read'});
+  check(validation.invalid_numbers.includes(1), 'queued ancestor removal and reinsertion');
   check(first.textContent === 'Original', 'invalid text restored');
   check(getComputedStyle(first).color === 'rgb(255, 0, 0)', 'invalid style restored');
   check(annotationRoot.querySelector('[data-ace-annotation-pin="1"]').style.display === 'none', 'whole multi-target pin hidden');
@@ -100,10 +100,15 @@ try {
   scrollTo(0,300);
   run({action:'exit'});
   check(!run({action:'read'}).invalid_numbers.includes(3), 'scroll and mode exit keep valid region');
+  run({action:'start'}); select(second); save(4);
+  check(annotationRoot.querySelector('[data-ace-annotation-pin="4"]'), 'saved pin exists before removal');
+  run({action:'remove_pins',numbers:[4]});
+  check(!annotationRoot.querySelector('[data-ace-annotation-pin="4"]'), 'sent pin removed');
+  check(annotationRoot.querySelector('[data-ace-annotation-pin="1"]'), 'unrelated pin retained');
   const replacementRoot = document.documentElement.cloneNode(true);
   document.replaceChild(replacementRoot, document.documentElement);
   check(run({action:'read'}).error === 'replaced_document', 'root replacement rejected');
-  document.getElementById('result').textContent = 'PASS: exact DOM/shadow identity, queued removal, multi-target previews, regions and root replacement';
+  document.getElementById('result').textContent = 'PASS: exact DOM/shadow identity, queued removal, multi-target previews, regions, sent pin cleanup and root replacement';
 } catch (error) {
   document.getElementById('result').textContent = 'FAIL: ' + error.stack;
 }

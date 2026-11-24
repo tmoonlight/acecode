@@ -43,6 +43,7 @@ export function groupRecordsByPage(records) {
 
 export function annotationPagesPayload(groups, shotNames = new Map()) {
   return (groups || []).map((group) => ({
+    page_id: group.pageId || '',
     url: group.url || '',
     title: group.title || '',
     ...(shotNames.get(group.pageId) ? { shot: shotNames.get(group.pageId) } : {}),
@@ -59,10 +60,8 @@ export function annotationPagesPayload(groups, shotNames = new Map()) {
   }));
 }
 
-export function composeAnnotationMessage(text, pages) {
-  const body = `Page annotations\n${JSON.stringify({ version: 2, pages }, null, 2)}`;
-  const head = String(text ?? '').trim();
-  return head ? `${head}\n\n${body}` : body;
+export function annotationContext(pages) {
+  return { type: 'page_annotations', version: 2, pages };
 }
 
 export function annotationShotName(clientId, index) {
@@ -85,10 +84,17 @@ export function hasAnnotationSubmitter(sessionId) {
   return submitters.has(sessionId);
 }
 
-export function requestAnnotationSubmit(sessionId) {
+export async function requestAnnotationSubmit(sessionId) {
   const submit = submitters.get(sessionId);
-  if (!submit) return Promise.resolve({ ok: false, error: '请先打开一个对话再发送批注' });
-  return Promise.resolve(submit());
+  if (!submit) return { ok: false, error: '请先打开一个对话再发送批注' };
+  try {
+    const result = await submit();
+    return result && typeof result === 'object'
+      ? result
+      : { ok: false, error: '发送失败' };
+  } catch (error) {
+    return { ok: false, error: String(error?.message || error || '发送失败') };
+  }
 }
 
 // 超时自查（#215）：40 秒没收到确认时，先自己去查这条到底进没进去，再决定怎么办。
@@ -127,7 +133,8 @@ export async function annotationSendOutcome({
   }
 }
 
-// 把待发记录组装成一条消息：上传每页的整屏图（已发卡片配图），正文追加批注载荷。
+// 把待发记录组装成一条消息：上传每页的整屏图（已发卡片配图），批注结构走
+// contexts/browser_context，正文只保留用户输入的自然语言。
 // 返回的 settle(ok) 负责发送成功后的清理：活着页签上删掉已发记录，orphan 只清本地。
 export async function prepareAnnotationSubmission({
   sessionId, text, attachments = [], records = [], outbox = null, api,
@@ -135,7 +142,12 @@ export async function prepareAnnotationSubmission({
   makeId = () => globalThis.crypto?.randomUUID?.() || String(Date.now()),
 }) {
   const groups = groupRecordsByPage(records).filter((group) => group.records.length > 0);
-  if (!groups.length) return { text, attachments, recordIds: [], groups, pages: [], settle: () => {} };
+  const bodyText = String(text ?? '');
+  if (!groups.length) {
+    return {
+      text: bodyText, contexts: [], attachments, recordIds: [], groups, pages: [], settle: () => {},
+    };
+  }
   const clientId = makeId();
   const shotNames = new Map();
   const shotAttachments = [];
@@ -170,7 +182,8 @@ export async function prepareAnnotationSubmission({
     outbox?.markSent(recordIds);
   };
   return {
-    text: composeAnnotationMessage(text, pages),
+    text: bodyText,
+    contexts: [annotationContext(pages)],
     attachments: [...attachments, ...shotAttachments.map((item) => ({ ...item, page_shot: true }))],
     recordIds,
     groups,

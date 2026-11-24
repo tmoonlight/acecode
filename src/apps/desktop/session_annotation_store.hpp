@@ -1,6 +1,8 @@
 #pragma once
 
+#include <algorithm>
 #include <cstdint>
+#include <limits>
 #include <map>
 #include <memory>
 #include <string>
@@ -21,15 +23,16 @@ namespace acecode::desktop {
 // （见 docs/specs/2026-11-22-html-page-annotations-t0-findings.md）。文档代降为
 // 记录的一个属性，只用来判 live / replayable。
 //
-// 编号按 page_id 分组连续：页签 A 的 1、2 与页签 B 的 1、2 并存，与旧行为一致
-// （旧实现每个 PageAnnotationSession 各有一个计数器）。
+// 编号按 page_id 分组，并从当前仍存活的记录集合推导下一号：页签 A 的 1、2
+// 与页签 B 的 1、2 并存。发送/删除清空记录后，下一次保存重新从 1 开始；不能
+// 让已经离开待发集合的编号继续抬高新记录的序号。
 class SessionAnnotationStore {
 public:
     using Json = nlohmann::json;
 
     std::uint64_t revision() const { return revision_; }
 
-    // 记录 id 与文档无关。`number` 在同一 page_id 内唯一且连续。
+    // 记录 id 与文档无关。`number` 在同一 page_id 的存活记录内唯一。
     static std::string record_id(const std::string& page_id, std::uint64_t number) {
         return page_id + ":annotation:" + std::to_string(number);
     }
@@ -46,14 +49,27 @@ public:
 
     std::uint64_t next_number(const std::string& page_id) const {
         const auto found = pages_.find(page_id);
-        return found == pages_.end() ? 1 : found->second.next_number;
+        if (found == pages_.end()) return 1;
+        std::uint64_t highest = 0;
+        for (const auto& record : found->second.records) {
+            if (!record.is_object()) continue;
+            const auto number = record.find("number");
+            if (number == record.end()) continue;
+            if (number->is_number_unsigned()) {
+                highest = std::max(highest, number->get<std::uint64_t>());
+            } else if (number->is_number_integer()) {
+                const auto value = number->get<std::int64_t>();
+                if (value > 0) highest = std::max(highest, static_cast<std::uint64_t>(value));
+            }
+        }
+        return highest == std::numeric_limits<std::uint64_t>::max() ? highest : highest + 1;
     }
 
     // 追加一条记录并补齐 id / number / page_id。返回指向新记录的引用，
     // 调用方可以继续往上写（例如异步补图回填 thumbnail）。
     Json& append(const std::string& page_id, Json record) {
         auto& bucket = pages_[page_id];
-        const auto number = bucket.next_number++;
+        const auto number = next_number(page_id);
         record["id"] = record_id(page_id, number);
         record["number"] = number;
         record["page_id"] = page_id;
@@ -67,7 +83,6 @@ public:
         const auto found = pages_.find(page_id);
         if (found == pages_.end()) return;
         found->second.records = Json::array();
-        found->second.next_number = 1;
         ++revision_;
     }
 
@@ -105,7 +120,6 @@ public:
 
     struct Page {
         Json records = Json::array();
-        std::uint64_t next_number = 1;
         std::string page_shot;
     };
 

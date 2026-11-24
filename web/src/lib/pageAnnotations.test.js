@@ -501,6 +501,8 @@ function fixture() {
   const sendBar = fs.readFileSync(new URL('../components/PageAnnotationSendBar.jsx', import.meta.url), 'utf8');
   assert.match(sendBar, /run\('hide_markers'/);
   assert.match(sendBar, /run\('discard'\)/);
+  assert.match(sendBar, /requestAnnotationSubmit\(sessionId\)[\s\S]{0,220}result\?\.ok === false/,
+    'toolbar sends must inspect the shared submission result');
   assert.match(sendBar, /!active \|\| snapshot\.selection_mode \|\| snapshot\.popup/);
   assert.match(sendBar, /这一页的所有编辑都将被移除/);
   assert.match(sendBar, /其他页签的待发批注不受影响/);
@@ -513,6 +515,20 @@ function fixture() {
   // Menus floated over the page must hide the in-page outline and hover card,
   // otherwise they show through a context menu that is narrower than the card.
   const annotationsSource = fs.readFileSync(new URL('../components/PageAnnotations.jsx', import.meta.url), 'utf8');
+  assert.match(annotationsSource, /requestAnnotationSubmit\(sessionId\)[\s\S]{0,500}sent\?\.ok === false/,
+    'popup Ctrl+Enter must surface a failed annotation send');
+  const panelSource = fs.readFileSync(new URL('../components/AgentBrowserPanel.jsx', import.meta.url), 'utf8');
+  assert.match(panelSource, /onAnnotationsSaved=\{[\s\S]{0,500}annotationOutbox\?\.observe\(/,
+    'popup sends must sync the freshly saved record before the session outbox is read');
+  assert.match(panelSource, /registerAnnotationEditor\(pageId, async \(record\) => \{[\s\S]{0,180}await selectAgentBrowserPage\(pageId\)/,
+    'annotation editing must activate the native page before reopening the record');
+  assert.match(panelSource, /!annotations\.snapshot\?\.document_id/,
+    'the editor is published only after the remounted pane has its annotation document');
+  assert.match(annotationsSource, /focusAnnotationDescription\(inputRef\.current\)/,
+    'opening an element editor or an existing record must put the caret in the description');
+  const annotationFocusSource = fs.readFileSync(new URL('./annotationFocus.js', import.meta.url), 'utf8');
+  assert.match(annotationFocusSource, /aceDesktop_focusActiveWebview/,
+    'the description focus must return native focus from the browser surface to the WebUI first');
   assert.match(annotationsSource, /querySelectorAll\('\[role="menu"\]'\)/);
   assert.match(annotationsSource, /setAnnotationChromeSuspended\('menu', menuOpen\(\), apply\)/);
   assert.match(annotationsSource, /action === 'set_modal_suspended'/,

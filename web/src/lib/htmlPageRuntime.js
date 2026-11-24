@@ -13,8 +13,8 @@
 //   编辑模式 —— 悬停虚线框、选中实线框(画在 shadow root 里,不受页面样式影响),拦下页面自己的点击,
 //               把选中元素的位置、种类与计算样式报给外层;按外层的指令改样式 / 属性 / 删除 / 改字。
 //   改字     —— 双击进入,选中框样式不变;框里拖选出的文字报给外层,工具栏的格式只作用在这段文字上
-//               (临时切成富文本模式跑浏览器自带的格式命令,撤销 / 重做仍是浏览器原生的),
-//               离开改字时整段内容一次交回外层写进源码。
+//               (临时切成富文本模式跑浏览器自带的格式命令);边打边交回外层写进源码,和改样式进同一条
+//               撤销栈,改字里的 Ctrl+Z / Ctrl+Y 也转给外层,撤到改字里的一步时原地换回内容、继续改字。
 //   选区     —— 在页面任意位置按下拖动画出一块矩形选区(按页面坐标记,跟着滚动),把选区和里面的元素
 //               报给外层,外层的「AI 编辑」把它作为「选区」引用加进会话。
 export function htmlPageRuntime(config) {
@@ -122,14 +122,19 @@ export function htmlPageRuntime(config) {
         event.preventDefault();
         finishTextEdit();
         post(keyPayload(event));
+      } else if (mod && !event.altKey && (key === 'z' || key === 'y')) {
+        // 改字期间的撤销 / 重做也走外层那一条撤销栈(改字前的加粗、改样式都在里面):
+        // 先把打到一半的字交回去,再把按键转给外层。
+        event.preventDefault();
+        flushTextCommit(true);
+        post(keyPayload(event));
       } else if (mod && !event.shiftKey && !event.altKey && RANGE_KEYS[key] && editingRange()) {
         // 纯文本编辑模式下浏览器不认 Ctrl+B / I / U,选中了文字时自己补上。
         event.preventDefault();
-        withRichEditing(function () {
+        runRangeFormat(function () {
           document.execCommand('styleWithCSS', false, false);
           document.execCommand(RANGE_KEYS[key], false, null);
         });
-        afterRangeFormat();
       }
       return;
     }
@@ -701,6 +706,8 @@ export function htmlPageRuntime(config) {
         selection.addRange(range);
       }
     } catch (error) { /* 光标停在开头即可 */ }
+    committedCaret = caretOffsets(element);
+    chunkCaret = null;
     post({ type: 'textEditStarted', sid: sid });
   }
 
@@ -710,6 +717,10 @@ export function htmlPageRuntime(config) {
     lastRangeReport = '';
     if (rangeFrame) cancelAnimationFrame(rangeFrame);
     rangeFrame = 0;
+    if (textCommitTimer) clearTimeout(textCommitTimer);
+    textCommitTimer = 0;
+    chunkCaret = null;
+    committedCaret = null;
     element.removeAttribute('contenteditable');
     element.removeAttribute('spellcheck');
     element.removeAttribute(EDIT_ATTR);
@@ -718,14 +729,135 @@ export function htmlPageRuntime(config) {
   function finishTextEdit() {
     var element = textEditing;
     if (!element) return;
+    // 先交文字再报结束:外层只接受自己发起的这次改字,收到结束就作废。
+    flushTextCommit(true);
     stopTextEditing(element);
-    var after = cleanClone(element).innerHTML;
-    // 先交文字再报结束:外层只接受自己发起的那一次改字,收到结束就作废。
-    if (after !== textBefore) post({ type: 'textCommit', sid: sidOf(element), html: after });
     post({ type: 'textEditEnded', sid: sidOf(element) });
     try { window.getSelection().removeAllRanges(); } catch (error) { /* 无选区 */ }
     report();
   }
+
+  // ---- 改字:边打边交回外层 ------------------------------------------------------
+  // 改字不再是离开时才整段交回:停顿 TEXT_COMMIT_DELAY 毫秒就交一次,和改样式、加粗进外层同一条
+  // 撤销栈(外层把连续打字合成一步)。浏览器自己的撤销栈不用(它只认这次改字里的输入,撤到头就断了)。
+  // 每次交回带上这一步前后的光标(按字符数算),撤销 / 重做原地换回内容时把光标放回去。
+  var TEXT_COMMIT_DELAY = 250;
+  var textCommitTimer = 0;
+  var chunkCaret = null;
+  var committedCaret = null;
+
+  function textOffsetIn(root, node, offset) {
+    var range = document.createRange();
+    range.selectNodeContents(root);
+    range.setEnd(node, offset);
+    return range.toString().length;
+  }
+
+  function caretOffsets(element) {
+    try {
+      var selection = window.getSelection();
+      if (!element || !selection || !selection.rangeCount) return null;
+      var range = selection.getRangeAt(0);
+      if (!element.contains(range.startContainer) || !element.contains(range.endContainer)) return null;
+      return {
+        start: textOffsetIn(element, range.startContainer, range.startOffset),
+        end: textOffsetIn(element, range.endContainer, range.endOffset),
+      };
+    } catch (error) {
+      return null;
+    }
+  }
+
+  function pointAt(root, offset) {
+    var walker = document.createTreeWalker(root, 4);
+    var rest = Math.max(0, offset);
+    var last = null;
+    for (var node = walker.nextNode(); node; node = walker.nextNode()) {
+      last = node;
+      if (rest <= node.data.length) return { node: node, offset: rest };
+      rest -= node.data.length;
+    }
+    return last ? { node: last, offset: last.data.length } : { node: root, offset: root.childNodes.length };
+  }
+
+  // 没给光标时放到末尾。
+  function restoreCaret(element, caret) {
+    var wanted = caret && typeof caret.start === 'number' ? caret : null;
+    try {
+      var start = pointAt(element, wanted ? wanted.start : Infinity);
+      var end = wanted && typeof wanted.end === 'number' ? pointAt(element, wanted.end) : start;
+      var range = document.createRange();
+      range.setStart(start.node, start.offset);
+      range.setEnd(end.node, end.offset);
+      var selection = window.getSelection();
+      selection.removeAllRanges();
+      selection.addRange(range);
+    } catch (error) {
+      return null;
+    }
+    return caretOffsets(element);
+  }
+
+  // 输入法组字期间(拼音还没选字)不交回,否则拼音串会被当成正文进撤销栈;选完字再交。
+  var composing = false;
+
+  function scheduleTextCommit() {
+    if (textCommitTimer) clearTimeout(textCommitTimer);
+    textCommitTimer = setTimeout(function () {
+      textCommitTimer = 0;
+      if (!composing) flushTextCommit(true);
+    }, TEXT_COMMIT_DELAY);
+  }
+
+  // 外层直接改了正在改字的元素的内容(只有光标时加 / 去链接):外层已把这一步写进源码。之前没有
+  // 没交的字就只更新「已交回的内容」,不多出一步;有没交的字就连同改动一起交回(不能丢字)。
+  function editingDirty(element) {
+    return textEditing === element && cleanClone(element).innerHTML !== textBefore;
+  }
+
+  function afterOuterInnerChange(element, dirtyBefore) {
+    if (textEditing !== element) return;
+    if (dirtyBefore) flushTextCommit(true);
+    else textBefore = cleanClone(element).innerHTML;
+  }
+
+  // merge:能否和上一步连续打字合成一步(格式命令是单独一步)。
+  function flushTextCommit(merge) {
+    if (textCommitTimer) clearTimeout(textCommitTimer);
+    textCommitTimer = 0;
+    var element = textEditing;
+    if (!element) return;
+    var html = cleanClone(element).innerHTML;
+    var before = chunkCaret || committedCaret;
+    chunkCaret = null;
+    if (html === textBefore) return;
+    var after = caretOffsets(element);
+    textBefore = html;
+    committedCaret = after;
+    post({ type: 'textCommit', sid: sidOf(element), html: html, caretBefore: before, caretAfter: after, merge: !!merge });
+  }
+
+  document.addEventListener('beforeinput', function (event) {
+    if (!textEditing || !event.target || !textEditing.contains(event.target)) return;
+    if (event.inputType === 'historyUndo' || event.inputType === 'historyRedo') {
+      event.preventDefault();
+      return;
+    }
+    if (!chunkCaret) chunkCaret = caretOffsets(textEditing);
+  }, true);
+  document.addEventListener('input', function (event) {
+    if (!textEditing || !event.target || !textEditing.contains(event.target)) return;
+    if (composing || event.isComposing) return;
+    scheduleTextCommit();
+  }, true);
+  document.addEventListener('compositionstart', function () {
+    composing = true;
+    if (textEditing && !chunkCaret) chunkCaret = caretOffsets(textEditing);
+  }, true);
+  document.addEventListener('compositionend', function () {
+    composing = false;
+    if (textEditing) scheduleTextCommit();
+  }, true);
 
   // ---- 改字:选中的一段文字 ------------------------------------------------------
   // 外层工具栏点按钮时焦点留在框里;点进字号 / 地址输入框时框会失焦,所以记下最后一次的选区,
@@ -733,7 +865,6 @@ export function htmlPageRuntime(config) {
   var rangeSaved = null;
   var rangeFrame = 0;
   var lastRangeReport = '';
-  var fontSizeTargets = typeof WeakMap === 'function' ? new WeakMap() : null;
 
   function editingRange() {
     if (!textEditing) return null;
@@ -830,7 +961,7 @@ export function htmlPageRuntime(config) {
   });
 
   // 浏览器的格式命令只在富文本编辑里可用:执行期间临时切过去,结束马上切回纯文本(打字、粘贴、
-  // 回车仍按纯文本处理,不会冒出 <div>)。命令记进浏览器的撤销栈,Ctrl+Z / Ctrl+Y 照常可用。
+  // 回车仍按纯文本处理,不会冒出 <div>)。
   function withRichEditing(run) {
     var host = textEditing;
     var previous = host.getAttribute('contenteditable');
@@ -848,8 +979,7 @@ export function htmlPageRuntime(config) {
     if (document.queryCommandState(command) !== wanted) richCommand(command, null, false);
   }
 
-  // 字号命令只认 1-7 档:先套最大一档,再把选区里这一档的样式换成要的像素值。浏览器重做时会把
-  // 改过的值写回成那一档,记下每个元素的像素值,重做后再换一次。
+  // 字号命令只认 1-7 档:先套最大一档,再把选区里这一档的样式换成要的像素值。
   function applyFontSize(size) {
     richCommand('fontSize', '7', true);
     var range = editingRange();
@@ -858,17 +988,17 @@ export function htmlPageRuntime(config) {
       if (range && !range.intersectsNode(node)) return;
       if (!SIZE_PLACEHOLDERS[node.style.fontSize]) return;
       node.style.fontSize = size;
-      if (fontSizeTargets) fontSizeTargets.set(node, size);
     });
   }
 
-  document.addEventListener('input', function (event) {
-    if (!textEditing || event.inputType !== 'historyRedo' || !fontSizeTargets) return;
-    var nodes = [textEditing].concat(Array.prototype.slice.call(textEditing.querySelectorAll('[style]')));
-    nodes.forEach(function (node) {
-      if (SIZE_PLACEHOLDERS[node.style.fontSize] && fontSizeTargets.has(node)) node.style.fontSize = fontSizeTargets.get(node);
-    });
-  }, true);
+  // 一次选区格式:先把打到一半的字交成一步,格式本身再单独交一步(撤销时先撤格式、再撤打字)。
+  function runRangeFormat(run) {
+    flushTextCommit(true);
+    chunkCaret = caretOffsets(textEditing);
+    withRichEditing(run);
+    flushTextCommit(false);
+    afterRangeFormat();
+  }
 
   function isBold(value) {
     var text = String(value || '').toLowerCase();
@@ -892,7 +1022,7 @@ export function htmlPageRuntime(config) {
     }
     if (!range) return;
     var styles = data.styles || {};
-    withRichEditing(function () {
+    runRangeFormat(function () {
       if ('font-weight' in styles) toggleTo('bold', isBold(styles['font-weight']));
       if ('font-style' in styles) toggleTo('italic', String(styles['font-style'] || 'normal') !== 'normal');
       if ('text-decoration-line' in styles) {
@@ -907,7 +1037,6 @@ export function htmlPageRuntime(config) {
         else richCommand('unlink', null, false);
       }
     });
-    afterRangeFormat();
   }
   document.addEventListener('paste', function (event) {
     if (!textEditing || textEditing.contentEditable === 'plaintext-only') return;
@@ -972,20 +1101,24 @@ export function htmlPageRuntime(config) {
         break;
       case 'wrapLink':
         if (!element) break;
+        var linkDirty = editingDirty(element);
         var anchor = document.createElement('a');
         anchor.setAttribute('href', String(data.href || ''));
         while (element.firstChild) anchor.appendChild(element.firstChild);
         element.appendChild(anchor);
+        afterOuterInnerChange(element, linkDirty);
         report();
         break;
       case 'unwrapLink':
         // 撤销「加链接」:去掉 wrapLink 包上的那一层 <a>,内容原样留下。
         if (!element) break;
+        var unlinkDirty = editingDirty(element);
         var wrapper = element.firstElementChild;
         if (wrapper && wrapper.tagName === 'A' && element.childNodes.length === 1) {
           while (wrapper.firstChild) element.insertBefore(wrapper.firstChild, wrapper);
           wrapper.remove();
         }
+        afterOuterInnerChange(element, unlinkDirty);
         report();
         break;
       case 'remove':
@@ -1009,11 +1142,18 @@ export function htmlPageRuntime(config) {
       case 'setInner':
         // 撤销 / 重做改字:按外层给的(带编号的)源码片段原地换掉内容,不重新加载页面。
         if (!element || typeof data.html !== 'string') break;
-        if (textEditing === element) {
-          stopTextEditing(element);
-          post({ type: 'textEditEnded', sid: data.sid });
-        }
+        if (textEditing && textEditing !== element && element.contains(textEditing)) finishTextEdit();
         element.innerHTML = data.html;
+        if (textEditing === element) {
+          // 改字中撤销 / 重做:原地换内容,继续改字,光标放回那一步的位置。
+          if (textCommitTimer) clearTimeout(textCommitTimer);
+          textCommitTimer = 0;
+          textBefore = cleanClone(element).innerHTML;
+          chunkCaret = null;
+          committedCaret = restoreCaret(element, data.caret);
+          lastRangeReport = '';
+          reportTextSelection();
+        }
         report();
         refreshBoxes();
         break;
