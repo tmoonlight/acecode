@@ -60,17 +60,32 @@ std::optional<ToolResult> PermissionConfirmation::confirm(
     std::size_t tool_index, const ProgressEmitter& emit_progress,
     std::optional<sandbox::ExecPermission>& exec_permission,
     ToolContext& execution_context, PermissionAuditScope& audit,
-    PermissionHookSession& permission_session) {
+    PermissionHookSession& permission_session, const nlohmann::json& review_note) {
     const auto callbacks = callbacks_.snapshot();
+
+    // 自动模式（试验）退回弹窗时带上原因(裁决的理由,或「自动检查没有结果」),放在
+    // 确认参数的 permission.auto_review 里。bash 的确认参数本来就有 permission 对象;
+    // 其它工具的参数是模型给的原文,解析成对象后才能挂,解析不了就原样弹。
+    std::string raw_permission_args =
+        exec_permission ? exec_permission->arguments.dump() : effective_tc.function_arguments;
+    if (review_note.is_object()) {
+        auto parsed = nlohmann::json::parse(raw_permission_args, nullptr, false);
+        if (parsed.is_object()) {
+            if (!parsed.contains("permission") || !parsed["permission"].is_object()) {
+                parsed["permission"] = nlohmann::json::object();
+            }
+            parsed["permission"]["auto_review"] = review_note;
+            raw_permission_args =
+                parsed.dump(-1, ' ', false, nlohmann::json::error_handler_t::replace);
+        }
+    }
 
     emit_progress("permission_waiting", "正在等待权限确认",
         effective_tc.function_name, effective_tc.function_name, effective_tc.id,
         static_cast<int>(tool_index), true);
     const std::string permission_args =
         build_plan_permission_args(
-            effective_tc.function_name,
-            exec_permission ? exec_permission->arguments.dump() : effective_tc.function_arguments,
-            session_manager_);
+            effective_tc.function_name, raw_permission_args, session_manager_);
     PermissionResult perm = prompter_
         ? prompter_->prompt(effective_tc.function_name, permission_args, &abort_signal_.flag_for_legacy_api())
         : (callbacks.on_tool_confirm

@@ -40,6 +40,10 @@ Auto 自动接受文件编辑，并让普通模型命令在工作区写入沙盒
 
 旧模式名称 `accept-edits`、`acceptEdits` 接受为 `auto`；写盘与 API 使用 `auto`。
 
+「自动模式（试验）」（`auto-review`）沿用上表里 Auto 的每一行，只有一点不同：表里写
+「确认」的地方先交给裁决模型，它放行就执行，拦下就把理由回给模型，不弹确认。
+forbidden 规则、无人值守下的越权拒绝照旧。详见 [auto-review-mode.md](auto-review-mode.md)。
+
 配置里的普通 Deny 规则（例如 `.env` / `.git/**` 的文件写入）对文件工具回到「弹确认」；
 只有内置保护规则（`.acecode/rules/**`）和 yolo 模式保持硬拒绝。bash 的配置 Deny 仍是
 forbidden。这样没有 `--dangerous` 的 Desktop 也有逃生口。

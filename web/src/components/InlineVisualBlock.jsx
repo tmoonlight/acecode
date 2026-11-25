@@ -12,6 +12,8 @@
 import { memo, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   INLINE_VISUAL_PROTOCOL,
+  INLINE_VISUAL_REVEAL_FADE_MS,
+  INLINE_VISUAL_REVEAL_FALLBACK_MS,
   buildInlineVisualSrcdoc,
   clampInlineVisualHeight,
   createInlineVisualSendLimiter,
@@ -68,6 +70,39 @@ function InlineVisualFrame({ code, final, onEscaped }) {
   codeKeyRef.current = codeKey;
   bridgeRef.current = bridge;
 
+  // 加载动画:从开始生成一直盖到定稿内容与脚本就位(框内发 rendered),然后淡出、卸掉。
+  // 流式期间框照常边收边画,只是被盖住,定稿后不用再等一轮排版。
+  // 本页已经画过的同一段代码(滚回历史、切回会话时重新挂载,记得住高度)不再盖:
+  // 否则每次滚回去都闪一下灰块,矮于加载占位高度的图还会先撑高再缩回。
+  const [phase, setPhase] = useState(() => (height ? 'done' : 'loading'));
+  const phaseRef = useRef(phase);
+  const revealFallbackTimerRef = useRef(0);
+  const revealFadeTimerRef = useRef(0);
+  const revealRef = useRef(null);
+  revealRef.current = () => {
+    if (phaseRef.current !== 'loading') return;
+    phaseRef.current = 'revealing';
+    if (revealFallbackTimerRef.current) {
+      clearTimeout(revealFallbackTimerRef.current);
+      revealFallbackTimerRef.current = 0;
+    }
+    setPhase('revealing');
+    revealFadeTimerRef.current = setTimeout(() => {
+      revealFadeTimerRef.current = 0;
+      phaseRef.current = 'done';
+      setPhase('done');
+    }, INLINE_VISUAL_REVEAL_FADE_MS);
+  };
+  // 定稿内容已交给就绪的框才开始兜底计时;rendered 迟迟不来也不让动画一直盖着。
+  const armRevealFallbackRef = useRef(null);
+  armRevealFallbackRef.current = () => {
+    if (phaseRef.current !== 'loading' || revealFallbackTimerRef.current) return;
+    revealFallbackTimerRef.current = setTimeout(() => {
+      revealFallbackTimerRef.current = 0;
+      revealRef.current();
+    }, INLINE_VISUAL_REVEAL_FALLBACK_MS);
+  };
+
   const scriptFailedLabel = '图表库加载失败,可能是网络连不上 CDN';
   const srcdoc = useMemo(() => {
     const theme = readInlineVisualTheme();
@@ -84,7 +119,10 @@ function InlineVisualFrame({ code, final, onEscaped }) {
     const payload = { ace_visual: INLINE_VISUAL_PROTOCOL, ...message };
     if (message.type === 'render') latestRenderRef.current = payload;
     const target = iframeRef.current?.contentWindow;
-    if (readyRef.current && target) target.postMessage(payload, '*');
+    if (readyRef.current && target) {
+      target.postMessage(payload, '*');
+      if (message.type === 'render' && message.final) armRevealFallbackRef.current();
+    }
   };
 
   useEffect(() => {
@@ -104,7 +142,10 @@ function InlineVisualFrame({ code, final, onEscaped }) {
     const theme = readInlineVisualTheme();
     themeSignatureRef.current = JSON.stringify(theme);
     target.postMessage({ ace_visual: INLINE_VISUAL_PROTOCOL, type: 'theme', ...theme }, '*');
-    if (latestRenderRef.current) target.postMessage(latestRenderRef.current, '*');
+    if (latestRenderRef.current) {
+      target.postMessage(latestRenderRef.current, '*');
+      if (latestRenderRef.current.final) armRevealFallbackRef.current();
+    }
   };
 
   // 监听必须在提交阶段同步挂上:框内运行时启动即发 ready,普通 effect 可能晚于它。
@@ -121,6 +162,8 @@ function InlineVisualFrame({ code, final, onEscaped }) {
         if (!next) return;
         setHeight(next);
         rememberHeight(codeKeyRef.current, next);
+      } else if (message.type === 'rendered') {
+        revealRef.current();
       } else if (message.type === 'send') {
         const text = inlineVisualSendText(message.text);
         const send = bridgeRef.current?.send;
@@ -157,6 +200,10 @@ function InlineVisualFrame({ code, final, onEscaped }) {
     return () => {
       window.removeEventListener('message', onMessage);
       if (escapeTimerRef.current) clearTimeout(escapeTimerRef.current);
+      if (revealFallbackTimerRef.current) clearTimeout(revealFallbackTimerRef.current);
+      if (revealFadeTimerRef.current) clearTimeout(revealFadeTimerRef.current);
+      revealFallbackTimerRef.current = 0;
+      revealFadeTimerRef.current = 0;
     };
   }, []);
 
@@ -200,19 +247,33 @@ function InlineVisualFrame({ code, final, onEscaped }) {
     }, 2000);
   };
 
+  const loading = phase !== 'done';
   return (
-    <iframe
-      ref={iframeRef}
-      className="ace-inline-visual-frame"
-      title="可视化图表"
-      sandbox={INLINE_VISUAL_SANDBOX}
-      srcDoc={srcdoc}
-      referrerPolicy="no-referrer"
-      loading="lazy"
-      scrolling="no"
-      onLoad={handleLoad}
-      style={height ? { height } : undefined}
-    />
+    <div
+      className="ace-inline-visual-stage"
+      data-loading={loading ? phase : undefined}
+      aria-busy={phase === 'loading' ? 'true' : undefined}
+    >
+      <iframe
+        ref={iframeRef}
+        className="ace-inline-visual-frame"
+        title="可视化图表"
+        sandbox={INLINE_VISUAL_SANDBOX}
+        srcDoc={srcdoc}
+        referrerPolicy="no-referrer"
+        loading="lazy"
+        scrolling="no"
+        onLoad={handleLoad}
+        style={height ? { height } : undefined}
+      />
+      {loading ? (
+        <div className="ace-inline-visual-loading" aria-hidden="true">
+          <span />
+          <span />
+          <span />
+        </div>
+      ) : null}
+    </div>
   );
 }
 

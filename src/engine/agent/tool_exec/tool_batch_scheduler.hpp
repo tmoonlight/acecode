@@ -41,6 +41,8 @@ struct ToolExecutionOptions {
     ToolLifecycleEvents::Clock clock;
     std::vector<std::string> model_tool_names;
     BackgroundToolSignals background{};
+    // IM 群聊代答会话:自动模式（试验）的裁决记录里,user 角色的话标注为群成员消息。
+    bool group_delegate = false;
 };
 
 // One joined batch owns this tool chain. The composition root owns the scope;
@@ -62,6 +64,7 @@ private:
     PathAccessPolicy paths_;
     ExecPermissionGate exec_;
     PermissionConfirmation confirmation_;
+    AutoReviewGate review_;
     ToolPermissionGate gate_;
     ToolInvoker invoker_;
     ToolResultPresenter presenter_;

@@ -19,8 +19,9 @@ public:
     PermissionAuditScope(const PermissionAuditScope&) = delete;
     PermissionAuditScope& operator=(const PermissionAuditScope&) = delete;
     const std::string& sandbox() const { return sandbox_; }
+    // extra:并入 detail 的附加字段(自动模式（试验）记裁决模型、耗时与理由)。
     void record(const std::string& decision, const std::string& source,
-        const std::string& reason);
+        const std::string& reason, const nlohmann::json& extra = nlohmann::json::object());
 private:
     SessionExecSecurity& security_;
     PermissionManager& permissions_;

@@ -44,6 +44,9 @@ public:
     bool unattended_active(SessionManager* session);
     void notify_objective_updated();
     void stop_after_error(SessionManager* session, const ProviderErrorInfo& info);
+    // 自动模式（试验）:裁决连续拦截达到上限而无人可问时,把 active goal 置为 blocked,
+    // 不再自动续跑(否则每个续跑回合都会撞同一堵墙)。没有 active goal 时什么也不做。
+    void block_after_review_denials(SessionManager* session);
     void inject_steering(SessionManager* session, detail::GoalPromptTools tools);
     void begin_turn();
 

@@ -1,7 +1,7 @@
 // 工具行只展示本地化动作与精简对象。参数、统计和结果位于展开详情，
 // 新文件源码、diff、问答和 Shell 保留各自内容渲染器；复制使用完整原文。
 
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { clsx } from '../lib/format.js';
 import { hunksToUnifiedDiff } from '../lib/diff.js';
@@ -12,6 +12,8 @@ import { renderMarkdown } from '../lib/markdown.js';
 import { highlightSourceForFile } from '../lib/sourceCodeHighlight.js';
 import { fallbackToolSummary } from '../lib/toolSummaryFallback.js';
 import { canonicalTranscriptTool, presentTool } from '../lib/toolPresentation.js';
+import { skillFilePathFromCatalog, skillViewDocument } from '../lib/skillViewDocument.js';
+import { desktopUiMode } from '../lib/desktopShellMode.js';
 import { codeTextFromCopyButtonTarget, copyTextToClipboard } from '../lib/codeBlockCopy.js';
 import { normalizeTaskCompleteMarkdown } from '../lib/taskCompleteSummary.js';
 import { questionFeedbackForTool } from '../lib/questionFeedback.js';
@@ -30,6 +32,8 @@ import { ActivityLine } from './ActivityLine.jsx';
 import { CopyableCodeFrame } from './CopyableCodeFrame.jsx';
 import { QuestionFeedbackCard } from './QuestionFeedbackCard.jsx';
 import { ShellCommandCard } from './ShellCommandCard.jsx';
+import { SkillCatalogContext } from './SkillCatalogContext.jsx';
+import { openTargetInExplorer } from './openTargetInExplorer.js';
 import { ToolDetailMetadata } from './ToolDetailMetadata.jsx';
 import { ToolSummaryIcon, VsIcon } from './Icon.jsx';
 import { toast } from './Toast.jsx';
@@ -63,7 +67,7 @@ function ToolTextFrame({ text = '', children = null, metadata = null }) {
   );
 }
 
-function CreatedFileFrame({ source, metadata }) {
+function CreatedFileFrame({ source, metadata, actions = null }) {
   const highlighted = useMemo(
     () => highlightSourceForFile(source.path, source.content),
     [source.content, source.path],
@@ -76,6 +80,8 @@ function CreatedFileFrame({ source, metadata }) {
     <CopyableCodeFrame
       text={source.content}
       className="ace-tool-created-code"
+      actions={actions}
+      data-code-action-count={actions ? 2 : undefined}
       data-created-file-source="true"
       data-code-lang={highlighted.language || undefined}
     >
@@ -86,6 +92,72 @@ function CreatedFileFrame({ source, metadata }) {
           dangerouslySetInnerHTML={{ __html: highlighted.html }}
         />
       </pre>
+    </CopyableCodeFrame>
+  );
+}
+
+// 打开技能所在文件夹(资源管理器里选中 SKILL.md)。点击时才按技能名现查清单,
+// 技能被删、改名或换了位置都以当下为准;查不到要提示,不能点了没反应。
+function SkillFolderButton({ name }) {
+  const loadSkillCatalog = useContext(SkillCatalogContext);
+  const openingRef = useRef(false);
+  const handleClick = async (event) => {
+    event.stopPropagation();
+    if (openingRef.current) return;
+    openingRef.current = true;
+    try {
+      const path = skillFilePathFromCatalog(await loadSkillCatalog(), name);
+      if (!path) {
+        toast({ kind: 'err', text: '找不到这个技能的文件夹' });
+        return;
+      }
+      await openTargetInExplorer({ path, kind: 'file' });
+    } catch (e) {
+      toast({ kind: 'err', text: '打开失败:' + (e?.body?.error || e?.message || '') });
+    } finally {
+      openingRef.current = false;
+    }
+  };
+  return (
+    <button
+      type="button"
+      className="ace-code-action-btn"
+      data-skill-folder-button="true"
+      title="打开文件夹"
+      aria-label="打开文件夹"
+      onClick={handleClick}
+    >
+      <VsIcon name="folderOpen" size={14} />
+    </button>
+  );
+}
+
+// skill_view 展开后显示技能文档本身;复制按钮复制的也是文档原文。
+// 打开文件夹只在桌面版(含 webapp 兼容模式)出现:远程 Web 下资源管理器会开在 daemon 那台机器上。
+function SkillDocumentFrame({ source, metadata, onClick }) {
+  const html = useMemo(
+    () => (source.kind === 'markdown' ? { __html: renderMarkdown(source.content) } : null),
+    [source.content, source.kind],
+  );
+  const actions = source.name && desktopUiMode() !== 'browser'
+    ? <SkillFolderButton name={source.name} />
+    : null;
+  if (!html) return <CreatedFileFrame source={source} metadata={metadata} actions={actions} />;
+  return (
+    <CopyableCodeFrame
+      text={source.content}
+      className="ace-tool-output-frame overflow-hidden rounded-xl border border-border bg-surface"
+      actions={actions}
+      data-code-action-count={actions ? 2 : undefined}
+      data-tool-output-frame="true"
+      data-skill-document="true"
+    >
+      {metadata}
+      <div
+        className="ace-md ace-skill-document-md max-h-[420px] overflow-auto px-5 py-3 pr-12 text-fg break-words"
+        onClick={onClick}
+        dangerouslySetInnerHTML={html}
+      />
     </CopyableCodeFrame>
   );
 }
@@ -274,9 +346,16 @@ export const ToolBlock = memo(function ToolBlock({
     }
   }, [createdFile, diffText]);
 
+  // 只在展开后解析:SKILL.md 可能很大,收起的行不必每次渲染都 JSON.parse。
+  const skillDocument = useMemo(
+    () => (expanded && isDone && success !== false ? skillViewDocument(presentation.tool, presentation.output) : null),
+    [expanded, isDone, presentation.output, presentation.tool, success],
+  );
   const fullOutput = presentation.output || askUserQuestionOutput || diffText || tailLines.join('\n') || currentPartial || '';
   const fullToolOutput = shellPresentation?.copyText ?? fullOutput;
-  const visibleOutput = expanded ? fullToolOutput : (shellPresentation?.command ?? (outputPreview || currentPartial || tailLines.join('\n') || ''));
+  const visibleOutput = expanded
+    ? (skillDocument?.content ?? fullToolOutput)
+    : (shellPresentation?.command ?? (outputPreview || currentPartial || tailLines.join('\n') || ''));
   const taskCompleteText = isTaskComplete
     ? normalizeTaskCompleteMarkdown(taskCompleteDisplayText(summary, output, metadata), '完成')
     : '';
@@ -467,6 +546,8 @@ export const ToolBlock = memo(function ToolBlock({
           <div className={clsx('w-full min-w-0 pb-2 pt-1', !shellDetails && 'max-w-[88%]')}>
             {shellDetails || (createdFile ? (
               <CreatedFileFrame source={createdFile} metadata={detailMetadata} />
+            ) : skillDocument ? (
+              <SkillDocumentFrame source={skillDocument} metadata={detailMetadata} onClick={handleMarkdownCodeCopy} />
             ) : diffHtml ? (
               <div className={clsx('ace-diff ace-tool-diff', detailMetadata && 'ace-tool-diff-with-metadata')}>
                 {detailMetadata}

@@ -21,7 +21,7 @@ fs::path temp_database(const std::string& hint) {
     return dir / "scheduled-loops.sqlite3";
 }
 
-bool create_legacy_database(const fs::path& path) {
+bool create_legacy_database(const fs::path& path, bool with_run_history = false) {
     sqlite3* db = nullptr;
     const std::string path_text = path.string();
     if (sqlite3_open(path_text.c_str(), &db) != SQLITE_OK) {
@@ -42,7 +42,23 @@ bool create_legacy_database(const fs::path& path) {
         "'legacy','Legacy','Inspect','hash','C:/workspace/hash','model-a','yolo',"
         "'{\"kind\":\"once\",\"once_at_ms\":10000}',"
         "'once:10000',10000,1,1,1);";
-    const int rc = sqlite3_exec(db, sql, nullptr, nullptr, nullptr);
+    int rc = sqlite3_exec(db, sql, nullptr, nullptr, nullptr);
+    if (rc == SQLITE_OK && with_run_history) {
+        const char* run_history =
+            "CREATE TABLE loop_runs("
+            "id TEXT PRIMARY KEY,loop_id TEXT NOT NULL,scheduled_at_ms INTEGER NOT NULL,"
+            "started_at_ms INTEGER NULL,finished_at_ms INTEGER NULL,status TEXT NOT NULL,"
+            "reason TEXT NOT NULL DEFAULT '',missed_count INTEGER NOT NULL DEFAULT 1,"
+            "session_id TEXT NOT NULL DEFAULT '',worktree_path TEXT NOT NULL DEFAULT '',"
+            "worktree_branch TEXT NOT NULL DEFAULT '',owner_id TEXT NOT NULL DEFAULT '',"
+            "workspace_touched TEXT NOT NULL DEFAULT '',workspace_cwd TEXT,"
+            "UNIQUE(loop_id,scheduled_at_ms),"
+            "FOREIGN KEY(loop_id) REFERENCES loops(id) ON DELETE CASCADE);"
+            "INSERT INTO loop_runs VALUES('old-run','legacy',2000,2000,3000,'completed',"
+            "'',1,'old-session','C:/old-tree','old-branch','old-owner',"
+            "'docs/notes.md','C:/old-workspace');";
+        rc = sqlite3_exec(db, run_history, nullptr, nullptr, nullptr);
+    }
     sqlite3_close(db);
     return rc == SQLITE_OK;
 }
@@ -134,14 +150,14 @@ TEST(LoopStore, ManualRunPreservesDisabledAndExpiredSchedule) {
     EXPECT_FALSE(store.get_loop(loop->id)->enabled);
     EXPECT_EQ(store.get_loop(loop->id)->next_run_at_ms, disabled->next_run_at_ms);
     EXPECT_EQ(store.get_loop(loop->id)->updated_at_ms, disabled->updated_at_ms);
-    EXPECT_EQ(store.claim_now(loop->id, 20'001, "owner", &error).disposition, ClaimDisposition::None);
-    EXPECT_EQ(error.code, "LOOP_BUSY");
-    error = {};
+    const auto again = store.claim_now(loop->id, 20'001, "owner", &error);
+    ASSERT_TRUE(again.run) << error.message;
+    EXPECT_NE(again.run->id, manual.run->id);
     EXPECT_FALSE(store.claim_now("missing", 20'002, "owner", &error).run);
     EXPECT_EQ(error.code, "NOT_FOUND");
 }
 
-TEST(LoopStore, ConcurrentManualClaimsAndAutomaticRunShareExclusion) {
+TEST(LoopStore, ConcurrentManualClaimsAtSameTimeCreateDistinctRuns) {
     const auto path = temp_database("manual_race");
     LoopStore store(path), other(path);
     ASSERT_TRUE(store.initialize());
@@ -149,15 +165,23 @@ TEST(LoopStore, ConcurrentManualClaimsAndAutomaticRunShareExclusion) {
     auto loop = store.create_loop(once_loop("manual", 10'000), 1'000);
     ASSERT_TRUE(loop);
     ClaimResult first, second;
-    std::thread a([&] { first = store.claim_now(loop->id, 2'000, "first"); });
-    std::thread b([&] { second = other.claim_now(loop->id, 2'000, "second"); });
+    std::thread a([&] { first = store.claim_now(loop->id, 10'000, "first"); });
+    std::thread b([&] { second = other.claim_now(loop->id, 10'000, "second"); });
     a.join(); b.join();
-    EXPECT_NE(first.run.has_value(), second.run.has_value());
-    EXPECT_EQ(store.list_runs(loop->id).size(), 1u);
-    EXPECT_EQ(store.claim_due(10'000, "automatic").disposition, ClaimDisposition::MissedWorkspaceBusy);
+    ASSERT_TRUE(first.run);
+    ASSERT_TRUE(second.run);
+    EXPECT_NE(first.run->id, second.run->id);
+    EXPECT_EQ(first.run->scheduled_at_ms, 10'000);
+    EXPECT_EQ(second.run->scheduled_at_ms, 10'000);
+    EXPECT_EQ(store.list_runs(loop->id).size(), 2u);
+    const auto automatic = store.claim_due(10'000, "automatic");
+    EXPECT_EQ(automatic.disposition, ClaimDisposition::MissedWorkspaceBusy);
+    ASSERT_TRUE(automatic.run);
+    EXPECT_EQ(automatic.run->reason, "workspace_busy");
+    EXPECT_EQ(store.list_runs(loop->id).size(), 3u);
 }
 
-TEST(LoopStore, ManualRunRejectsBusyWorkspaceAndRecoversAfterShutdown) {
+TEST(LoopStore, ManualRunIgnoresBusyWorkspaceAndAllowsConcurrentExecution) {
     LoopStore store(temp_database("manual_workspace"));
     ASSERT_TRUE(store.initialize());
     auto a = store.create_loop(once_loop("one", 60'000, "workspace"), 1'000);
@@ -167,12 +191,46 @@ TEST(LoopStore, ManualRunRejectsBusyWorkspaceAndRecoversAfterShutdown) {
     ASSERT_TRUE(claimed.run);
     ASSERT_TRUE(store.update_run_state(claimed.run->id, RunStatus::WaitingUser, 2'001));
     StoreError error;
-    EXPECT_FALSE(store.claim_now(b->id, 3'000, "owner", &error).run);
-    EXPECT_EQ(error.code, "WORKSPACE_BUSY");
-    EXPECT_TRUE(store.list_runs(b->id).empty());
+    auto second_claim = store.claim_now(b->id, 3'000, "owner", &error);
+    ASSERT_TRUE(second_claim.run) << error.message;
+    EXPECT_NE(second_claim.run->id, claimed.run->id);
+    EXPECT_EQ(store.list_runs(b->id).size(), 1u);
     ASSERT_TRUE(store.interrupt_owner_runs("owner", 4'000));
     EXPECT_EQ(store.list_runs(a->id).front().status, RunStatus::Failed);
     EXPECT_TRUE(store.claim_now(b->id, 5'000, "new-owner").run);
+    EXPECT_EQ(store.list_runs(b->id).size(), 2u);
+}
+
+TEST(LoopStore, MigratesExistingRunHistoryAndPreservesSameTimestampOrder) {
+    const auto path = temp_database("manual_history");
+    ASSERT_TRUE(create_legacy_database(path, true));
+    LoopStore store(path);
+    StoreError error;
+    ASSERT_TRUE(store.initialize(&error)) << error.message;
+
+    auto first = store.claim_now("legacy", 2'000, "owner", &error);
+    auto second = store.claim_now("legacy", 2'000, "owner", &error);
+    ASSERT_TRUE(first.run) << error.message;
+    ASSERT_TRUE(second.run) << error.message;
+    ASSERT_TRUE(store.update_run_state(first.run->id, RunStatus::Completed, 4'000, {}, "new-first"));
+    ASSERT_TRUE(store.update_run_state(second.run->id, RunStatus::Completed, 4'000, {}, "new-second"));
+
+    const auto runs = store.list_runs("legacy");
+    ASSERT_EQ(runs.size(), 3u);
+    EXPECT_EQ(runs[0].id, second.run->id);
+    EXPECT_EQ(runs[1].id, first.run->id);
+    EXPECT_EQ(runs[2].id, "old-run");
+    EXPECT_EQ(runs[2].worktree_path, "C:/old-tree");
+    EXPECT_EQ(runs[2].worktree_branch, "old-branch");
+    EXPECT_EQ(runs[2].workspace_touched, (std::vector<std::string>{"docs/notes.md"}));
+    EXPECT_EQ(runs[2].owner_id, "old-owner");
+
+    const auto sessions = store.list_run_sessions("legacy");
+    ASSERT_EQ(sessions.size(), 3u);
+    EXPECT_EQ(sessions[0].id, "new-second");
+    EXPECT_EQ(sessions[1].id, "new-first");
+    EXPECT_EQ(sessions[2].id, "old-session");
+    EXPECT_EQ(sessions[2].workspace_cwd, "C:/old-workspace");
 }
 
 TEST(LoopStore, MigratesLegacyLoopsToWorktreeWithoutChangingNewDefault) {

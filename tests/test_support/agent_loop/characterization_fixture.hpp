@@ -172,6 +172,8 @@ struct Observation {
     int done = 0;
     int turns_finished = 0;
     int confirmations = 0;
+    // 每次确认收到的参数(JSON 解析失败时为 null),供断言确认框里带了什么。
+    std::vector<Json> confirmation_args;
     acecode::PermissionResult answer = acecode::PermissionResult::Allow;
     std::function<void()> after_turn;
 
@@ -240,9 +242,10 @@ public:
         };
         if (confirmation) {
             callbacks.on_tool_confirm = [state = observed](const std::string&,
-                                                          const std::string&) {
+                                                          const std::string& arguments) {
                 std::lock_guard<std::mutex> lock(state->mutex);
                 ++state->confirmations;
+                state->confirmation_args.push_back(Json::parse(arguments, nullptr, false));
                 state->decisions.push_back("confirm");
                 return state->answer;
             };

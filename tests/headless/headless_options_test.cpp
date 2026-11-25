@@ -72,10 +72,12 @@ TEST(HeadlessOptions, ParsesDangerousAliases) {
     }
 }
 
-// 场景:--permission-mode 空格形式与等号形式;四个合法值。
+// 场景:--permission-mode 空格形式与等号形式;五个合法值(含自动模式（试验）的
+// auto-review)加两个旧别名。
 // 期望:原样透传;非法值报错(错误消息包含非法值本身,便于脚本排查)。
 TEST(HeadlessOptions, ParsesAndValidatesPermissionMode) {
-    for (const char* mode : {"default", "auto", "accept-edits", "acceptEdits", "plan", "yolo"}) {
+    for (const char* mode : {"default", "auto", "auto-review", "accept-edits", "acceptEdits",
+                             "plan", "yolo"}) {
         auto space = parse_headless_cli_options({"-p", "--permission-mode", mode, "x"});
         EXPECT_TRUE(space.error.empty()) << mode << ": " << space.error;
         EXPECT_EQ(space.permission_mode, mode);

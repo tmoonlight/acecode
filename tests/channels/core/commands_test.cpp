@@ -33,6 +33,10 @@ TEST(ChannelCommands, ParsesKnownCommands) {
     EXPECT_EQ(parse_command("/mode acceptEdits").argument, "auto");
     EXPECT_EQ(parse_command("/mode default").argument, "default");
     EXPECT_EQ(parse_command("/mode yolo").argument, "yolo");
+    // 自动模式（试验）是 IM 里也能切的模式;大写输入照旧先转小写再解析。
+    EXPECT_EQ(parse_command("/mode auto-review").argument, "auto-review");
+    EXPECT_EQ(parse_command("/mode AUTO-REVIEW").argument, "auto-review");
+    EXPECT_TRUE(parse_command("/mode auto-review").error.empty());
     EXPECT_EQ(parse_command(" /YOLO ").kind, CommandKind::Yolo);
     EXPECT_EQ(parse_command("/effort").kind, CommandKind::Effort);
     EXPECT_EQ(parse_command(" /EFFORT HIGH ").argument, "high");
@@ -90,6 +94,8 @@ TEST(ChannelCommands, HelpAndPromptsAreChinese) {
         EXPECT_NE(texts::help(true).find(command), std::string::npos);
         EXPECT_NE(texts::help(false).find(command), std::string::npos);
     }
+    // 帮助里的 /mode 用法要列出自动模式（试验）的线上名,否则用户不知道能切。
+    EXPECT_NE(texts::help(true).find("auto-review"), std::string::npos);
     const auto prompt = texts::permission_prompt("p1", "bash", "{\"command\":\"ls\"}");
     EXPECT_NE(prompt.find("/approve p1"), std::string::npos);
     EXPECT_NE(prompt.find("/deny p1"), std::string::npos);

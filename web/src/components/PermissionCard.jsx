@@ -45,6 +45,7 @@ export function PermissionCard({ request, onDecision, originLabel = '' }) {
     scopedLabel,
     rememberPrefix,
     rememberLabel,
+    reviewNote,
   } = planPermissionPresentation(request);
   const status = request?.status || PERMISSION_REQUEST_STATUS.PENDING;
   const pending = status === PERMISSION_REQUEST_STATUS.PENDING;
@@ -102,6 +103,7 @@ export function PermissionCard({ request, onDecision, originLabel = '' }) {
           </div>
         )}
         <p className="m-0 text-[12px] leading-relaxed text-fg-2">{body}</p>
+        {reviewNote && <p data-permission-review-note="true" className="m-0 break-words text-[12px] leading-relaxed text-fg">{reviewNote}</p>}
         {justification && <p className="m-0 whitespace-pre-wrap break-words text-[12px] leading-relaxed text-fg">{justification}</p>}
         {additionalPermissions.length > 0 && (
           <ul data-permission-additional="true" className="m-0 list-none p-0 text-[12px] leading-relaxed text-fg">

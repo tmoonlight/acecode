@@ -293,6 +293,36 @@ void GoalRuntime::stop_after_error(SessionManager* session, const ProviderErrorI
              std::to_string(info.status_code));
 }
 
+void GoalRuntime::block_after_review_denials(SessionManager* session) {
+    if (!session) return;
+    ThreadGoalStore* store = session->existing_goal_store();
+    if (!store) return;
+    // 子会话与父会话共用同一个 goal store:goal 挂在父会话上时,子会话里达到上限
+    // 也要把它停住。
+    for (const std::string& sid : {session->current_session_id(),
+                                   session->current_parent_session_id()}) {
+        if (sid.empty()) continue;
+        std::string error;
+        auto goal = store->get_thread_goal(sid, &error);
+        if (!error.empty()) {
+            LOG_WARN("[goal] failed to load goal after review denials: " + error);
+            continue;
+        }
+        if (!goal.has_value() || goal->status != ThreadGoalStatus::Active) continue;
+        if (!store->update_thread_goal_status(sid, goal->goal_id, ThreadGoalStatus::Blocked, &error)) {
+            LOG_WARN("[goal] failed to block goal after review denials: " + error);
+            continue;
+        }
+        if (auto updated = store->get_thread_goal(sid)) emit_updated(*updated);
+        transcript_.dispatch_message("system",
+            "[Goal] Auto mode blocked several actions and nobody is available to approve them; "
+            "goal marked blocked and automatic continuation stopped. Use /goal resume to continue.",
+            false, make_system_notice_metadata("goal_blocked"), nlohmann::json::array());
+        LOG_WARN("[goal] blocked active goal after auto-review denials: session=" + sid);
+        return;
+    }
+}
+
 void GoalRuntime::inject_steering(SessionManager* session, detail::GoalPromptTools tools) {
     const bool budget = pending_budget_.exchange(false);
     const bool objective = pending_objective_.exchange(false);

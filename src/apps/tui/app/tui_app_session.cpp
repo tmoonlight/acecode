@@ -27,6 +27,7 @@
 #include "skills/skill_usage_store.hpp"
 #include "session_host/memory_runtime.hpp"
 #include "hooks/hook_manager.hpp"
+#include "provider/auto_review_model.hpp"
 #include "provider/model_resolver.hpp"
 #include "platform/power_inhibitor.hpp"
 #include "platform/terminal/terminal_title.hpp"
@@ -53,6 +54,12 @@ void TuiApp::initialize_agent() {
     loop_services.memory = services_->memory->service();
     loop_services.skills = services_->skills->snapshot();
     loop_services.prompt_config = bind(&TuiApp::prompt_config_snapshot);
+    // 自动模式（试验）的裁决模型:每次裁决读已发布的配置;没配置时返回空,用当前模型。
+    loop_services.review_provider =
+        [cache = std::make_shared<AutoReviewProviderCache>(),
+         config = bind(&TuiApp::config_snapshot)] {
+            return cache->resolve(auto_review_model_choice(config()));
+        };
     AgentLoopOptions loop_options;
     loop_options.cwd = environment_.working_dir;
     loop_options.context_window = services_->config.context_window;

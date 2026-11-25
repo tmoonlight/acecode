@@ -59,6 +59,7 @@ std::string read_file(const std::filesystem::path& path) {
 std::string permission_label(const std::string& mode) {
     if (mode == "default") return "默认权限 (default)";
     if (mode == "auto" || mode == "accept-edits") return "自动模式 (auto)";
+    if (mode == "auto-review") return "自动模式（试验） (auto-review)";
     if (mode == "yolo") return "完全访问权限 (yolo)";
     if (mode == "plan") return "计划模式 (plan)";
     return mode;
@@ -263,7 +264,7 @@ void Conversations::handle_bound_command(const im::Inbound& inbound, const Comma
             if (command.kind == CommandKind::Mode && command.argument.empty()) {
                 const auto info = session_info(id);
                 reply(inbound, "权限模式:" + (info ? permission_label(info->permission_mode) : "不可用") +
-                               "\n用法:/mode default|auto|yolo,或 /yolo 直接切换到完全访问权限。");
+                               "\n用法:/mode default|auto|auto-review|yolo,或 /yolo 直接切换到完全访问权限。");
                 return;
             }
             const auto mode = command.kind == CommandKind::Yolo ? std::string("yolo") : command.argument;

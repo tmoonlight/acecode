@@ -46,6 +46,7 @@ import { VsIcon } from './Icon.jsx';
 import { commandTaskStatusLabel, isCommandTask } from '../lib/backgroundTasks.js';
 import { TranscriptItems } from './TranscriptItems.jsx';
 import { AttachmentTextLoaderContext } from './AttachmentTextLoaderContext.jsx';
+import { SkillCatalogContext } from './SkillCatalogContext.jsx';
 import { SubagentAvatar } from './PixelAvatar.jsx';
 
 // 后台命令与子代理共用任务行,仅图标和 token 显示不同。
@@ -154,6 +155,10 @@ function SubagentTranscriptView({ task, workspaceHash = '', messageAutoCollapse 
   const transcript = useSessionTranscript(sessionRef, { live: 'auto' });
   // 子会话记录里的附件 blob_url 本来就在子会话 id 下;loader 走 request() 带 token。
   const attachmentApi = useMemo(() => createApi(sessionRef), [sessionRef]);
+  const loadSkillCatalog = useCallback(
+    () => attachmentApi.listSkills(workspaceHash),
+    [attachmentApi, workspaceHash],
+  );
   const running = transcript.busy || task.status === SUBAGENT_TASK_STATUS.RUNNING;
   const items = useMemo(
     () => projectSubagentTranscriptItems(transcript.items, {
@@ -295,6 +300,7 @@ function SubagentTranscriptView({ task, workspaceHash = '', messageAutoCollapse 
           <div className="text-[12px] text-danger px-1 py-2">加载失败:{transcript.error || ''}</div>
         )}
         <AttachmentTextLoaderContext.Provider value={attachmentApi.readAttachmentText}>
+        <SkillCatalogContext.Provider value={loadSkillCatalog}>
           <TranscriptItems
             items={items}
             messageAutoCollapse={messageAutoCollapse}
@@ -306,6 +312,7 @@ function SubagentTranscriptView({ task, workspaceHash = '', messageAutoCollapse 
             sessionRunning={running}
             onReviewToggle={pauseTailFollowForReview}
           />
+        </SkillCatalogContext.Provider>
         </AttachmentTextLoaderContext.Provider>
         {transcript.loadState === 'loaded' && items.length === 0 && (
           <div className="text-[12px] text-fg-mute px-1 py-2">暂无会话内容</div>

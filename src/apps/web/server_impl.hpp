@@ -714,6 +714,7 @@ struct WebServer::Impl {
     void register_computer_use();
     void register_ios_simulator();
     void register_summary_generation();
+    void register_auto_review();
     void register_home_intent_prompts();
     void register_tool_rewrites();
     void register_agent_browser();

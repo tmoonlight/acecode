@@ -90,6 +90,7 @@ import { NextStepCard } from './NextStepCard.jsx';
 import { useFollowUpPrompt } from '../lib/useFollowUpPrompt.js';
 import { StickyUserContext } from './StickyUserContext.jsx';
 import { AttachmentTextLoaderContext } from './AttachmentTextLoaderContext.jsx';
+import { SkillCatalogContext } from './SkillCatalogContext.jsx';
 import { InlineVisualBridgeContext } from './InlineVisualBridgeContext.jsx';
 import { SessionContentLoading } from './SessionContentLoading.jsx';
 import { SessionStartLoading } from './SessionStartLoading.jsx';
@@ -733,6 +734,8 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
   const subagentWorkspaceHash = isRealWorkspaceHash(ref?.workspaceHash || ref?.workspace_hash)
     ? (ref?.workspaceHash || ref?.workspace_hash)
     : '';
+  // 技能预览框「打开文件夹」按技能名找 SKILL.md:项目级技能要按本会话所在工作区查。
+  const loadSkillCatalog = useStableCallback(() => api.listSkills(subagentWorkspaceHash));
   const subagentTasks = useSubagentTasks(sid);
   // 后台命令(bash run_in_background / 超时或插话转入后台)。与子代理合成一个列表给
   // 后台任务面板、摘要面板和对话里的工具行;新任务在前。
@@ -6557,6 +6560,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
             onAll={() => expandTranscriptWindow({ compensateScroll: true, loadAll: true })}
           />
           <AttachmentTextLoaderContext.Provider value={api.readAttachmentText}>
+          <SkillCatalogContext.Provider value={loadSkillCatalog}>
           <InlineVisualBridgeContext.Provider value={inlineVisualBridge}>
           <TranscriptItems
             items={windowedItems}
@@ -6601,6 +6605,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
             )}
           />
           </InlineVisualBridgeContext.Provider>
+          </SkillCatalogContext.Provider>
           </AttachmentTextLoaderContext.Provider>
           {/* tail = 当前最后一轮的文件列表。回合进行中(busy)不渲染 ——
               流式期间变更集随 tool_end 实时增长,列表会先于/夹着正文出现,

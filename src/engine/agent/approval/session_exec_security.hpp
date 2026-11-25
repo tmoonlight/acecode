@@ -1,13 +1,17 @@
 #pragma once
 #include "agent/agent_runtime_env.hpp"
 
+#include "agent/approval/auto_review_gate.hpp"
 #include "agent/approval/safe_edit_guard.hpp"
+#include "permissions/auto_review_denials.hpp"
 #include "sandbox/exec_permission.hpp"
 #include "sandbox/sandbox_denial.hpp"
 #include "sandbox/sandbox_runtime.hpp"
 #include "security/audit_log.hpp"
 
 #include <atomic>
+#include <functional>
+#include <memory>
 #include <mutex>
 #include <optional>
 #include <string>
@@ -45,6 +49,15 @@ public:
     std::optional<sandbox::SandboxViolation> feedback() const;
     void set_feedback(std::optional<sandbox::SandboxViolation> feedback);
     SafeEditGuard& safe_edit_guard() { return safe_edit_guard_; }
+
+    // 自动模式（试验）(openspec add-auto-review-mode)的会话级状态:拦截计数跨工具
+    // 批次存活;裁决模型由宿主提供的取得函数给出(空 = 没配置,用会话当前模型)。
+    using ReviewProviderAccessor = std::function<std::shared_ptr<LlmProvider>()>;
+    auto_review::DenialTracker& review_denials() { return review_denials_; }
+    void set_review_provider(ReviewProviderAccessor accessor);
+    std::shared_ptr<LlmProvider> review_provider() const;
+    ReviewTimeouts review_timeouts() const;
+    void set_review_timeouts_for_tests(ReviewTimeouts timeouts);
 private:
     std::string global_exec_rules_dir() const;
     WorkspaceBoundary& boundary_;
@@ -61,6 +74,9 @@ private:
     mutable std::mutex prompt_mu_;
     mutable std::optional<std::pair<PermissionMode, std::string>> prompt_snapshot_;
     SafeEditGuard safe_edit_guard_;
+    auto_review::DenialTracker review_denials_;
+    ReviewProviderAccessor review_provider_;   // Guarded by state_mu_.
+    ReviewTimeouts review_timeouts_;           // Guarded by state_mu_.
 };
 
 } // namespace acecode::agent

@@ -92,11 +92,14 @@ TEST(Permissions, PlanModeRestoresPreviousNonPlanMode) {
     EXPECT_EQ(pm.pre_plan_mode(), PermissionMode::Default);
 }
 
-// 场景:状态栏/快捷键循环包含 Plan,顺序锁定为
-// Default -> Auto -> Yolo -> Plan -> Default。
+// 场景:状态栏/快捷键循环包含 Plan 与自动模式（试验）,顺序锁定为
+// Default -> Auto -> AutoReview -> Yolo -> Plan -> Default。
+// 期望:AutoReview 紧跟 Auto(两者放行表相同,差别只在要确认时谁来把关),
+// 一圈之后回到 Default,没有哪个模式被跳过。
 TEST(Permissions, CycleModeIncludesPlanMode) {
     PermissionManager pm;
     EXPECT_EQ(pm.cycle_mode(), PermissionMode::Auto);
+    EXPECT_EQ(pm.cycle_mode(), PermissionMode::AutoReview);
     EXPECT_EQ(pm.cycle_mode(), PermissionMode::Yolo);
     EXPECT_EQ(pm.cycle_mode(), PermissionMode::Plan);
     EXPECT_EQ(pm.cycle_mode(), PermissionMode::Default);
@@ -208,4 +211,37 @@ TEST(Permissions, MemoryToolsAreAutoApprovedForEitherScope) {
         EXPECT_TRUE(pm.should_auto_allow("memory_read", /*is_read_only=*/true));
         EXPECT_TRUE(pm.should_auto_allow("memory_write", /*is_read_only=*/false));
     }
+}
+
+// 场景:自动模式（试验）的模式名往返(openspec add-auto-review-mode)。
+// 触发:config / 会话 meta / CLI / REST 都用 "auto-review" 这个线上名。
+// 期望:解析得到 AutoReview,序列化写回同一个名字,描述非空;大小写或下划线
+// 变体不被接受(避免出现第二个线上名)。
+TEST(Permissions, AutoReviewModeNameRoundTrips) {
+    const auto parsed = PermissionManager::parse_mode_name("auto-review");
+    ASSERT_TRUE(parsed.has_value());
+    EXPECT_EQ(*parsed, PermissionMode::AutoReview);
+    EXPECT_STREQ(PermissionManager::mode_name(PermissionMode::AutoReview), "auto-review");
+    EXPECT_EQ(PermissionManager::canonical_mode_name(" auto-review "), "auto-review");
+    EXPECT_STRNE(PermissionManager::mode_description(PermissionMode::AutoReview), "");
+    EXPECT_FALSE(PermissionManager::parse_mode_name("auto_review").has_value());
+    EXPECT_FALSE(PermissionManager::parse_mode_name("AutoReview").has_value());
+}
+
+// 场景:自动模式（试验）沿用 Auto 的放行表。
+// 期望:写边界内的文件工具(含 GPT 系的 apply_patch)自动放行,不必经过裁决;
+// bash 仍然不在这里放行(它走 exec 决策表,要确认的再交给裁决模型)。
+// 回归意义:如果这里漏了新模式,每次文件编辑都会多一次裁决请求。
+TEST(Permissions, AutoReviewModeSharesAutoFileToolPolicy) {
+    PermissionManager pm;
+    pm.set_mode(PermissionMode::AutoReview);
+    EXPECT_TRUE(pm.should_auto_allow("file_write", false));
+    EXPECT_TRUE(pm.should_auto_allow("file_edit", false));
+    EXPECT_TRUE(pm.should_auto_allow("apply_patch", false));
+    EXPECT_FALSE(pm.should_auto_allow("bash", false));
+    EXPECT_TRUE(acecode::permission_mode_uses_auto_policy(PermissionMode::Auto));
+    EXPECT_TRUE(acecode::permission_mode_uses_auto_policy(PermissionMode::AutoReview));
+    EXPECT_FALSE(acecode::permission_mode_uses_auto_policy(PermissionMode::Default));
+    EXPECT_FALSE(acecode::permission_mode_uses_auto_policy(PermissionMode::Yolo));
+    EXPECT_FALSE(acecode::permission_mode_uses_auto_policy(PermissionMode::Plan));
 }

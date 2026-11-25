@@ -17,17 +17,28 @@ enum class PermissionMode {
     // 的未知命令才确认。老名字 accept-edits / acceptEdits 仍可解析。
     Auto,
     Yolo,         // Auto-allow all tool permissions without prompting (no sandbox)
-    Plan          // Explore and write only the active plan file before approval
+    Plan,         // Explore and write only the active plan file before approval
+    // AutoReview(openspec add-auto-review-mode,界面名「自动模式（试验）」):放行表与
+    // Auto 完全相同;差别只在「要确认」的调用先交给裁决模型,而不是直接弹窗。
+    // 追加在枚举末尾,不改变已有取值。
+    AutoReview
 };
 
 inline const char* permission_mode_name(PermissionMode m) {
     switch (m) {
-        case PermissionMode::Default: return "default";
-        case PermissionMode::Auto:    return "auto";
-        case PermissionMode::Yolo:    return "yolo";
-        case PermissionMode::Plan:    return "plan";
+        case PermissionMode::Default:    return "default";
+        case PermissionMode::Auto:       return "auto";
+        case PermissionMode::Yolo:       return "yolo";
+        case PermissionMode::Plan:       return "plan";
+        case PermissionMode::AutoReview: return "auto-review";
     }
     return "unknown";
+}
+
+// AutoReview 沿用 Auto 的放行表(exec 决策表、文件工具自动放行、headless 的 MCP
+// 白名单)。凡是「按 Auto 处理」的判断都经这一个函数,不要各处手写两个枚举值。
+inline bool permission_mode_uses_auto_policy(PermissionMode m) {
+    return m == PermissionMode::Auto || m == PermissionMode::AutoReview;
 }
 
 // 模式名解析的唯一入口:别名(accept-edits / acceptEdits = auto)只在这里
@@ -47,6 +58,7 @@ inline std::optional<PermissionMode> parse_permission_mode_name(std::string name
     }
     if (name == "yolo") return PermissionMode::Yolo;
     if (name == "plan") return PermissionMode::Plan;
+    if (name == "auto-review") return PermissionMode::AutoReview;
     return std::nullopt;
 }
 

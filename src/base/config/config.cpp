@@ -1753,7 +1753,7 @@ static AppConfig load_config_from_path_once(
                 cfg.summary_generation.enabled = summary.value("enabled", false);
                 cfg.summary_generation.model_name = summary.value("model_name", std::string{});
             }
-
+            read_auto_review_config(j, cfg.auto_review);
             if (j.contains("session_title")) {
                 if (!j["session_title"].is_object()) {
                     LOG_WARN("[config] 'session_title' must be an object, ignoring");
@@ -2586,7 +2586,7 @@ nlohmann::json build_config_json(const AppConfig& cfg) {
         if (cfg.summary_generation.enabled) summary["enabled"] = true;
         if (!cfg.summary_generation.model_name.empty()) summary["model_name"] = cfg.summary_generation.model_name;
         if (!summary.empty()) j["summary_generation"] = std::move(summary);
-
+        write_auto_review_config(j, cfg.auto_review);
         SessionTitleConfig st_d;
         nlohmann::json stj = nlohmann::json::object();
         if (cfg.session_title.enabled != st_d.enabled)
