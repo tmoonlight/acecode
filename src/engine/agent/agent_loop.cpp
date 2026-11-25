@@ -118,6 +118,7 @@ AgentLoop::AgentLoop(AgentLoopServices services, AgentLoopOptions options)
     set_tool_preamble_config(options.config.tool_preamble);
     if (options.sandbox) set_sandbox_config(*options.sandbox);
     set_audit_sink(std::move(services.audit_sink));
+    exec_security_->set_review_provider(std::move(services.review_provider));
     if (!options.exec_rules_dir_override.empty())
         set_exec_rules_dir_for_tests(options.exec_rules_dir_override);
     if (!options.inherited_write_root.empty())

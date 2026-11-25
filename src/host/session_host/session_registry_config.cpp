@@ -28,6 +28,15 @@ SessionPromptConfig SessionRegistry::prompt_config_snapshot() const {
     return copy(); // Immutable headless/test configuration.
 }
 
+AutoReviewModelChoice SessionRegistry::auto_review_model_snapshot() const {
+    if (!deps_.config) return {};
+    if (deps_.config_mutex) {
+        std::shared_lock<std::shared_mutex> lock(*deps_.config_mutex);
+        return auto_review_model_choice(*deps_.config);
+    }
+    return auto_review_model_choice(*deps_.config); // Immutable headless/test configuration.
+}
+
 void SessionRegistry::refresh_skill_policy(const AppConfig& config) {
     struct RefreshTarget {
         std::shared_ptr<SessionEntry> entry;

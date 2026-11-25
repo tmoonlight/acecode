@@ -1,4 +1,5 @@
 #pragma once
+#include "auto_review_gate.hpp"
 #include "exec_permission_gate.hpp"
 #include "path_access_policy.hpp"
 #include "permission_audit_scope.hpp"
@@ -28,17 +29,26 @@ public:
     ToolPermissionGate(ToolExecutor& tools, PermissionManager& permissions,
         WorkspaceBoundary& boundary, SessionExecSecurity& security, ToolSessionHost& host,
         GoalRuntime& goal, ToolHookBridge& hooks, ExecPermissionGate& exec,
-        PathAccessPolicy& paths, PermissionConfirmation& confirmation,
+        PathAccessPolicy& paths, PermissionConfirmation& confirmation, AutoReviewGate& review,
         SessionManager* session, HookManager* manager)
         : tools_(tools), permissions_(permissions), boundary_(boundary), security_(security),
           host_(host), goal_(goal), tool_hooks_(hooks), exec_(exec), paths_(paths),
-          confirmation_(confirmation), session_manager_(session), hook_manager_(manager) {}
+          confirmation_(confirmation), review_(review), session_manager_(session),
+          hook_manager_(manager) {}
     PermissionVerdict decide(const ToolCall& call, const ToolContext& context,
         const std::string& path, const std::string& command,
         std::size_t index, const ProgressEmitter& progress);
     void observe_result(const PermissionVerdict& verdict, const ToolCall& call,
         const std::string& path, const std::string& command, ToolResult& result);
 private:
+    // 自动模式（试验）:对一次「要确认」的调用作裁决。返回值非空 = 直接以该结果结束。
+    // 返回空时看 auto_allow:true = 已放行;false = 退回弹窗,review_note 是给确认框的
+    // 说明,limit_fallback 表示这次弹窗是因为拦截次数达到上限。
+    std::optional<ToolResult> review_pending_call(
+        const ToolCall& call, std::size_t index, const ProgressEmitter& progress,
+        const std::optional<sandbox::ExecPermission>& exec, bool human_only,
+        PermissionAuditScope& audit, PermissionHookSession& hooks,
+        bool& auto_allow, nlohmann::json& review_note, bool& limit_fallback);
     ToolExecutor& tools_;
     PermissionManager& permissions_;
     WorkspaceBoundary& boundary_;
@@ -49,6 +59,7 @@ private:
     ExecPermissionGate& exec_;
     PathAccessPolicy& paths_;
     PermissionConfirmation& confirmation_;
+    AutoReviewGate& review_;
     SessionManager* session_manager_; // Nullable borrowed constructor dependency.
     HookManager* hook_manager_; // Nullable borrowed constructor dependency.
 };

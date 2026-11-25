@@ -229,6 +229,103 @@ TEST(ApiRequestBuilder, UpdatesAndHooksAppendOnceAndNeverDisappear) {
     EXPECT_TRUE(repeated.context_records.empty());
 }
 
+// 场景:会话先在别的模式下发过请求,用户随后切到自动模式（试验）,再切回去
+// (openspec add-auto-review-mode,规格「模式提示只在打开时注入」)。
+// 期望:
+//   - 没进过该模式时,请求里没有任何与它有关的内容,状态里也没有这个键;
+//   - 切入后的下一次请求追加一条上下文更新,带出模式说明,此前的前缀逐字节不变;
+//   - 模式不变时不重复追加;
+//   - 切出后追加一条「不再生效」,之后也不再重复。
+TEST(ApiRequestBuilder, AutoReviewGuidanceAppearsOnlyWhileTheModeIsOn) {
+    acecode::ToolExecutor tools;
+    acecode::agent::PromptContextCache cache;
+    acecode::agent::ApiRequestBuilder builder(tools, cache);
+    auto inputs = context_inputs();
+    const auto first = builder.build(inputs);
+    ASSERT_EQ(first.context_records.size(), 1u);
+    EXPECT_EQ(first.context_records.front().content.find("auto_review"), std::string::npos);
+    EXPECT_FALSE(first.context_records.front().metadata["context_state"].contains("auto_review"));
+    commit(inputs, first);
+
+    inputs.history.push_back(message("assistant", "answer"));
+    inputs.history.push_back(message("user", "second request"));
+    inputs.auto_review_context = "AUTO-REVIEW-GUIDANCE";
+    const auto on = builder.build(inputs);
+    expect_prefix(first.messages_with_system, on.messages_with_system);
+    ASSERT_EQ(on.context_records.size(), 1u);
+    EXPECT_NE(on.context_records.front().content.find("<auto_review>\nAUTO-REVIEW-GUIDANCE\n</auto_review>"),
+              std::string::npos);
+    commit(inputs, on);
+
+    const auto steady = builder.build(inputs);
+    expect_prefix(on.messages_with_system, steady.messages_with_system);
+    EXPECT_TRUE(steady.context_records.empty());
+
+    inputs.history.push_back(message("assistant", "done"));
+    inputs.history.push_back(message("user", "third request"));
+    inputs.auto_review_context.clear();
+    const auto off = builder.build(inputs);
+    expect_prefix(steady.messages_with_system, off.messages_with_system);
+    ASSERT_EQ(off.context_records.size(), 1u);
+    const auto& withdrawn = off.context_records.front().content;
+    EXPECT_NE(withdrawn.find("<auto_review>\nThis section is no longer active.\n</auto_review>"),
+              std::string::npos);
+    EXPECT_EQ(withdrawn.find("AUTO-REVIEW-GUIDANCE"), std::string::npos);
+    commit(inputs, off);
+
+    const auto after = builder.build(inputs);
+    expect_prefix(off.messages_with_system, after.messages_with_system);
+    EXPECT_TRUE(after.context_records.empty());
+}
+
+// 场景:会话一开始就处于自动模式（试验）(新建会话时默认模式就是它)。
+// 期望:模式说明直接出现在首条上下文快照里,不需要额外的更新记录。
+TEST(ApiRequestBuilder, AutoReviewGuidanceIsPartOfTheInitialSnapshot) {
+    acecode::ToolExecutor tools;
+    acecode::agent::PromptContextCache cache;
+    acecode::agent::ApiRequestBuilder builder(tools, cache);
+    auto inputs = context_inputs();
+    inputs.auto_review_context = "AUTO-REVIEW-GUIDANCE";
+    const auto first = builder.build(inputs);
+    ASSERT_EQ(first.context_records.size(), 1u);
+    EXPECT_NE(first.context_records.front().content.find("AUTO-REVIEW-GUIDANCE"), std::string::npos);
+    commit(inputs, first);
+    EXPECT_TRUE(builder.build(inputs).context_records.empty());
+}
+
+// 回归:本变更之前创建的会话,快照的状态里根本没有 auto_review 这个键。
+// 触发:恢复这样的会话(一直不在该模式)并继续对话。
+// 期望:不产生任何上下文更新,请求与以前逐字节相同。
+// bug 表现(修复前的比较逻辑把「缺键」当作变化):恢复后的第一次请求会凭空多出
+// 一条「auto_review 不再生效」,既是噪声,又让已缓存的前缀白白失效一次。
+TEST(ApiRequestBuilder, SessionsThatNeverUsedAutoReviewGetNoContextUpdate) {
+    acecode::ToolExecutor tools;
+    acecode::agent::PromptContextCache cache;
+    acecode::agent::ApiRequestBuilder builder(tools, cache);
+    auto inputs = context_inputs();
+    const auto first = builder.build(inputs);
+    ASSERT_EQ(first.context_records.size(), 1u);
+    // 旧快照的状态恰好是这四个键,没有 auto_review。
+    const auto& state = first.context_records.front().metadata["context_state"];
+    EXPECT_EQ(state.size(), 4u);
+    commit(inputs, first);
+
+    // 落盘再读回,换一个全新的构造器与缓存,模拟重启后恢复。
+    for (auto& item : inputs.history) {
+        item = acecode::deserialize_message_json(acecode::serialize_message_json(item));
+    }
+    inputs.history.push_back(message("assistant", "answer"));
+    inputs.history.push_back(message("user", "after resume"));
+    acecode::agent::PromptContextCache resumed_cache;
+    acecode::agent::ApiRequestBuilder resumed(tools, resumed_cache);
+    const auto next = resumed.build(inputs);
+    expect_prefix(first.messages_with_system, next.messages_with_system);
+    EXPECT_TRUE(next.context_records.empty());
+    for (const auto& item : next.messages_with_system) {
+        EXPECT_EQ(item.content.find("auto_review"), std::string::npos);
+    }
+}
+
 TEST(ApiRequestBuilder, TodoWriteDoesNotReplaceEarlierChecklist) {
     acecode::ToolExecutor tools;
     acecode::agent::PromptContextCache cache;

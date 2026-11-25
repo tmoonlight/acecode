@@ -67,6 +67,7 @@ import { SpeechRecognitionSettings } from './SpeechRecognitionSettings.jsx';
 import { ComputerUseSettings } from './ComputerUseSettings.jsx';
 import { IosSimulatorSettings } from './IosSimulatorSettings.jsx';
 import { SummaryGenerationSettings } from './SummaryGenerationSettings.jsx';
+import { AutoReviewSettings } from './AutoReviewSettings.jsx';
 import { ToolRewriteSettings } from './ToolRewriteSettings.jsx';
 import { SecurityCenterSettings } from './SecurityCenterSettings.jsx';
 import { ChannelsSettings } from './ChannelsSettings.jsx';
@@ -2809,6 +2810,7 @@ function SectionTools({ onCheckUpdates, onModelProfileUpdated }) {
       {desktopOnlyToolsVisible && <ComputerUseSettings onCheckUpdates={onCheckUpdates} />}
       {desktopOnlyToolsVisible && <IosSimulatorSettings />}
       <SummaryGenerationSettings onCheckUpdates={onCheckUpdates} onModelProfileUpdated={onModelProfileUpdated} />
+      <AutoReviewSettings onCheckUpdates={onCheckUpdates} />
 
       <ToolRewriteSettings onCheckUpdates={onCheckUpdates} />
     </>

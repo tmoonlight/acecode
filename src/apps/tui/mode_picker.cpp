@@ -5,9 +5,10 @@
 namespace acecode {
 
 std::vector<ModePickerOption> build_mode_picker_options(PermissionMode current_mode) {
-    static constexpr std::array<PermissionMode, 4> kModes = {
+    static constexpr std::array<PermissionMode, 5> kModes = {
         PermissionMode::Default,
         PermissionMode::Auto,
+        PermissionMode::AutoReview,
         PermissionMode::Plan,
         PermissionMode::Yolo,
     };

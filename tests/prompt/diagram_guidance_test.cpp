@@ -1,9 +1,12 @@
 // 覆盖 src/engine/prompt/diagram_guidance.cpp(openspec add-inline-visuals 的「画图说明」):
-//   1. 三种显示面:None 不出任何文字;Terminal 只有 mermaid 部分;Web 视开关加 visual 部分
+//   1. 三种显示面:None 不出任何文字;Terminal 只有 mermaid 部分;Web 开关打开换成
+//      visual 优先的说明,关闭只有 mermaid 部分
 //   2. mermaid 部分只列两端都能渲染的五种类型,并写明会退回源码的写法
-//   3. visual 部分:技能可用时点名用 skill_view 的模型侧名字加载 inline-visuals,
+//   3. visual 优先:默认 visual,mermaid 只留给单纯的流程 / 依赖 / 时序图,复合图形一律
+//      visual;旧版里把 visual 当成 mermaid 补充的说法不再出现
+//   4. visual 部分:技能可用时点名用 skill_view 的模型侧名字加载 inline-visuals,
 //      技能不可用时只给核心约束
-//   4. 同一组输入逐字节相同(放在静态系统提示里,不能打穿 prompt cache)
+//   5. 同一组输入逐字节相同(放在静态系统提示里,不能打穿 prompt cache)
 
 #include <gtest/gtest.h>
 
@@ -80,11 +83,12 @@ TEST(DiagramGuidance, MermaidPartListsSupportedTypesAndRejectedSyntax) {
 }
 
 // 场景:网页会话,「可视化图表」开关为默认的开启,画图规范技能可用。
-// 期望:mermaid 与 visual 两部分都有;visual 部分点名先用 skill_view 加载
-// inline-visuals,并写明顶层、片段、主题变量、脚本在闭合后执行、CDN 与 ace.send。
+// 期望:选择规则在最前,然后是 visual 部分,最后是 mermaid 的类型与写法限制;visual 部分
+// 点名先用 skill_view 加载 inline-visuals,并写明顶层、片段、主题变量、脚本在闭合后执行、
+// CDN 与 ace.send。
 TEST(DiagramGuidance, WebWithSwitchOnAddsVisualPartAndSkillLoad) {
     const auto text = build_diagram_guidance(web(true, true));
-    EXPECT_TRUE(contains(text, "# Diagrams"));
+    EXPECT_EQ(text.rfind("# Diagrams\n\n", 0), 0u);
     EXPECT_TRUE(contains(text, "## Inline visuals"));
     EXPECT_TRUE(contains(text, "```visual"));
     EXPECT_TRUE(contains(text, "load the `inline-visuals` skill with the `skill_view` tool"));
@@ -93,19 +97,62 @@ TEST(DiagramGuidance, WebWithSwitchOnAddsVisualPartAndSkillLoad) {
                              "`position: fixed`", "Chart.js 4 and d3 7 are built in"}) {
         EXPECT_TRUE(contains(text, rule)) << rule;
     }
-    // mermaid 部分在前,visual 部分在后,中间空一行。
-    EXPECT_LT(text.find("```mermaid"), text.find("## Inline visuals"));
-    EXPECT_TRUE(contains(text, "in prose.\n\n## Inline visuals"));
+    // 顺序:选择规则 → visual 部分 → mermaid 限制,各节之间空一行。
+    const auto choosing = text.find("Choosing the format:\n");
+    const auto visuals = text.find("\n\n## Inline visuals\n\n");
+    const auto mermaid = text.find("\n\n## Mermaid\n\n");
+    ASSERT_NE(choosing, std::string::npos);
+    ASSERT_NE(visuals, std::string::npos);
+    ASSERT_NE(mermaid, std::string::npos);
+    EXPECT_LT(choosing, visuals);
+    EXPECT_LT(visuals, mermaid);
     EXPECT_TRUE(inline_visuals_guidance_active(DiagramSurface::Web, true));
 }
 
+// 场景:用户反馈开关打开后模型画 mermaid 的概率远大于 visual。旧版说明先讲 mermaid,
+// 「画 / 图表」这类请求的触发语挂在 mermaid 段落里,visual 被写成「mermaid 表达不了的
+// 内容」的补充,还有三句劝退 visual 的话。用户拍板:开关打开时始终优先 visual,只有
+// 单纯的流程、依赖、时序图用 mermaid;需要复合式图形时一律 visual。
+// 期望:选择规则写明默认 visual、mermaid 只作上述例外、复合图形一律 visual;画图类请求
+// 的触发语里有 chart / illustrate / visualize 并指向 figure;旧版劝退 visual 的三句话
+// 一句都不出现;mermaid 的五种类型与会退回源码的写法照样列出(例外情况仍要用)。
+TEST(DiagramGuidance, WebWithSwitchOnPrefersVisualAndKeepsMermaidForPlainFlows) {
+    const auto text = build_diagram_guidance(web(true, true));
+    EXPECT_TRUE(contains(text, "- Default to a ```visual block."));
+    EXPECT_TRUE(contains(text, "Use a ```mermaid block only when the whole figure is a plain "
+                               "flow, dependency or sequence diagram"));
+    EXPECT_TRUE(contains(text, "A composite figure is always a visual, never mermaid"));
+    EXPECT_TRUE(contains(text, "draw, diagram, sketch, chart, illustrate or visualize something, "
+                               "give them the figure itself"));
+    // 选择规则排在 visual 细则之前,模型先读到「默认 visual」。
+    EXPECT_LT(text.find("Default to a ```visual block."), text.find("## Inline visuals"));
+
+    for (const char* legacy : {"what mermaid cannot express well",
+                               "Plain boxes-and-arrows structure stays in mermaid",
+                               "a mermaid diagram already works",
+                               "This interface also draws"}) {
+        EXPECT_FALSE(contains(text, legacy)) << legacy;
+    }
+
+    for (const char* type : {"`flowchart TD`", "`sequenceDiagram`", "`stateDiagram-v2`",
+                             "`classDiagram`", "`erDiagram`"}) {
+        EXPECT_TRUE(contains(text, type)) << type;
+    }
+    for (const char* rejected : {"gantt", "`%%{init}%%`", "`List~String~`", "`click`"}) {
+        EXPECT_TRUE(contains(text, rejected)) << rejected;
+    }
+}
+
 // 场景:用户在设置 > 常规关闭「可视化图表」。
-// 期望:只剩 mermaid 部分,与 Terminal 以外的文字相同起点;不再出现 visual 部分。
+// 期望:只剩 mermaid 部分,全文不出现 visual 字样(包括选择规则与「默认 visual」的说法),
+// 否则关了开关的会话仍会被引导去写画不出来的 visual 代码块。
 TEST(DiagramGuidance, WebWithSwitchOffKeepsMermaidOnly) {
     const auto text = build_diagram_guidance(web(false, true));
     EXPECT_TRUE(contains(text, "```mermaid"));
     EXPECT_FALSE(contains(text, "## Inline visuals"));
     EXPECT_FALSE(contains(text, "inline-visuals"));
+    EXPECT_FALSE(contains(text, "visual"));
+    EXPECT_FALSE(contains(text, "Choosing the format"));
     EXPECT_FALSE(inline_visuals_guidance_active(DiagramSurface::Web, false));
 }
 

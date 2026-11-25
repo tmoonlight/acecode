@@ -185,6 +185,18 @@ import {
   assert.equal(patch.title, '[文件安全] 修改文件:a.txt');
   assert.deepEqual(patch.extraPaths, ['a.txt', 'b.txt']);
   assert.equal(patch.meta, '自动判定 · 自动模式 · apply_patch');
+  // 场景:自动模式（试验）的审计记录。期望:来源显示「模型裁决」,原因显示阶段,
+  // 裁决给的理由出现在片段一栏;该模式下文件自动放行的原因也有中文标签。
+  const reviewed = auditRowPresentation({ category: 'command', decision: 'deny', source: 'classifier', reason: 'review_stage2', target: 'git push --force', detail: { review_reason: 'B2: force-push rewrites history', review_model: 'reviewer' } });
+  assert.equal(reviewed.meta, '模型裁决 · 复核后判定');
+  assert.equal(reviewed.snippet, 'B2: force-push rewrites history');
+  assert.equal(reviewed.tone, 'danger');
+  const allowed = auditRowPresentation({ category: 'command', decision: 'allow', source: 'classifier', reason: 'review_stage1', target: 'pnpm test' });
+  assert.equal(allowed.meta, '模型裁决 · 第一阶段判定');
+  const autoFile = auditRowPresentation({ category: 'file', decision: 'allow', source: 'auto', reason: 'mode_auto-review', tool: 'file_write', target: 'a.txt' });
+  assert.equal(autoFile.meta, '自动判定 · 自动模式（试验） · file_write');
+  const locked = auditRowPresentation({ category: 'command', decision: 'deny', source: 'classifier', reason: 'review_denial_limit', target: 'git push' });
+  assert.equal(locked.meta, '模型裁决 · 拦截次数达到上限');
 }
 
 // 场景:分页合并与汇总计数。期望:按 id 去重;放行类合计、拒绝类合计、拦截单列。

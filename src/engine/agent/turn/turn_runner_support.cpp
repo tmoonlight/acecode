@@ -64,7 +64,8 @@ ToolBatchOutcome TurnRunner::execute_tools(TurnContext& turn, const ChatResponse
             source_.tool_policy, session_, hook_manager_, source_.skills.get(),
             permission_prompter_, question_prompter_},
         ToolExecutionOptions{options_.provider, options_.question_channel,
-            turn.progress_clock, turn.model_tool_names, options_.background});
+            turn.progress_clock, turn.model_tool_names, options_.background,
+            !source_.delegate_context.empty()});
     auto outcome = pipeline->execute(response, provider, progress, turn.doom_guard, turn.preamble);
     for (auto& action : outcome.post_turn_actions) {
         if (!action) continue;

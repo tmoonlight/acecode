@@ -712,7 +712,9 @@ int run_print_mode(const HeadlessCliOptions& opts) {
                 std::cerr << "acecode -p: session initialization failed\n";
                 return 1;
             }
-            if (registration_allowlist && effective_permission_mode == "auto") {
+            // 自动模式（试验）沿用 auto 的放行表,这份白名单同样生效。
+            if (registration_allowlist &&
+                (effective_permission_mode == "auto" || effective_permission_mode == "auto-review")) {
                 // The operator explicitly approved these exact MCP tools for unattended calls.
                 // Normal rule denials and checks for builtin tools still apply.
                 for (const auto& tool : tools.get_registered_tools()) {

@@ -122,3 +122,38 @@ run('系统提示画图说明与隔离框外壳一致', () => {
   assert.ok(guidance.includes('`ace.send(text)`'));
   assert.ok(guidance.includes('"inline-visuals"') || guidance.includes('kInlineVisualsSkillName'));
 });
+
+// 触发场景:可视化从开始生成到定稿脚本跑完之前,盖一层按主题配色的渐变加载动画。
+// 期望行为:组件收到框内 rendered 才揭开,并有兜底计时(rendered 不来也不一直盖着);
+// 样式里浅色、深色各有一套颜色,都取主题变量;漂移动画只改 transform(不触发排版、不重绘框);
+// 加载层在框外层的层叠上下文里,盖不住右上角的复制按钮。
+// 回归:颜色写死成某个灰值,换成深色或别的配色主题时会出现一块刺眼的亮块。
+const styles = read('../styles/globals.css');
+run('加载动画按主题配色,只在 rendered 或兜底计时后揭开', () => {
+  assert.match(block, /message\.type === 'rendered'/);
+  assert.match(block, /INLINE_VISUAL_REVEAL_FALLBACK_MS/);
+  assert.match(block, /className="ace-inline-visual-loading" aria-hidden="true"/);
+  assert.match(runtime, /post\(\{ type: 'rendered' \}\)/);
+
+  const rule = (selector) => {
+    const start = styles.indexOf(`${selector} {`);
+    assert.notEqual(start, -1, selector);
+    return styles.slice(start, styles.indexOf('}', start));
+  };
+  for (const selector of ['.ace-inline-visual-loading', '[data-theme="dark"] .ace-inline-visual-loading']) {
+    const body = rule(selector);
+    for (const name of ['--ace-inline-visual-loading-base', '--ace-inline-visual-loading-shade', '--ace-inline-visual-loading-light']) {
+      assert.ok(body.includes(`${name}:`), `${selector} ${name}`);
+    }
+    assert.equal(/#[0-9a-f]{3,8}\b/i.test(body), false, selector);
+  }
+  assert.match(rule('.ace-inline-visual-stage'), /isolation: isolate;/);
+  for (const name of ['a', 'b', 'c']) {
+    const start = styles.indexOf(`@keyframes ace-inline-visual-drift-${name} {`);
+    assert.notEqual(start, -1, name);
+    const frames = styles.slice(start, styles.indexOf('\n}', start));
+    const properties = [...frames.matchAll(/\{\s*([a-z-]+)\s*:/g)].map((match) => match[1]);
+    assert.ok(properties.length >= 2, name);
+    assert.ok(properties.every((property) => property === 'transform'), `${name}: ${properties}`);
+  }
+});

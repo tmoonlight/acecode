@@ -42,7 +42,7 @@ public:
         if (before_create) before_create();
         created_options = opts;
         created = true;
-        return "visible-session";
+        return "visible-session-" + std::to_string(create_count);
     }
     bool resume_session(const std::string&, const SessionOptions&) override { return false; }
     std::vector<SessionInfo> list_sessions() override { return {}; }
@@ -58,7 +58,7 @@ public:
     bool send_input(const std::string& session_id, const std::string& text) override {
         sent_after_subscribe = listener_ && subscribed_session == session_id;
         sent_text = text;
-        if (listener_) listener_(SessionEvent{SessionEventKind::Done});
+        if (listener_ && finish_on_send) listener_(SessionEvent{SessionEventKind::Done});
         return true;
     }
     BuiltinCommandResult execute_builtin_command(
@@ -74,6 +74,7 @@ public:
     SessionOptions created_options;
     std::function<void()> before_create;
     int create_count = 0;
+    bool finish_on_send = true;
     EventListener listener_;
     std::string subscribed_session;
     std::string sent_text;
@@ -181,6 +182,7 @@ void check_scheduler_execution(bool manual, bool stop_with_pending = false) {
     deps.template_permissions = &permissions;
     SessionRegistry registry(std::move(deps));
     FakeLoopSessionClient client;
+    client.finish_on_send = !manual || stop_with_pending;
     std::promise<void> entered, release;
     auto entered_future = entered.get_future();
     auto release_future = release.get_future();
@@ -241,6 +243,33 @@ void check_scheduler_execution(bool manual, bool stop_with_pending = false) {
         }
         return;
     }
+    if (manual) {
+        ASSERT_TRUE(scheduler.run_now(created->id, &error)) << error.message;
+        std::vector<LoopRun> runs;
+        for (int i = 0; i < 100; ++i) {
+            runs = store.list_runs(created->id);
+            if (runs.size() == 2 && !runs[0].session_id.empty() && !runs[1].session_id.empty()) break;
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+        scheduler.stop();
+
+        ASSERT_EQ(runs.size(), 2u);
+        EXPECT_EQ(runs[0].status, RunStatus::Running);
+        EXPECT_EQ(runs[1].status, RunStatus::Running);
+        EXPECT_FALSE(runs[0].session_id.empty());
+        EXPECT_FALSE(runs[1].session_id.empty());
+        EXPECT_NE(runs[0].session_id, runs[1].session_id);
+        EXPECT_NE(runs[0].id, runs[1].id);
+        EXPECT_EQ(client.create_count, 2);
+        EXPECT_TRUE(client.sent_after_subscribe);
+        EXPECT_EQ(client.created_options.loop_run_id, runs[0].id);
+        EXPECT_TRUE(client.created_options.loop_execution);
+        const auto after = store.get_loop(created->id);
+        ASSERT_TRUE(after);
+        EXPECT_FALSE(after->enabled);
+        EXPECT_EQ(after->next_run_at_ms, created->next_run_at_ms);
+        return;
+    }
     bool terminal = false;
     LoopRun observed;
     for (int i = 0; i < 100 && !terminal; ++i) {
@@ -255,12 +284,6 @@ void check_scheduler_execution(bool manual, bool stop_with_pending = false) {
     scheduler.stop();
     EXPECT_FALSE(scheduler.run_now(created->id, &error));
     EXPECT_EQ(error.code, "LOOP_UNAVAILABLE");
-    if (manual) {
-        const auto after = store.get_loop(created->id);
-        ASSERT_TRUE(after);
-        EXPECT_FALSE(after->enabled);
-        EXPECT_EQ(after->next_run_at_ms, created->next_run_at_ms);
-    }
 
     EXPECT_TRUE(terminal);
     EXPECT_EQ(observed.status, RunStatus::Completed);
@@ -282,7 +305,7 @@ TEST(LoopScheduler, DueRunCreatesVisibleSessionAndCapturesTerminalEvent) {
     check_scheduler_execution(false);
 }
 
-TEST(LoopScheduler, ManualRunWakesWorkerAndPreservesDisabledTask) {
+TEST(LoopScheduler, OverlappingManualRunsCreateSeparateSessionsAndPreserveDisabledTask) {
     check_scheduler_execution(true);
 }
 

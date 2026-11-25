@@ -3615,6 +3615,86 @@ body {
 [data-theme="dark"] .ace-inline-visual-frame {
   color-scheme: dark;
 }
+/* 加载动画:生成到定稿脚本跑完之前盖在框上,几团柔和的色块缓慢漂移;颜色取当前主题,
+   浅色是浅灰底配深一点的灰,深色是抬亮的灰底配接近页面底色的暗团。只动 transform。
+   暂时不跟随「减少动态效果」:远程桌面常把它报成开启,静止的色块看起来像卡住了。 */
+.ace-inline-visual-stage {
+  position: relative;
+  isolation: isolate;
+  min-height: 0;
+  transition: min-height 0.45s ease;
+}
+.ace-inline-visual-stage[data-loading="loading"] {
+  min-height: 180px;
+}
+.ace-inline-visual-loading {
+  --ace-inline-visual-loading-base:
+    linear-gradient(rgba(var(--ace-fg-rgb), 0.05), rgba(var(--ace-fg-rgb), 0.05)) var(--ace-surface-hi);
+  --ace-inline-visual-loading-shade: rgba(var(--ace-fg-rgb), 0.2);
+  --ace-inline-visual-loading-light: rgba(var(--ace-surface-rgb), 0.85);
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  overflow: hidden;
+  border-radius: 14px;
+  background: var(--ace-inline-visual-loading-base);
+  box-shadow: inset 0 0 18px 0 var(--ace-inline-visual-loading-light);
+  pointer-events: none;
+  transition: opacity 0.45s ease;
+}
+[data-theme="dark"] .ace-inline-visual-loading {
+  --ace-inline-visual-loading-base:
+    linear-gradient(rgba(var(--ace-fg-rgb), 0.13), rgba(var(--ace-fg-rgb), 0.13)) var(--ace-surface-hi);
+  --ace-inline-visual-loading-shade: rgba(var(--ace-bg-rgb), 0.82);
+  --ace-inline-visual-loading-light: rgba(var(--ace-fg-rgb), 0.1);
+}
+.ace-inline-visual-stage[data-loading="revealing"] .ace-inline-visual-loading {
+  opacity: 0;
+}
+.ace-inline-visual-loading > span {
+  position: absolute;
+  width: 62%;
+  height: 120%;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, var(--ace-inline-visual-loading-shade), transparent);
+  will-change: transform;
+  animation: ace-inline-visual-drift-a 7s ease-in-out infinite alternate;
+}
+.ace-inline-visual-loading > span:nth-child(1) {
+  left: -14%;
+  top: 10%;
+}
+.ace-inline-visual-loading > span:nth-child(2) {
+  right: -16%;
+  top: -42%;
+  animation-name: ace-inline-visual-drift-b;
+  animation-duration: 9s;
+  animation-delay: -3s;
+}
+.ace-inline-visual-loading > span:nth-child(3) {
+  left: 24%;
+  bottom: -58%;
+  width: 56%;
+  background: radial-gradient(closest-side, var(--ace-inline-visual-loading-light), transparent);
+  animation-name: ace-inline-visual-drift-c;
+  animation-duration: 11s;
+  animation-delay: -5s;
+}
+@keyframes ace-inline-visual-drift-a {
+  0% { transform: translate(0, 0) scale(1); }
+  50% { transform: translate(38%, -14%) scale(1.18); }
+  100% { transform: translate(14%, 18%) scale(0.92); }
+}
+@keyframes ace-inline-visual-drift-b {
+  0% { transform: translate(0, 0) scale(1.05); }
+  50% { transform: translate(-34%, 26%) scale(0.9); }
+  100% { transform: translate(-10%, 40%) scale(1.15); }
+}
+@keyframes ace-inline-visual-drift-c {
+  0% { transform: translate(0, 0) scale(1); }
+  50% { transform: translate(-30%, -30%) scale(1.2); }
+  100% { transform: translate(26%, -44%) scale(0.95); }
+}
 .ace-inline-visual .ace-inline-visual-copy {
   opacity: 0;
 }
@@ -3666,6 +3746,12 @@ body {
   top: auto;
   right: auto;
   z-index: auto;
+}
+/* 复制按钮左边再放一个按钮时,右上角让出两个按钮的宽度。 */
+.ace-copyable-code[data-code-action-count="2"] > [data-tool-detail-metadata="true"],
+.ace-copyable-code[data-code-action-count="2"] > .ace-skill-document-md,
+.ace-copyable-code[data-code-action-count="2"] > pre {
+  padding-right: 76px;
 }
 .ace-code-copy-btn,
 .ace-code-action-btn {
@@ -3813,15 +3899,18 @@ a.ace-thread-link:focus-visible {
   min-width: 0;
 }
 .ace-completion-summary-md > :first-child,
-.ace-task-complete-md > :first-child {
+.ace-task-complete-md > :first-child,
+.ace-skill-document-md > :first-child {
   margin-top: 0;
 }
 .ace-completion-summary-md > :last-child,
-.ace-task-complete-md > :last-child {
+.ace-task-complete-md > :last-child,
+.ace-skill-document-md > :last-child {
   margin-bottom: 0;
 }
 .ace-completion-summary-md pre,
-.ace-task-complete-md pre {
+.ace-task-complete-md pre,
+.ace-skill-document-md pre {
   font-size: 12px;
 }
 

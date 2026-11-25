@@ -5,9 +5,10 @@
 // 模型长期不画 mermaid 的根因是从没被告知界面能渲染它;visual 代码块同理。这里按
 // 运行面生成一段固定文本,由 ApiRequestBuilder::static_system_prompt 追加在静态系统
 // 提示末尾:
-//   - mermaid 部分:TUI 与 daemon(Web / Desktop)都有,只列两端都能渲染的五种类型,
+//   - 只有 mermaid:TUI,以及关闭「可视化图表」的网页会话。只列两端都能渲染的五种类型,
 //     并与 web/src/lib/mermaidRenderer.js 的 inspectMermaidSource 拒绝规则对齐;
-//   - visual 部分:只有 daemon 且「可视化图表」开关打开时才有。
+//   - visual 优先:daemon 且「可视化图表」开关打开时。默认画 visual,mermaid 只留给
+//     单纯的流程 / 依赖 / 时序图,复合图形一律 visual;mermaid 的类型与写法限制照样列出。
 // 文本只由入参决定(不含时间、路径、会话信息),同一组入参逐字节相同,不打穿 prompt
 // cache 前缀。
 

@@ -1832,14 +1832,12 @@ TEST(WebServerHttp, LoopManualRunRequiresAuthAndUsesScheduler) {
     EXPECT_EQ(cpr::Post(cpr::Url{fx.url("/api/loops/missing/run")}).status_code, 404);
     auto active = fx.loop_store->claim_now(created->id, now, "test-owner");
     ASSERT_TRUE(active.run);
-    auto busy = cpr::Post(cpr::Url{fx.url(route)});
-    EXPECT_EQ(busy.status_code, 409);
-    EXPECT_EQ(json::parse(busy.text)["error"], "LOOP_BUSY");
-    ASSERT_TRUE(fx.loop_store->interrupt_owner_runs("test-owner", now));
     auto accepted = cpr::Post(cpr::Url{fx.url(route)});
     ASSERT_EQ(accepted.status_code, 202) << accepted.text;
     EXPECT_EQ(json::parse(accepted.text)["loop_id"], created->id);
     const auto run_id = json::parse(accepted.text)["id"].get<std::string>();
+    EXPECT_NE(run_id, active.run->id);
+    ASSERT_TRUE(fx.loop_store->interrupt_owner_runs("test-owner", now));
     bool model_failed = false;
     for (int i = 0; i < 100 && !model_failed; ++i) {
         for (const auto& run : fx.loop_store->list_runs(created->id)) {

@@ -78,9 +78,9 @@ std::optional<PermissionMode> parse_permission_mode_arg(std::string mode) {
 }
 
 std::string mode_usage_text() {
-    return "Usage: /mode | /mode <default|auto|plan|yolo>\n"
-           "       /mode default <default|auto|plan|yolo>\n"
-           "       /mode --default <default|auto|plan|yolo>\n"
+    return "Usage: /mode | /mode <default|auto|auto-review|plan|yolo>\n"
+           "       /mode default <default|auto|auto-review|plan|yolo>\n"
+           "       /mode --default <default|auto|auto-review|plan|yolo>\n"
            "       (accept-edits is accepted as an alias of auto)";
 }
 

@@ -16,7 +16,18 @@ namespace acecode::loop {
 
 namespace {
 
-constexpr int kSchemaVersion = 5;
+constexpr int kSchemaVersion = 6;
+
+constexpr const char* kCreateLoopRuns =
+    "CREATE TABLE IF NOT EXISTS loop_runs("
+    "id TEXT PRIMARY KEY,loop_id TEXT NOT NULL,scheduled_at_ms INTEGER NOT NULL,"
+    "started_at_ms INTEGER NULL,finished_at_ms INTEGER NULL,status TEXT NOT NULL,"
+    "reason TEXT NOT NULL DEFAULT '',missed_count INTEGER NOT NULL DEFAULT 1,"
+    "session_id TEXT NOT NULL DEFAULT '',worktree_path TEXT NOT NULL DEFAULT '',"
+    "worktree_branch TEXT NOT NULL DEFAULT '',owner_id TEXT NOT NULL DEFAULT '',"
+    "workspace_touched TEXT NOT NULL DEFAULT '',workspace_cwd TEXT,"
+    "is_manual INTEGER NOT NULL DEFAULT 0,"
+    "FOREIGN KEY(loop_id) REFERENCES loops(id) ON DELETE CASCADE);";
 
 void set_error(StoreError* error, const std::string& code, const std::string& message) {
     if (!error) return;
@@ -229,11 +240,14 @@ bool same_loop_active(sqlite3* db, const std::string& id, StoreError* error) {
     return rc == SQLITE_ROW;
 }
 
-bool insert_run(sqlite3* db, const LoopRun& run, StoreError* error) {
+enum class RunTrigger { Scheduled, Manual };
+
+bool insert_run(sqlite3* db, const LoopRun& run, StoreError* error,
+                RunTrigger trigger = RunTrigger::Scheduled) {
     Statement stmt(db,
         "INSERT INTO loop_runs(id,loop_id,scheduled_at_ms,started_at_ms,finished_at_ms,"
-        "status,reason,missed_count,session_id,worktree_path,worktree_branch,owner_id,workspace_cwd) "
-        "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,(SELECT workspace_cwd FROM loops WHERE id=?));", error);
+        "status,reason,missed_count,session_id,worktree_path,worktree_branch,owner_id,workspace_cwd,is_manual) "
+        "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,(SELECT workspace_cwd FROM loops WHERE id=?),?);", error);
     if (!stmt) return false;
     const bool bound = bind_text(stmt.get(), 1, run.id) &&
         bind_text(stmt.get(), 2, run.loop_id) &&
@@ -246,7 +260,8 @@ bool insert_run(sqlite3* db, const LoopRun& run, StoreError* error) {
         bind_text(stmt.get(), 9, run.session_id) &&
         bind_text(stmt.get(), 10, run.worktree_path) &&
         bind_text(stmt.get(), 11, run.worktree_branch) &&
-        bind_text(stmt.get(), 12, run.owner_id) && bind_text(stmt.get(), 13, run.loop_id);
+        bind_text(stmt.get(), 12, run.owner_id) && bind_text(stmt.get(), 13, run.loop_id) &&
+        sqlite3_bind_int(stmt.get(), 14, trigger == RunTrigger::Manual) == SQLITE_OK;
     if (!bound || sqlite3_step(stmt.get()) != SQLITE_DONE) {
         set_error(error, "SQLITE_ERROR", sqlite_message(db, "insert run failed"));
         return false;
@@ -293,16 +308,17 @@ bool LoopStore::initialize(StoreError* error) {
         set_error(error, "IO_ERROR", "failed to create LOOP database directory: " + ec.message());
         return false;
     }
+    platform::UniqueSqlite db;
     const std::string path = path_to_utf8(db_path_);
-    if (sqlite3_open_v2(path.c_str(), db_.put(), SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, nullptr) != SQLITE_OK) {
-        set_error(error, "SQLITE_ERROR", sqlite_message(db_.get(), "open LOOP database failed"));
-        if (db_.get()) db_.reset();
+    if (sqlite3_open_v2(path.c_str(), db.put(), SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, nullptr) != SQLITE_OK) {
+        set_error(error, "SQLITE_ERROR", sqlite_message(db.get(), "open LOOP database failed"));
         return false;
     }
-    sqlite3_busy_timeout(db_.get(), 5000);
+    sqlite3_busy_timeout(db.get(), 5000);
     const char* schema =
         "PRAGMA foreign_keys=ON;"
         "PRAGMA journal_mode=WAL;"
+        "BEGIN IMMEDIATE;"
         "CREATE TABLE IF NOT EXISTS loop_schema_migrations("
         "version INTEGER PRIMARY KEY,applied_at_ms INTEGER NOT NULL);"
         "CREATE TABLE IF NOT EXISTS loops("
@@ -316,42 +332,32 @@ bool LoopStore::initialize(StoreError* error) {
         "auto_archive_old_sessions INTEGER NOT NULL DEFAULT 0,"
         "auto_delete_old_sessions INTEGER NOT NULL DEFAULT 0,"
         "keep_recent_sessions INTEGER NOT NULL DEFAULT 3);"
-        "CREATE INDEX IF NOT EXISTS loops_next_idx ON loops(enabled,next_run_at_ms);"
-        "CREATE TABLE IF NOT EXISTS loop_runs("
-        "id TEXT PRIMARY KEY,loop_id TEXT NOT NULL,scheduled_at_ms INTEGER NOT NULL,"
-        "started_at_ms INTEGER NULL,finished_at_ms INTEGER NULL,status TEXT NOT NULL,"
-        "reason TEXT NOT NULL DEFAULT '',missed_count INTEGER NOT NULL DEFAULT 1,"
-        "session_id TEXT NOT NULL DEFAULT '',worktree_path TEXT NOT NULL DEFAULT '',"
-        "worktree_branch TEXT NOT NULL DEFAULT '',owner_id TEXT NOT NULL DEFAULT '',"
-        "workspace_touched TEXT NOT NULL DEFAULT '',workspace_cwd TEXT,"
-        "UNIQUE(loop_id,scheduled_at_ms),"
-        "FOREIGN KEY(loop_id) REFERENCES loops(id) ON DELETE CASCADE);"
-        "CREATE INDEX IF NOT EXISTS loop_runs_loop_idx ON loop_runs(loop_id,scheduled_at_ms DESC);"
-        "CREATE INDEX IF NOT EXISTS loop_runs_active_idx ON loop_runs(status,owner_id);";
-    if (!exec_sql(db_.get(), schema, error)) return false;
+        "CREATE INDEX IF NOT EXISTS loops_next_idx ON loops(enabled,next_run_at_ms);";
+    if (!exec_sql(db.get(), schema, error) ||
+        !exec_sql(db.get(), kCreateLoopRuns, error)) return false;
     bool has_run_workspace = false;
-    if (!table_has_column(db_.get(), "loop_runs", "workspace_cwd", has_run_workspace, error) ||
-        (!has_run_workspace && !exec_sql(db_.get(), "ALTER TABLE loop_runs ADD COLUMN workspace_cwd TEXT;", error))) {
+    if (!table_has_column(db.get(), "loop_runs", "workspace_cwd", has_run_workspace, error) ||
+        (!has_run_workspace && !exec_sql(db.get(), "ALTER TABLE loop_runs ADD COLUMN workspace_cwd TEXT;", error))) {
         return false;
     }
     bool has_use_worktree = false;
-    if (!table_has_column(db_.get(), "loops", "use_worktree", has_use_worktree, error)) {
+    if (!table_has_column(db.get(), "loops", "use_worktree", has_use_worktree, error)) {
         return false;
     }
     if (!has_use_worktree &&
-        !exec_sql(db_.get(),
+        !exec_sql(db.get(),
                   "ALTER TABLE loops ADD COLUMN use_worktree INTEGER NOT NULL DEFAULT 1;",
                   error)) {
         return false;
     }
     // v3:loop_runs.workspace_touched(换行分隔的路径列表,写边界事后检测)。
     bool has_workspace_touched = false;
-    if (!table_has_column(db_.get(), "loop_runs", "workspace_touched", has_workspace_touched,
+    if (!table_has_column(db.get(), "loop_runs", "workspace_touched", has_workspace_touched,
                           error)) {
         return false;
     }
     if (!has_workspace_touched &&
-        !exec_sql(db_.get(),
+        !exec_sql(db.get(),
                   "ALTER TABLE loop_runs ADD COLUMN workspace_touched TEXT NOT NULL DEFAULT '';",
                   error)) {
         return false;
@@ -368,16 +374,42 @@ bool LoopStore::initialize(StoreError* error) {
                  "keep_recent_sessions",
                  "ALTER TABLE loops ADD COLUMN keep_recent_sessions INTEGER NOT NULL DEFAULT 3;"}}) {
         bool has_column = false;
-        if (!table_has_column(db_.get(), "loops", column, has_column, error)) return false;
-        if (!has_column && !exec_sql(db_.get(), ddl, error)) return false;
+        if (!table_has_column(db.get(), "loops", column, has_column, error)) return false;
+        if (!has_column && !exec_sql(db.get(), ddl, error)) return false;
     }
-    Statement migration(db_.get(),
+
+    // v6 keeps timestamp uniqueness for scheduled occurrences only.
+    bool has_manual_flag = false;
+    if (!table_has_column(db.get(), "loop_runs", "is_manual", has_manual_flag, error)) return false;
+    if (!has_manual_flag) {
+        constexpr const char* copy_runs =
+            "INSERT INTO loop_runs(rowid,id,loop_id,scheduled_at_ms,started_at_ms,finished_at_ms,"
+            "status,reason,missed_count,session_id,worktree_path,worktree_branch,owner_id,"
+            "workspace_touched,workspace_cwd) "
+            "SELECT rowid,id,loop_id,scheduled_at_ms,started_at_ms,finished_at_ms,"
+            "status,reason,missed_count,session_id,worktree_path,worktree_branch,owner_id,"
+            "workspace_touched,workspace_cwd FROM loop_runs_before_manual;"
+            "DROP TABLE loop_runs_before_manual;";
+        if (!exec_sql(db.get(), "ALTER TABLE loop_runs RENAME TO loop_runs_before_manual;", error) ||
+            !exec_sql(db.get(), kCreateLoopRuns, error) ||
+            !exec_sql(db.get(), copy_runs, error)) return false;
+    }
+    constexpr const char* run_indexes =
+        "CREATE INDEX IF NOT EXISTS loop_runs_loop_idx ON loop_runs(loop_id,scheduled_at_ms DESC);"
+        "CREATE INDEX IF NOT EXISTS loop_runs_active_idx ON loop_runs(status,owner_id);"
+        "CREATE UNIQUE INDEX IF NOT EXISTS loop_runs_automatic_idx "
+        "ON loop_runs(loop_id,scheduled_at_ms) WHERE is_manual=0;";
+    if (!exec_sql(db.get(), run_indexes, error)) return false;
+
+    Statement migration(db.get(),
         "INSERT OR IGNORE INTO loop_schema_migrations(version,applied_at_ms) VALUES(?,?);", error);
     if (!migration || !bind_i64(migration.get(), 1, kSchemaVersion) ||
         !bind_i64(migration.get(), 2, 0) || sqlite3_step(migration.get()) != SQLITE_DONE) {
-        set_error(error, "SQLITE_ERROR", sqlite_message(db_.get(), "record LOOP schema failed"));
+        set_error(error, "SQLITE_ERROR", sqlite_message(db.get(), "record LOOP schema failed"));
         return false;
     }
+    if (!exec_sql(db.get(), "COMMIT;", error)) return false;
+    db_ = std::move(db);
     return true;
 }
 
@@ -581,7 +613,7 @@ std::vector<LoopRun> LoopStore::list_runs(const std::string& loop_id,
     Statement stmt(db_.get(),
         "SELECT id,loop_id,scheduled_at_ms,started_at_ms,finished_at_ms,status,reason,"
         "missed_count,session_id,worktree_path,worktree_branch,owner_id,workspace_touched "
-        "FROM loop_runs WHERE loop_id=? ORDER BY scheduled_at_ms DESC LIMIT ?;", error);
+        "FROM loop_runs WHERE loop_id=? ORDER BY scheduled_at_ms DESC,rowid DESC LIMIT ?;", error);
     if (!stmt || !bind_text(stmt.get(), 1, loop_id) ||
         sqlite3_bind_int(stmt.get(), 2, limit) != SQLITE_OK) return result;
     int rc = SQLITE_ROW;
@@ -600,7 +632,7 @@ std::vector<LoopRunSession> LoopStore::list_run_sessions(const std::string& loop
     if (!ensure_available(error)) return result;
     Statement stmt(db_.get(),
         "SELECT session_id,workspace_cwd FROM loop_runs WHERE loop_id=? AND session_id<>'' "
-        "ORDER BY scheduled_at_ms DESC,id;", error);
+        "ORDER BY scheduled_at_ms DESC,rowid DESC;", error);
     if (!stmt || !bind_text(stmt.get(), 1, loop_id)) return result;
     int rc = SQLITE_ROW;
     std::unordered_set<std::string> seen;
@@ -723,16 +755,6 @@ ClaimResult LoopStore::claim_now(const std::string& id, std::int64_t now_ms,
         rollback_locked();
         return {};
     }
-    const bool active = same_loop_active(db_.get(), id, error);
-    const bool busy = active || same_workspace_active(db_.get(), *loop, error);
-    if (busy || (error && !error->code.empty())) {
-        if (!error || error->code.empty()) {
-            set_error(error, active ? "LOOP_BUSY" : "WORKSPACE_BUSY",
-                      active ? "Task is already running" : "Workspace has an active scheduled task");
-        }
-        rollback_locked();
-        return {};
-    }
     LoopRun run;
     run.id = generate_uuid();
     run.loop_id = id;
@@ -740,7 +762,7 @@ ClaimResult LoopStore::claim_now(const std::string& id, std::int64_t now_ms,
     run.started_at_ms = now_ms;
     run.status = RunStatus::Running;
     run.owner_id = owner_id;
-    if (!insert_run(db_.get(), run, error) || !commit_locked(error)) {
+    if (!insert_run(db_.get(), run, error, RunTrigger::Manual) || !commit_locked(error)) {
         if (sqlite3_get_autocommit(db_.get()) == 0) rollback_locked();
         return {};
     }

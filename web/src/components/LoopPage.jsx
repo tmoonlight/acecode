@@ -311,9 +311,7 @@ export function LoopPage({ onOpenSession, onSmartAdd }) {
   const [deleteConfirm, setDeleteConfirm] = useState(null);
   const [loading, setLoading] = useState(true);
   const [unsupported, setUnsupported] = useState(false);
-  const pollInFlight = useRef(false);
-  const pendingRuns = useRef(new Set());
-  const [startingRuns, setStartingRuns] = useState(new Set());
+  const activityRefresh = useRef(Promise.resolve());
 
   const refreshModels = useCallback(async () => {
     try { setModels(normalizeList(await api.listModels(), 'models')); }
@@ -337,33 +335,37 @@ export function LoopPage({ onOpenSession, onSmartAdd }) {
   }, []);
   useEffect(() => { load(); }, [load]);
 
-  const refreshActivity = useCallback(async () => {
-    if (pollInFlight.current) return;
-    pollInFlight.current = true;
-    try {
-      const loopData = await api.listLoops();
-      setLoops(normalizeList(loopData, 'loops'));
-      if (expanded) {
-        const result = await api.listLoopRuns(expanded, 20);
-        setRunsByLoop((prev) => ({ ...prev, [expanded]: normalizeList(result, 'runs') }));
+  const refreshActivity = useCallback((historyId, showHistoryError = false) => {
+    // Keep polling and post-run reads in order so an older snapshot cannot replace a newer one.
+    const refresh = activityRefresh.current.then(async () => {
+      try {
+        const loopData = await api.listLoops();
+        setLoops(normalizeList(loopData, 'loops'));
+        setUnsupported(false);
+      } catch (e) {
+        if (e?.status === 404 || e?.status === 501 || e?.code === 'LOOP_UNAVAILABLE') setUnsupported(true);
       }
-      setUnsupported(false);
-    } catch (e) {
-      if (e?.status === 404 || e?.status === 501 || e?.code === 'LOOP_UNAVAILABLE') setUnsupported(true);
-    } finally {
-      pollInFlight.current = false;
-    }
-  }, [expanded]);
+      if (!historyId) return;
+      try {
+        const result = await api.listLoopRuns(historyId, 20);
+        setRunsByLoop((prev) => ({ ...prev, [historyId]: normalizeList(result, 'runs') }));
+      } catch (e) {
+        if (showHistoryError) toast({ kind: 'err', text: '读取运行记录失败：' + (e?.message || '') });
+      }
+    });
+    activityRefresh.current = refresh;
+    return refresh;
+  }, []);
 
   useEffect(() => {
     let stopped = false;
     let timer = null;
     const tick = async () => {
-      if (!stopped && document.visibilityState !== 'hidden') await refreshActivity();
+      if (!stopped && document.visibilityState !== 'hidden') await refreshActivity(expanded);
       if (!stopped) timer = window.setTimeout(tick, LOOP_POLL_INTERVAL_MS);
     };
     const onVisibilityChange = () => {
-      if (document.visibilityState === 'visible') refreshActivity();
+      if (document.visibilityState === 'visible') refreshActivity(expanded);
     };
     timer = window.setTimeout(tick, LOOP_POLL_INTERVAL_MS);
     document.addEventListener('visibilitychange', onVisibilityChange);
@@ -372,16 +374,13 @@ export function LoopPage({ onOpenSession, onSmartAdd }) {
       if (timer) window.clearTimeout(timer);
       document.removeEventListener('visibilitychange', onVisibilityChange);
     };
-  }, [refreshActivity]);
+  }, [expanded, refreshActivity]);
 
   const workspaceByHash = useMemo(() => new Map(workspaces.map((item) => [item.hash, item])), [workspaces]);
   const toggleRuns = async (id) => {
     if (expanded === id) { setExpanded(''); return; }
     setExpanded(id);
-    try {
-      const result = await api.listLoopRuns(id, 20);
-      setRunsByLoop((prev) => ({ ...prev, [id]: normalizeList(result, 'runs') }));
-    } catch (e) { toast({ kind: 'err', text: '读取运行记录失败：' + (e?.message || '') }); }
+    await refreshActivity(id, true);
   };
   const toggleEnabled = async (loop) => {
     try {
@@ -398,23 +397,14 @@ export function LoopPage({ onOpenSession, onSmartAdd }) {
     setDeleteConfirm(loop);
   };
   const runNow = async (loop) => {
-    if (pendingRuns.current.has(loop.id)) return;
-    pendingRuns.current.add(loop.id);
-    setStartingRuns(new Set(pendingRuns.current));
     try {
-      const run = await api.runLoopNow(loop.id);
-      setLoops((prev) => prev.map((item) => item.id === loop.id ? { ...item, latest_run: run } : item));
-      setRunsByLoop((prev) => ({ ...prev, [loop.id]: [run, ...(prev[loop.id] || []).filter((item) => item.id !== run.id)] }));
-      setExpanded(loop.id);
+      await api.runLoopNow(loop.id);
     } catch (e) {
-      const code = e?.body?.error;
-      const message = code === 'LOOP_BUSY' ? '此任务正在运行' : code === 'WORKSPACE_BUSY'
-        ? '该工作空间已有定时任务正在运行' : `立即运行失败：${e?.message || '请重试'}`;
-      toast({ kind: 'err', text: message });
-    } finally {
-      pendingRuns.current.delete(loop.id);
-      setStartingRuns(new Set(pendingRuns.current));
+      toast({ kind: 'err', text: `立即运行失败：${e?.message || '请重试'}` });
+      return;
     }
+    setExpanded(loop.id);
+    await refreshActivity(loop.id, true);
   };
   const confirmRemove = async () => {
     const loop = deleteConfirm;
@@ -489,10 +479,10 @@ export function LoopPage({ onOpenSession, onSmartAdd }) {
                         </p>
                       </div>
                       <div className="flex w-full sm:w-auto shrink-0 items-center justify-end gap-2.5">
-                        <button type="button" onClick={() => runNow(loop)} disabled={active || startingRuns.has(loop.id)}
-                          aria-label={`立即运行：${loop.name}`} title="立即运行" aria-busy={startingRuns.has(loop.id)}
-                          className="w-7 h-7 shrink-0 rounded-md hover:bg-surface-hi flex items-center justify-center text-fg-2 disabled:opacity-40 disabled:cursor-not-allowed focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent">
-                          <VsIcon name={startingRuns.has(loop.id) ? 'refresh' : 'run'} size={14} className={startingRuns.has(loop.id) ? 'animate-spin motion-reduce:animate-none' : ''} />
+                        <button type="button" onClick={() => runNow(loop)}
+                          aria-label={`立即运行：${loop.name}`} title="立即运行"
+                          className="w-7 h-7 shrink-0 rounded-md hover:bg-surface-hi flex items-center justify-center text-fg-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent">
+                          <VsIcon name="run" size={14} />
                         </button>
                         <button type="button" onClick={() => toggleEnabled(loop)} className="h-7 px-2.5 rounded-md text-[11px] border border-border hover:bg-surface-hi">{loop.enabled ? '停用' : '启用'}</button>
                         <button type="button" onClick={() => setDialog({ loop })} className="w-7 h-7 rounded-md hover:bg-surface-hi flex items-center justify-center" title="编辑"><VsIcon name="edit" size={14} /></button>

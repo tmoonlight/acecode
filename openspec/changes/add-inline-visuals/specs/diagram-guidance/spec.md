@@ -18,11 +18,19 @@ TUI 与 daemon(Web / Desktop)会话的静态系统提示 SHALL 含一段画图�
 - **THEN** 系统提示里已有足够信息让模型用 `flowchart TD` 写 mermaid,而不是 gantt 或带 `click` 的写法
 
 ### Requirement: visual 说明
-只有 daemon 会话且 `inline_visuals.enabled` 为真时,画图说明 SHALL 再含 visual 部分:说明 visual 代码块是在对话里实时渲染的 SVG / HTML 片段;用于 mermaid 表达不了的内容(原理示意、可交互讲解、数据图表、方案对比卡片);写清核心约束(单个片段、顶层、不写 html/head/body、用框内主题变量、脚本在闭合后执行、只能用允许的 CDN 且 Chart.js 4 与 d3 7 已内置、用 `ace.send` 追问)。画图规范技能可用时,SHALL 要求第一次画 visual 前先用当前模型侧的 skill_view 工具名加载它。
+只有 daemon 会话且 `inline_visuals.enabled` 为真时,画图说明 SHALL 再含 visual 部分:说明 visual 代码块是在对话里实时渲染的 SVG / HTML 片段;并在说明最前面给出选择规则(2026-11-26 修订):默认画 visual(原理示意、可交互讲解、数据图表、方案对比卡片都属于 visual);只有整张图就是单纯的流程、依赖或时序图时才用 mermaid;需要复合式图形(结构之外还带数据或图表、标注、高亮或图例、多个面板、对比、交互)时一律用 visual。说明 MUST NOT 再把 visual 写成「mermaid 表达不了时的补充」或劝模型「mermaid 能画就别画 visual」。写清核心约束(单个片段、顶层、不写 html/head/body、用框内主题变量、脚本在闭合后执行、只能用允许的 CDN 且 Chart.js 4 与 d3 7 已内置、用 `ace.send` 追问)。画图规范技能可用时,SHALL 要求第一次画 visual 前先用当前模型侧的 skill_view 工具名加载它。
 
 #### Scenario: 开关打开的网页会话
 - **WHEN** Web 里开启会话,开关为默认的开启
 - **THEN** 系统提示同时含 mermaid 与 visual 两部分,visual 部分点名要先加载 `inline-visuals` 技能
+
+#### Scenario: 复合式图形
+- **WHEN** 开关打开时用户说「画一下请求链路,并标出每一跳的耗时和瓶颈」
+- **THEN** 系统提示的选择规则让模型画一个 visual,而不是 mermaid 流程图加文字
+
+#### Scenario: 单纯的流程
+- **WHEN** 开关打开时用户说「画一下这个模块的调用流程」,图里只有方框、箭头和简短标签
+- **THEN** 系统提示允许模型用 `flowchart TD` 写 mermaid
 
 #### Scenario: 开关关闭
 - **WHEN** 开关关闭后发消息

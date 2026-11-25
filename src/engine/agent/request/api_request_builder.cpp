@@ -35,9 +35,16 @@ void remove_memory_tools(std::vector<ToolDef>& defs) {
     }), defs.end());
 }
 
+// 只在有内容时才进状态的分节。常驻的四个分节(session / swarm / plan / execution)
+// 即使为空也在状态里;这里列出的分节为空时整个键不出现,所以从没用过它们的会话
+// (包括引入它们之前创建的旧会话)状态与请求都逐字节不变。
+constexpr const char* kOnDemandSections[] = {"auto_review"};
+
 nlohmann::json context_state(const RequestBuildInputs& inputs) {
-    return {{"session", inputs.session.content}, {"swarm", inputs.swarm_context},
-            {"plan", inputs.plan_context}, {"execution", inputs.execution_context}};
+    nlohmann::json state = {{"session", inputs.session.content}, {"swarm", inputs.swarm_context},
+                            {"plan", inputs.plan_context}, {"execution", inputs.execution_context}};
+    if (!inputs.auto_review_context.empty()) state["auto_review"] = inputs.auto_review_context;
+    return state;
 }
 
 std::string render_context_state(const nlohmann::json& state, bool update) {
@@ -235,6 +242,7 @@ RequestBuildInputs ApiRequestBuilder::capture(
         ? fallback_session_key_ : options.memory_session_key;
     inputs.memory_active = memory_active(options);
     inputs.plan_context = options.plan_context;
+    inputs.auto_review_context = options.auto_review_context;
     inputs.todos = options.todos;
     inputs.execution_context = "Shell sandbox: " + options.sandbox.description;
     inputs.system_prompt = static_system_prompt(options);
@@ -417,6 +425,17 @@ ApiRequestBundle ApiRequestBuilder::build(RequestBuildInputs inputs) {
                 changed[it.key()] = it.value();
             }
         }
+        // 按需分节关闭:上一份状态里有内容而这次没有,补一条「不再生效」。上一份
+        // 本来就没有这个键(或已经是空)的不发 —— 否则旧会话恢复后会凭空多出一条
+        // 更新,既是噪声又白白打穿一次缓存前缀。
+        for (const char* key : kOnDemandSections) {
+            if (current.contains(key)) continue;
+            const auto before = previous.find(key);
+            if (before != previous.end() && before->is_string() &&
+                !before->get_ref<const std::string&>().empty()) {
+                changed[key] = std::string{};
+            }
+        }
         if (!inputs.skills_catalog_key.empty() && inputs.skills_catalog_key != previous_skills_key) {
             changed["skills"] = inputs.skills.content;
         }
@@ -497,6 +516,7 @@ ApiRequestBundle ApiRequestBuilder::compaction_request(
         inputs.session.content = state.value("session", std::string{});
         inputs.swarm_context = state.value("swarm", std::string{});
         inputs.plan_context = state.value("plan", std::string{});
+        inputs.auto_review_context = state.value("auto_review", std::string{});
         inputs.execution_context = state.value("execution", std::string{});
         inputs.skills_catalog_key = skills_catalog_key;
     }

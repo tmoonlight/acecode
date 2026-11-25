@@ -373,6 +373,9 @@ public:
 
     int turn_count() const { return provider_ ? provider_->turn_count() : 0; }
 
+    // 提交前切换权限模式(自动模式（试验）的请求前缀用例要用)。
+    void set_permission_mode(acecode::PermissionMode mode) { perms_.set_mode(mode); }
+
     std::vector<ChatMessage> request_messages_for_turn(int zero_based_index) const {
         return provider_->messages_for_turn(zero_based_index);
     }
@@ -1114,6 +1117,40 @@ TEST(AgentLoopTermination, RequestPrefixIsByteStableAcrossIterationsInATurn) {
     EXPECT_EQ(first.front().content.find("- Today's date: "), std::string::npos);
     EXPECT_NE(first.front().content.find("- Working directory: "), std::string::npos);
     EXPECT_EQ(first.front().content.find("[当前环境状态]"), std::string::npos);
+}
+
+// 场景:自动模式（试验）开着,同一回合内模型调了一次工具,于是有两次请求
+// (openspec add-auto-review-mode,规格「模式提示只在打开时注入」)。
+// 期望:
+//   - 给主模型的模式说明出现在请求里,但不在静态 system prompt 里;
+//   - 第二次请求只在第一次的末尾追加,前面每条消息逐字节相同 —— 模式说明是
+//     内容驱动的固定文字,不会在回合内挪位置或变化。
+// 回归意义:说明如果写进 system prompt 或每次请求重新生成,整段前缀的缓存都会失效。
+TEST(AgentLoopTermination, RequestPrefixIsByteStableInAutoReviewMode) {
+    AgentLoopHarness h;
+    h.set_permission_mode(acecode::PermissionMode::AutoReview);
+    h.push_tool_call("noop", "{}", "c1");
+    h.push_text("done");
+
+    ASSERT_TRUE(h.submit_and_wait("run the tool"));
+    ASSERT_EQ(h.turn_count(), 2);
+
+    const auto first = h.request_messages_for_turn(0);
+    const auto second = h.request_messages_for_turn(1);
+    ASSERT_GE(first.size(), 2u);
+    ASSERT_GT(second.size(), first.size());
+    for (std::size_t i = 0; i < first.size(); ++i) {
+        EXPECT_EQ(first[i].role, second[i].role) << "role mismatch at " << i;
+        EXPECT_EQ(first[i].content, second[i].content) << "prompt prefix changed at message " << i;
+    }
+
+    EXPECT_EQ(first.front().role, "system");
+    EXPECT_EQ(first.front().content.find("Auto mode (experimental) is on."), std::string::npos);
+    int carriers = 0;
+    for (const auto& message : first) {
+        if (message.content.find("Auto mode (experimental) is on.") != std::string::npos) ++carriers;
+    }
+    EXPECT_EQ(carriers, 1);
 }
 
 TEST(AgentLoopTermination, RequestPrefixIsByteStableAcrossUserTurns) {

@@ -338,6 +338,7 @@ const SOURCE_LABELS = {
   headless: '无头模式',
   goal: '无人值守',
   sandbox: '沙箱',
+  classifier: '模型裁决',
   none: '无确认通道',
 };
 
@@ -358,6 +359,7 @@ const REASON_LABELS = {
   plan_mode: '计划模式',
   yolo: 'YOLO 模式',
   mode_auto: '自动模式',
+  'mode_auto-review': '自动模式（试验）',
   mode_default: '默认模式',
   mode_plan: '计划模式',
   mode_yolo: 'YOLO 模式',
@@ -387,6 +389,12 @@ const REASON_LABELS = {
   remember_rule_failed: '写入规则文件失败',
   scoped_grant: '放行被拒目录',
   session_grant: '本次会话授权额外权限',
+  review_stage1: '第一阶段判定',
+  review_stage2: '复核后判定',
+  review_denial_limit: '拦截次数达到上限',
+  review_no_verdict: '裁决没有结果',
+  review_needs_user: '需要用户本人确认',
+  review_interrupted: '裁决被中断',
 };
 
 function decisionTone(decision) {
@@ -434,7 +442,8 @@ export function auditRowPresentation(entry) {
     extraPaths: paths.length > 1 ? paths : [],
     sessionId: entry?.session_id || '',
     cwd: entry?.cwd || '',
-    snippet: entry?.detail?.snippet || '',
+    // 模型裁决的记录没有沙箱输出片段,这一栏放裁决给的理由。
+    snippet: entry?.detail?.snippet || entry?.detail?.review_reason || '',
   };
 }
 

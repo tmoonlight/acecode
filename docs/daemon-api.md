@@ -444,6 +444,8 @@ download when nothing changed.
 | POST | `/api/config/computer-use/permissions` | explicitly request one macOS system permission |
 | GET | `/api/config/summary-generation` | read summary-model override and available models |
 | PUT | `/api/config/summary-generation` | save summary-model override for automatic session titles |
+| GET | `/api/config/auto-review` | read the reviewer model for Auto (experimental) mode |
+| PUT | `/api/config/auto-review` | save the reviewer model for Auto (experimental) mode |
 | PUT | `/api/config/image-generation` | save image generation settings and refresh the tool |
 | POST | `/api/config/image-generation/test` | explicitly generate one standard-quality test image |
 | GET | `/api/config/memory` | read memory settings (use memory, memory summarization, summary model) |
@@ -2471,7 +2473,9 @@ Body:
 {"mode":"yolo"}
 ```
 
-Canonical modes are `default`, `auto`, `plan`, and `yolo`. Legacy inputs
+Canonical modes are `default`, `auto`, `auto-review`, `plan`, and `yolo`
+(`auto-review` is the experimental mode in which a reviewer model decides calls
+that would otherwise prompt; see [auto-review-mode.md](auto-review-mode.md)). Legacy inputs
 `accept-edits` and `acceptEdits` normalize to `auto` in configuration, persisted
 session metadata, and responses. Switching to
 `yolo` also resolves any open permission prompt with allow. Returns the same
@@ -4604,6 +4608,26 @@ Disabling retains `model_name` and restores
 the previous title-resolution behavior, including the legacy override. This
 setting does not change the conversation model or disable automatic titles.
 
+### Auto (experimental) reviewer settings
+
+`GET /api/config/auto-review` returns `model_name` (a saved model name, or an
+empty string meaning "use the session's current model"), `configured` (whether
+that saved model still exists) and `models` (available `{name, provider, model}`
+records). No model credentials are included. Reads and writes require the normal
+API authentication and return `Cache-Control: no-store`.
+
+`PUT /api/config/auto-review` accepts an object containing only `model_name`
+(string). An empty string restores "use the session's current model". A newly
+submitted name that is not a saved model, and any other field or type, returns
+`400 BAD_REQUEST`; malformed JSON returns `400 BAD_JSON`; persistence failures
+return `500 PERSIST_FAILED` and leave the live configuration unchanged. A name
+saved earlier that has since been deleted can be written back unchanged.
+
+The value is read at every review, so a change applies to the next reviewed call
+in every session without a restart. With `configured: false` the reviewer falls
+back to the session's current model; there is no fallback chain to other saved
+models.
+
 ### Computer use settings
 
 `GET /api/config/computer-use` returns `enabled` (default `false`),
@@ -6069,8 +6093,25 @@ Optional fields only appear when the corresponding choice is available:
   sandbox, `default.sandboxed.rules` otherwise). It is absent for interpreters,
   `rm`, `sudo`, and other banned prefixes.
 
+- `auto_review` (`{why, reason}`) appears when Auto (experimental) mode falls
+  back to a prompt. `why` is `denial_limit` (the reviewer blocked this call after
+  the block limit was reached; `reason` is the reviewer's sentence) or
+  `no_verdict` (the review request failed, timed out or could not be read;
+  `reason` is a short cause such as `HTTP 429` or `timeout`). It can accompany a
+  request for any tool, not only `bash`; for other tools the `permission` object
+  holds this key alone.
+
 Clients that send `allow_scoped` or `allow_remember` for a request that did not
 offer them are treated as `allow` and `allow_session` respectively.
+
+In Auto (experimental) mode a call the reviewer blocks is not prompted. Its tool
+result fails with `metadata.auto_review`: `{blocked: true, reason, stage}` for a
+block (`stage` is `review_stage1` or `review_stage2`, `locked: true` is added when
+the block limit was reached with nobody to ask), `{locked: true}` for a call
+refused while locked, `{no_verdict: true, reason}` when no verdict was available
+and nobody could be asked, and `{needs_user: true}` for a call only the user may
+approve. While a review runs the session emits an `agent_progress` event with
+`phase: "permission_reviewing"`.
 
 Denied sandboxed runs return `metadata.sandbox_violation`
 (`{reason, path?, snippet}`) alongside `metadata.sandbox_denied`; `reason` is
@@ -6298,10 +6339,10 @@ Routes (all use the normal daemon auth and CORS rules):
 
 `POST /api/loops/:id/run` requires authentication and accepts an empty JSON object.
 It preserves the schedule, next scheduled time and enabled state, including for disabled
-or expired tasks. The scheduler owns execution and records it in the usual run history.
-An active execution of the same task returns `409 LOOP_BUSY`; another active scheduled
-task in the same workspace returns `409 WORKSPACE_BUSY`. Missing tasks return `404`,
-an unavailable scheduler returns `503` (or `501` when unsupported by the server).
+or expired tasks. Each accepted request records a separate run and starts a new
+execution session, including when the task or workspace has an active run or
+multiple requests arrive in the same millisecond. Missing tasks return `404`.
+An unavailable scheduler returns `503` (or `501` when unsupported by the server).
 
 Each item returned by `GET /api/loops` includes a nullable `latest_run` field.
 When present, it is the newest run-history object for that LOOP, including its

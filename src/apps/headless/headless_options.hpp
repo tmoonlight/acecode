@@ -54,7 +54,7 @@ struct HeadlessCliOptions {
     std::string resume_session_id; // --resume <id>:接指定会话
     std::string session_id;        // --session-id <id>:新会话自定 id
     std::string output_format;     // --output-format <text|json|stream-json>,空 = text
-    std::string permission_mode;   // --permission-mode <default|accept-edits|plan|yolo>
+    std::string permission_mode;   // --permission-mode <default|auto|auto-review|plan|yolo>
     std::string model_name;        // --model <saved_models.name>
     std::string swarm_mode;        // --swarm <star|mesh|off>,空 = 新会话 off、resume 沿用
     bool deny_tools_by_default = false;

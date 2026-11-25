@@ -19,6 +19,7 @@
 #include "config/config.hpp"
 #include "permissions/permissions.hpp"
 #include "llm/llm_provider.hpp"
+#include "provider/auto_review_model.hpp"
 #include "provider/session_model_binding.hpp"
 #include "config/saved_models.hpp"
 #include "experts/expert_registry.hpp"
@@ -422,6 +423,9 @@ public:
     // Persists the mode and publishes it for the session's next turn.
     bool set_swarm_mode(const std::string& id, SwarmMode mode, std::string* error = nullptr);
     std::optional<SwarmMode> swarm_mode(const std::string& id) const;
+    // 自动模式（试验）:当前配置下的裁决模型(没配置或名字已不存在时 profile 为空)。
+    AutoReviewModelChoice auto_review_model_snapshot() const;
+
     // Request-builder view of a mode: mesh roots are /root, children keep path.
     agent::SwarmContext swarm_context_for(SwarmMode mode, const std::string& agent_path) const;
 

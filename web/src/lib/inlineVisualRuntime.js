@@ -364,6 +364,8 @@ export function inlineVisualRuntime(config, host) {
       dispatch(doc, 'DOMContentLoaded');
       dispatch(win, 'load');
       measure();
+      // 定稿内容与脚本都已就位:外层据此撤掉加载动画。
+      post({ type: 'rendered' });
     });
   }
 
