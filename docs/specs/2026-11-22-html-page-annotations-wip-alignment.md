@@ -1,7 +1,7 @@
 # HTML 网页批注 —— WIP 对齐清单
 
 - 日期：2026-11-22
-- 对象：worktree `C:/Users/Administrator/.codex/worktrees/html-page-annotations/acecode`（分支 `codex/html-page-annotations`，`b5a2d5c4`）
+- 对象：HTML 页面批注开发 worktree（分支 `codex/html-page-annotations`，`b5a2d5c4`）
 - 对照基线：`docs/specs/2026-11-21-html-page-annotations-technical-design.md`（Q1–Q36 / U1–U5 / D1–D8）
 - 规模：45 个跟踪文件（+4445 / −375）+ 6 个未跟踪新文件 = 51 个改动
 - 已合并 `origin/master`：`0b862f32`（3 个提交：ACEModel 配额错误处理），无冲突，WIP 原样保留
@@ -104,8 +104,8 @@ WIP 现状（`PageAnnotationSendBar.jsx:94-192`）：发送（含「发送中/�
 | 文件 | 改动 |
 |---|---|
 | `web/src/lib/pageAnnotations.js`（+25） | 支持 quiet 命令并发；新增 `reapply`；新增 `open_record_popup` / `update_description` / `delete_record` 的调用封装 |
-| `web/src/components/Message.jsx`（+31） | **已接好 `PageAnnotationMessageCard`**，保留；`parsePageAnnotationMessage` 放宽为「末尾 `\nPage annotations\n` 分隔段」，以便承载「用户文本 + 批注」合并消息 |
-| `web/src/lib/pageAnnotationMessage.js` | 解析放宽；按 `page_url` 分组；`copyText` 保留（见下） |
+| `web/src/components/Message.jsx`（+31） | **已接好 `PageAnnotationMessageCard`**，保留；只读渲染 `page_annotations_context` 部件，不解析正文内嵌载荷 |
+| `web/src/lib/pageAnnotationMessage.js` | 从 `page_annotations_context` 构造只读卡片；按 `page_url` 分组；`copyText` 保留（见下） |
 | `web/src/components/PageAnnotationMessageCard.jsx`（新） | 保持只读，但行布局改为「缩略图 + tag + 描述」，缩略图取 payload 里该记录的裁剪图 |
 | `web/src/i18n/sourceCatalog.generated.js` / `i18n-en-overrides.mjs` | 随文案增删同步（删「发送中/重试/截取屏幕截图」，加「页面已关闭」「回到页面修改」等） |
 | `web/src/lib/runTests.js` | 去掉 `pageAnnotationBatches`，加新模块 |

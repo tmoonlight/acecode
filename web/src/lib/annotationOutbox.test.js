@@ -7,13 +7,16 @@ import {
 } from './annotationOutbox.js';
 import {
   annotationContext,
+  annotationSubmissionCacheKey,
   groupRecordsByPage,
   prepareAnnotationSubmission,
   annotationSendOutcome,
   findMessageByClientId,
+  isAnnotationTimeoutError,
   registerAnnotationSubmitter,
   requestAnnotationSubmit,
 } from './annotationSubmission.js';
+import { ApiError } from './api.js';
 import { composerContentFromText, composerContentSubmissionText } from './composerContent.js';
 import { normalizeComposerPayload } from './composerSubmission.js';
 import {
@@ -108,6 +111,31 @@ assert.equal(prepared.text, '改一下', '正文保持用户输入，不拼载�
 assert.doesNotMatch(prepared.text, /Page annotations|"pages"/,
   '聊天正文不能泄漏批注 JSON');
 assert.equal(prepared.contexts.length, 1);
+assert.equal(prepared.clientMessageId, 'c0ffee',
+  '发送方用同一个 client_message_id 做超时自查与重试');
+const retryRecords = box.pendingRecords();
+const retryKey = annotationSubmissionCacheKey('s1', '改一下', retryRecords);
+assert.equal(annotationSubmissionCacheKey('s1', '改一下', retryRecords), retryKey,
+  '同一批次重试命中同一缓存键');
+assert.notEqual(annotationSubmissionCacheKey('s1', '再改一下', retryRecords), retryKey,
+  '正文变化后不能复用旧消息 id');
+assert.notEqual(annotationSubmissionCacheKey('s2', '改一下', retryRecords), retryKey,
+  '会话变化后不能复用旧消息 id');
+assert.notEqual(annotationSubmissionCacheKey('s1', '改一下', retryRecords.map((item, index) => (
+  index === 0 ? { ...item, description: '已编辑' } : item
+))), retryKey, '批注内容变化后不能复用旧消息 id');
+assert.notEqual(annotationSubmissionCacheKey('s1', '改一下', retryRecords.map((item, index) => (
+  index === 0 ? { ...item, id: 'p1:annotation:9' } : item
+))), retryKey, '记录身份变化后不能复用旧组装结果');
+let retryIdGenerated = false;
+const retried = await prepareAnnotationSubmission({
+  sessionId: 's1', text: '改一下', records: retryRecords, outbox: box, api,
+  retry: { cacheKey: retryKey, prepared },
+  makeId: () => { retryIdGenerated = true; return 'must-not-replace'; },
+});
+assert.equal(retried, prepared, '同一批次重试直接复用已组装的载荷');
+assert.equal(retryIdGenerated, false, '重试不生成新的 client_message_id');
+assert.equal(uploaded.length, 2, '重试不重复上传同一批整屏图');
 const sent = pageAnnotationCardFromContexts(
   prepared.contexts.map((item) => ({ type: 'browser_context', context: item })),
 );
@@ -174,8 +202,66 @@ assert.equal((await annotationSendOutcome({
   api: { getMessages: async () => { throw new Error('network'); } },
   sessionId: 's1', clientMessageId: 'c1', send: hanging(), timeoutMs: 10,
 })).status, 'unknown', '查询本身失败时不回滚');
+
+// 请求本身超时（api.js 默认 30 秒 → ApiError 408）也要先自查，不能直接判失败。
+const timeoutError = () => new ApiError(408, { error: 'TIMEOUT' });
+assert.equal(isAnnotationTimeoutError(timeoutError()), true);
+assert.equal(isAnnotationTimeoutError(Object.assign(new Error('aborted'), { name: 'AbortError' })), true);
+assert.equal(isAnnotationTimeoutError(new ApiError(500, { error: 'INTERNAL' })), false);
+assert.equal((await annotationSendOutcome({
+  api: apiWith([{ metadata: { client_message_id: 'c1' } }]),
+  sessionId: 's1', clientMessageId: 'c1', send: Promise.reject(timeoutError()), timeoutMs: 1000,
+})).status, 'confirmed', '超时后查到消息就当成功，不重发');
+assert.equal((await annotationSendOutcome({
+  api: apiWith([{ metadata: { client_message_id: 'other' } }]),
+  sessionId: 's1', clientMessageId: 'c1', send: Promise.reject(timeoutError()), timeoutMs: 1000,
+})).status, 'lost', '超时后查不到就退回待发');
+assert.equal((await annotationSendOutcome({
+  api: { getMessages: async () => { throw new Error('network'); } },
+  sessionId: 's1', clientMessageId: 'c1', send: Promise.reject(timeoutError()), timeoutMs: 1000,
+})).status, 'unknown');
+await assert.rejects(
+  annotationSendOutcome({
+    api: apiWith([]), sessionId: 's1', clientMessageId: 'c1',
+    send: Promise.reject(new ApiError(400, { error: 'BAD_REQUEST' })), timeoutMs: 1000,
+  }),
+  /HTTP 400/,
+  '非超时失败仍然直接抛出，不当作可能已送达',
+);
 assert.equal(await findMessageByClientId(apiWith([{ metadata: { client_message_id: 'c9' } }]), 's1', 'c9'), true);
 assert.equal(await findMessageByClientId(apiWith([]), 's1', 'c9'), false);
+
+// 删除立即生效：旧快照不能复活；撤销按编号插回原位。
+const deleteBox = createAnnotationOutbox();
+const deleteSnapshot = {
+  document_id: 'd1:document:1',
+  records: [record('d1:annotation:1', 1), record('d1:annotation:2', 2)],
+};
+deleteBox.observe({ pageId: 'd1', url: 'https://d.example/', title: '删除页', snapshot: deleteSnapshot });
+assert.equal(deleteBox.pendingCount(), 2);
+const removed = deleteBox.remove('d1:annotation:2');
+assert.equal(removed.id, 'd1:annotation:2');
+assert.equal(deleteBox.pendingCount(), 1, '删除那一刻就从待发集合摘掉，不等超时');
+deleteBox.observe({ pageId: 'd1', url: 'https://d.example/', title: '删除页', snapshot: deleteSnapshot });
+assert.equal(deleteBox.pendingCount(), 1, '页签轮询送来的旧快照不能把已删记录复活');
+assert.deepEqual(deleteBox.getSnapshot().records.map((item) => item.id), ['d1:annotation:1']);
+assert.equal(deleteBox.restore(removed), true);
+assert.deepEqual(deleteBox.getSnapshot().records.map((item) => item.id),
+  ['d1:annotation:1', 'd1:annotation:2'], '撤销按编号插回原位');
+assert.equal(deleteBox.restore(removed), true, '重复撤销是幂等的');
+assert.equal(deleteBox.pendingCount(), 2);
+assert.equal(deleteBox.remove('missing'), null);
+
+// 撤销一条页签已关掉的记录：重建容器并标成 orphan，且重新回到待发状态。
+const restoreBox = createAnnotationOutbox();
+assert.equal(restoreBox.restore({
+  ...record('gone:annotation:1', 1), pageId: 'gone', pageTitle: '已关闭页',
+  pageUrl: 'https://gone.example/', state: 'orphan', sent: true,
+}), true);
+assert.equal(restoreBox.pendingCount(), 1);
+assert.equal(restoreBox.getSnapshot().records[0].state, 'orphan');
+assert.equal(restoreBox.getSnapshot().records[0].sent, false);
+assert.equal(restoreBox.getSnapshot().pages[0].title, '已关闭页');
 
 // 无页签弹窗保存后，卡片读取的待发箱必须立即带上新描述；页签稍后的旧快照
 // 不能把它恢复成旧文字。
@@ -231,5 +317,21 @@ assert.match(chatView, /requestAnnotationEdit\(record\.pageId, record, \{[\s\S]{
   'editing an unfocused tab must resolve and activate the live browser page');
 assert.match(chatView, /result\.reason === 'missing_page'/,
   'only a genuinely missing page may open the no-page editor');
+assert.match(chatView, /clientMessageId: prepared\.clientMessageId/,
+  'the composed client_message_id must reach the send payload for timeout self-check');
+assert.match(chatView, /annotationBox\?\.remove\(record\.id\)/,
+  'delete must drop the record from the outbox before anything is sent');
+assert.match(chatView, /onRestore=\{restoreAnnotationRecord\}/,
+  'undo must be wired to the outbox restore path');
+assert.match(chatView, /pendingAnnotationRemovalRef/,
+  'native removal is deferred so undo can still put the record back');
+
+const pendingCard = fs.readFileSync(
+  new URL('../components/PageAnnotationPendingCard.jsx', import.meta.url), 'utf8',
+);
+assert.doesNotMatch(pendingCard, /setTimeout/,
+  'delete must take effect immediately, not after a 5 second window');
+assert.match(pendingCard, /onDelete\?\.\(record\)/);
+assert.match(pendingCard, /onRestore\?\.\(record\)/);
 
 console.log('[pass] annotation outbox aggregates per session and assembles one message');

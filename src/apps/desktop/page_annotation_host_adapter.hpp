@@ -32,49 +32,12 @@ auto annotation_event_page(Host& host, const std::string& id, ICoreWebView2* sou
     return page && !page->closing && page->webview.Get() == source ? page : nullptr;
 }
 
-template <typename Host, typename Page>
-bool annotation_start_navigation(Host& host, const std::shared_ptr<Page>& page,
-    ICoreWebView2NavigationStartingEventArgs* args, const std::string& uri, std::uint64_t navigation_id) {
-    if (!normalize_agent_browser_url(uri, nullptr) || annotation_fragment_navigation(page->state.url, uri)) return true;
-    BOOL redirected = FALSE;
-    args->get_IsRedirected(&redirected);
-    const bool continuation = page->annotations.navigation.navigating() &&
-        (navigation_id == page->current_navigation_id || redirected || page->annotation_certificate_retry);
-    page->annotation_certificate_retry = false;
-    if ((!page->annotations.navigation.blocked() && !host.reserve_annotation_pages({page}, nullptr)) ||
-        !page->annotations.navigation.start(continuation)) {
-        args->put_Cancel(TRUE);
-        return false;
-    }
+template <typename Page>
+void annotation_suspend_for_navigation(const std::shared_ptr<Page>& page, const std::string& uri) {
+    if (!normalize_agent_browser_url(uri, nullptr) || annotation_fragment_navigation(page->state.url, uri)) return;
     page->annotations.suspend();
-    return true;
 }
 #endif
-
-template <typename Host, typename Page>
-bool annotation_reserve_pages(Host& host, const std::vector<std::shared_ptr<Page>>& pages,
-                              std::string* error, bool hold = false) {
-    const bool accepted = annotation_reserve(host, pages, [&host] {
-#ifdef _WIN32
-        return MessageBoxW(static_cast<HWND>(host.parent_window),
-            L"Leave this page? Unsent annotations will be kept but cannot be sent after replacement.",
-            L"Page annotations", MB_YESNO | MB_DEFBUTTON2 | MB_ICONWARNING) == IDYES;
-#elif defined(__APPLE__)
-        NSAlert* alert = [[NSAlert alloc] init];
-        alert.messageText = @"Leave this page?";
-        alert.informativeText = @"Unsent annotations will be kept but cannot be sent after replacement.";
-        [alert addButtonWithTitle:@"Stay"];
-        [alert addButtonWithTitle:@"Leave"];
-        const bool leave = [alert runModal] == NSAlertSecondButtonReturn;
-        [alert release];
-        return leave;
-#else
-        return false;
-#endif
-    }, error);
-    if (accepted && !hold) for (const auto& page : pages) page->annotations.navigation.arm();
-    return accepted;
-}
 
 template <typename Host, typename Page>
 void annotation_evaluate(const std::shared_ptr<Host>& host, const std::shared_ptr<Page>& page,
@@ -125,7 +88,8 @@ void annotation_dispatch(const std::shared_ptr<Host>& host, const std::string& p
             completion(nlohmann::json{{"ok", false}, {"error", "Annotation capture is already running"}}.dump());
             return;
         }
-        host->capture_screenshot(page, {{"format", "png"}}, pending, "true");
+        host->capture_screenshot(page, annotation_capture_params(), pending,
+            annotation_capture_validation_expression());
         return;
     }
     const std::weak_ptr<Host> weak = host;
@@ -167,19 +131,5 @@ void annotation_dispatch(const std::shared_ptr<Host>& host, const std::string& p
         annotation_host_result(weak, weak_page, sequence, completion, ok, result);
     });
 }
-
-#ifdef __APPLE__
-template <typename Host, typename Page>
-bool annotation_allow_action(Host& host, const std::shared_ptr<Page>& page, WKNavigationAction* action) {
-    if (action.targetFrame && !action.targetFrame.mainFrame) return true;
-    if (annotation_fragment_navigation(page->state.url, agent_browser_macos::utf8_string(action.request.URL.absoluteString))) {
-        if (page->annotations.navigation.reserved() && page->annotations.navigation.armed()) page->annotations.navigation.finish();
-        return true;
-    }
-    if (page->annotations.navigation.navigating()) return action.navigationType == WKNavigationTypeOther;
-    if (!page->annotations.navigation.reserved() && !annotation_reserve_pages(host, std::vector{page}, nullptr)) return false;
-    return page->annotations.navigation.armed();
-}
-#endif
 
 }

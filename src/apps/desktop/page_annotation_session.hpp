@@ -5,7 +5,6 @@
 #include "page_annotation_targets.hpp"
 #include "page_annotation_style_runtime.hpp"
 #include "page_annotation_submission.hpp"
-#include "page_annotation_navigation.hpp"
 #include "page_annotation_requests.hpp"
 #include "session_annotation_store.hpp"
 
@@ -51,7 +50,6 @@ public:
     }
 
     const std::string& document_id() const { return document_id_; }
-    AnnotationNavigationGuard navigation;
     AnnotationRequests requests;
     std::uint64_t revision() const { return revision_; }
     bool has_unsent_work() const {
@@ -109,7 +107,7 @@ public:
 
     bool submission(const Json& command, std::string& error,
                     std::vector<int>* removed_numbers = nullptr) {
-        if (!command.is_object() || command.dump().size() > 262144 ||
+        if (!command.is_object() ||
             !command.contains("action") || !command["action"].is_string() ||
             !command.contains("document_id") || !command["document_id"].is_string()) {
             error = "Invalid annotation submission";
@@ -122,6 +120,13 @@ public:
         const bool attach = command["action"] == "attach_screenshot";
         if (!remove && !attach) {
             error = "Invalid submission action";
+            return false;
+        }
+        // 补图是一条命令带两张 PNG data URL（缩略图 + 整屏图），比普通提交大
+        // 得多；两张图的体积在下面按各自上限单独校验。
+        const std::size_t limit = attach ? 8 * 1024 * 1024 : 262144;
+        if (command.dump().size() > limit) {
+            error = "Invalid annotation submission";
             return false;
         }
         for (const auto& field : command.items()) {
@@ -173,10 +178,6 @@ public:
             ++revision_;
             return true;
         }
-        if (navigation.blocked()) {
-            error = "Annotation navigation is pending";
-            return false;
-        }
         Json selected;
         if (!annotation_submission_records(command, store_->records(page_id_), selected, error)) return false;
         if (removed_numbers) {
@@ -210,7 +211,7 @@ public:
         differences_ = Json::array();
         page_background_.clear();
         editing_record_id_.clear();
-        edit_locator_.clear();
+        editing_number_ = 0;
         draft_description_.clear();
         document_id_.clear();
         for (auto& record : store_->mutable_records(page_id_)) {
@@ -230,16 +231,15 @@ public:
         if (!result.is_object() || !result.contains("error") || !result["error"].is_string()) return false;
         const auto& error = result["error"].get_ref<const std::string&>();
         if (error != "replaced_document" && error != "stale_document") return false;
+        // A late reply from an already retired generation must not bump the
+        // revision again; observers would treat it as a fresh state change.
+        if (document_id_.empty()) return true;
         replace_document();
         return true;
     }
 
     bool prepare(const std::string& page_id, const Json& command,
                  std::string& expression, std::string& error) {
-        if (navigation.blocked()) {
-            error = "Annotation navigation is pending";
-            return false;
-        }
         if (!command.is_object() || command.dump().size() > 32768 ||
             !command.contains("action") || !command["action"].is_string()) {
             error = "Invalid annotation command";
@@ -334,14 +334,13 @@ public:
                 return false;
             }
             const auto& targets = (*found)["targets"];
-            if (!targets.is_array() || targets.empty() || !targets[0].contains("locator") ||
-                !targets[0]["locator"].is_string() ||
-                targets[0]["locator"].get_ref<const std::string&>().empty()) {
+            if (!targets.is_array() || targets.empty() || !(*found).contains("number") ||
+                !(*found)["number"].is_number_integer()) {
                 error = "Annotation target is invalid";
                 return false;
             }
             editing_record_id_ = record_id;
-            edit_locator_ = targets[0]["locator"].get<std::string>();
+            editing_number_ = (*found)["number"].get<int>();
             draft_description_ = (*found).value("description", std::string());
         }
         if (action == "save" && (!active_ || !popup_ || original_ || !selection_mode_.is_null() ||
@@ -381,6 +380,12 @@ public:
             error = "Invalid annotation style draft";
             return false;
         }
+        // 只有编辑和保存要保留铅笔态；开始新批注、取消、退出都结束这次编辑。
+        if (action == "start" || action == "cancel" || action == "exit" || action == "discard") {
+            editing_record_id_.clear();
+            editing_number_ = 0;
+            draft_description_.clear();
+        }
         pending_ = command;
         page_id_ = page_id;
         Json payload{{"action", action}, {"document_id", document_id_}};
@@ -388,7 +393,9 @@ public:
             payload["target_id"] = command["target_id"];
             payload["target_ids"] = command["target_ids"];
             payload["region"] = region_;
-            payload["number"] = store_->next_number(page_id_);
+            // 铅笔路径复用原编号（PRD §6.5），新建才取下一个号。
+            payload["number"] = editing_record_id_.empty() ? store_->next_number(page_id_)
+                                                           : editing_number_;
         }
         if (action == "preview_text") {
             payload["target_id"] = command["target_id"];
@@ -399,7 +406,7 @@ public:
         if (action == "set_modal_suspended") payload["enabled"] = command["enabled"];
         if (action == "select_target") payload["target_id"] = command["target_id"];
         if (action == "edit_record") {
-            payload["locator"] = edit_locator_;
+            payload["number"] = editing_number_;
         }
         if (action == "preview_style") {
             payload["target_id"] = command["target_id"];
@@ -418,10 +425,13 @@ public:
         busy_ = false;
         poll_pending_ = false;
         ++poll_token_;
+        editing_record_id_.clear();
+        editing_number_ = 0;
+        draft_description_.clear();
         requests.cancel("Annotation navigation started");
     }
     bool pollable() const {
-        return !document_id_.empty() && !busy_ && !poll_pending_ && !navigation.blocked();
+        return !document_id_.empty() && !busy_ && !poll_pending_;
     }
     std::uint64_t begin_poll() {
         if (!pollable()) return 0;
@@ -490,6 +500,7 @@ public:
             }
             if (!editing_record_id_.empty()) {
                 // 铅笔路径：改的是同一条，编号与 id 不变（PRD §6.5）。
+                bool found = false;
                 for (auto& record : store_->mutable_records(page_id_)) {
                     if (record["id"] != editing_record_id_) continue;
                     record["description"] = pending_["description"];
@@ -498,10 +509,18 @@ public:
                     record["region"] = region_;
                     record["document_id"] = document_id_;
                     record["valid"] = true;
+                    found = true;
                     break;
                 }
                 editing_record_id_.clear();
+                editing_number_ = 0;
                 draft_description_.clear();
+                // 记录在编辑期间被删掉时不能静默成功：那会把这次修改丢掉，
+                // 而界面已经退出编辑态。
+                if (!found) {
+                    error = "Annotation was removed while editing";
+                    return false;
+                }
                 ++revision_;
             } else {
                 store_->append(page_id_, {
@@ -531,7 +550,12 @@ public:
     }
 
     void fail(std::uint64_t sequence) {
-        if (sequence == sequence_) busy_ = false;
+        if (sequence == sequence_) {
+            busy_ = false;
+            editing_record_id_.clear();
+            editing_number_ = 0;
+            draft_description_.clear();
+        }
     }
 
 private:
@@ -669,9 +693,9 @@ private:
     Json viewport_ = nullptr;
     Json differences_ = Json::array();
     std::string page_background_;
-    // 铅笔路径（#217）：正在改哪一条、该条保存时的 locator 与描述。
+    // 铅笔路径（#217）：正在改哪一条、该条的页内编号与描述。
     std::string editing_record_id_;
-    std::string edit_locator_;
+    int editing_number_ = 0;
     std::string draft_description_;
     Json pending_;
 };

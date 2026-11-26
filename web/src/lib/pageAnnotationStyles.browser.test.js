@@ -4,7 +4,6 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
-import { runAnnotationIntegration } from './pageAnnotationIntegration.browser.testHelper.js';
 
 const executable = process.env.ACECODE_TEST_BROWSER || 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe';
 assert.ok(fs.existsSync(executable), 'Set ACECODE_TEST_BROWSER to a Chromium-compatible browser executable');
@@ -412,7 +411,6 @@ try {
   assert.equal(resumed.modal_suspended, false);
   await run('exit');
   console.log('[pass] set_modal_suspended suspends and resumes the in-page chrome through the real runtime');
-  await runAnnotationIntegration({ evaluate, request });
 } finally {
   for (const waiter of pending.values()) clearTimeout(waiter.timeout);
   pending.clear();

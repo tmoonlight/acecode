@@ -2,7 +2,7 @@
 
 - 状态：待评审（决策已清零：Q/U 见 §1，细节 D1–D8 见 §1.1）
 - 日期：2026-11-21
-- 基线：worktree `C:/Users/Administrator/.codex/worktrees/html-page-annotations/acecode`（分支 `codex/html-page-annotations`，`bc10d7f0` + 未提交 WIP）
+- 基线：HTML 页面批注开发 worktree（分支 `codex/html-page-annotations`，`bc10d7f0` + 未提交 WIP）
 - 取代：`openspec/changes/add-html-page-annotations/`（设计路线：预览为主 / 整页截图 / 不可变记录 / 收据去重 / 导航确认）
 - 需求：`docs/specs/2026-11-21-html-page-annotations-rewrite-requirements.md`
 
@@ -10,7 +10,7 @@
 
 ## 0. 一句话方案
 
-页面侧的批注运行时（样式层 / 文本层 / 区域框选）保留，**记录权威上提到会话级 `SessionAnnotationStore`**，页签降级为渲染/编辑端点（关了也不丢记录）；待发批注以一张卡片挂在会话输入框上方，**逐条可编辑、可删除**；**消息组装只有一处（composer），触发点三处**（输入框发送、页内工具栏发送、浮窗 `Ctrl+Enter`），三处调同一个提交动作，发出即一条自包含消息（用户文本 + `Page annotations` + JSON，无二次确认）；「按住看原图」「隐藏标记」「刷新后重放」「源文件定位」按本文档的约束补齐。
+页面侧的批注运行时（样式层 / 文本层 / 区域框选）保留，**记录权威上提到会话级 `SessionAnnotationStore`**，页签降级为渲染/编辑端点（关了也不丢记录）；待发批注以一张卡片挂在会话输入框上方，**逐条可编辑、可删除**；**消息组装只有一处（composer），触发点三处**（输入框发送、页内工具栏发送、浮窗 `Ctrl+Enter`），三处调同一个提交动作，发出即一条自包含消息（用户文本 + `contexts.page_annotations`，无二次确认）；「按住看原图」「隐藏标记」「刷新后重放」「源文件定位」按本文档的约束补齐。
 
 ---
 
@@ -72,7 +72,7 @@
 | D1 | `orphan` 记录在重开同 URL 页签时是否「重新定位」回 `live` | **不做**。`orphan` 是终态，只能改文本 / 删除 / 发送 | 关页签后预览不可恢复；agent 仍可按 locator 找元素。留 action 位，后置可加 |
 | D2 | 待发卡片每行的 24px 缩略图从哪来 | **保存批注时按 rect 裁剪的那张图**（只给待发卡片）；另存一张**该页整屏图**给已发消息卡片，每页只留最新一张 | 捕获时机从「发送时」前移到「每次 save」；发送时不再捕获。**`orphan` 记录因此仍有图**。删除批注不重截，配图保留删除前画面 |
 | D3 | 卡片最多展示几条 | **5 条**，超出后卡片内部滚动 | 不是折叠成 chip，而是 `max-height` + `overflow:auto` |
-| D4 | 删除后撤销窗口 | **5s** | 定时器，可调 |
+| D4 | 删除后撤销窗口 | **单槽撤销** | 删除立即生效，直到下一次删除覆盖撤销槽 |
 | D5 | 跨页签混批的载荷形态 | **`page` 单值（第一条记录所在页）+ 每条自带 `page_url`** | 解析层零破坏；模型与卡片按 `annotations[].page_url` 分组 |
 | D6 | 已发卡片要不要「复制文本」 | **不给**。已发卡片一个按钮都没有 | 与 U3 一致：只读到极致，避免任何"能改"的暗示 |
 | D7 | 编辑中页签被关闭 | **存进 draftStore，卡片行转 `orphan`**，下次点铅笔接着改 | 不打断输入、不弹窗、不假装页面还在 |
@@ -204,14 +204,7 @@ pending（会话内全部 live / replayable / stale / orphan 记录）
 
 **用户文本与批注合并成一条消息**
 
-composer 里可能同时有用户敲的话和一批批注。合并成**一条**消息，避免两次 POST 触发两轮 turn：
-
-| 用户文本 | 消息 `text` |
-|---|---|
-| 空 | `Page annotations\n{json}`（与基线一致） |
-| 非空 | `{用户文本}\n\nPage annotations\n{json}` |
-
-解析层相应放宽：不再要求 `startsWith(HEADER)`，改为「文本末尾存在 `\nPage annotations\n` 分隔段」。卡片渲染时只展示用户文本 + 批注卡片，JSON 段被遮蔽。
+composer 里可能同时有用户敲的话和一批批注。合并成**一条**消息，避免两次 POST 触发两轮 turn：`text` 始终只放用户输入；批注放入 `contexts` 的 `{type:"page_annotations", version:2, pages:[...]}`。服务端净化后展开进模型正文，并持久化 `page_annotations_context` 部件供卡片渲染。正文不再内嵌 JSON，也不需要兼容旧文本载荷。
 
 **快捷键语义**
 
@@ -400,7 +393,7 @@ save（同步返回，不等捕获）
  → submitWithAnnotations()：一次性取「composer 文本 + 会话内全部待发记录」
  → records 全部移入 in_flight → sync（存活的页签图钉立即消失，待发卡片立即清空）
  → 上传每条记录的 thumbnail（save 时已截，这里只上传，不捕获）→ attachment
- → 组装消息：text = 用户文本 + "\n\nPage annotations\n" + payload JSON，attachments = [截图 id]
+ → 组装消息：text = 用户文本，contexts 带净化后的 page_annotations，attachments = [截图 id]
  → POST /api/sessions/:id/messages（不带 annotation_batch_id）
  → 202 只表示入队，不算成功
  → WS message 事件按 client_message_id 确认
@@ -418,13 +411,7 @@ save（同步返回，不等捕获）
 
 理由：`client_message_id` 已经写进消息 `metadata` 落库（`routes_sessions.cpp:524`），WS 回推时也带回来（`:734-738`）。没有自查的话，一次 WS 抖动就会让用户重发，agent 收到两条一样的批注、把同一处代码改两遍。服务端需要补一个按 `client_message_id` 的查询（读 `metadata`，不需要新列）。
 
-**消息载体沿用基线的「文本内嵌 JSON」**（`web/src/lib/pageAnnotationMessage.js:3` 的 `"Page annotations\n"` 头 + payload），不新增 `contexts` 类型。理由：
-
-- 基线已跑通，前端已有 `parsePageAnnotationMessage` 解析并渲染成卡片、`contentPartsWithoutAnnotationScreenshot` 剥截图，改 `contexts` 等于把可工作链路推倒重写。
-- 模型直接读结构化 JSON，字段边界比 prompt 文本块清晰。
-- 零后端改动（除删 `annotation_batch_id` 校验、加超时自查查询）。
-
-代价（写进风险）：消息 `text` 里存的是 JSON，导出/搜索/其他客户端会看到原文。主 UI 由解析层遮蔽，可接受。
+**消息载体使用结构化上下文**：正文只保留用户输入，批注放在 `contexts.page_annotations`。服务端按字段白名单净化和限量，再把来源、用户描述、网页文本与样式差异分段展开进模型正文，同时保存 `page_annotations_context` 部件给只读卡片。这样模型不会把网页内容误当作用户指令，其他客户端也不会在普通正文里看到隐藏 JSON。
 
 - 发送目标 = 卡片所属会话，**不提供会话选择器**。
 - 误发不可逆（Q35）。缓解只靠位置与视觉：它就是用户熟悉的那个发送按钮，不做长按/双击等隐藏手势；发送前卡片上能看清这次要发几条、发往哪些页面。
@@ -513,7 +500,7 @@ adjustable = record.state === 'live' && 页签存活 && document_id 匹配
 **删除**
 
 - 行上的垃圾桶 = 删除这条**待发**记录（`delete_record`），`sync` 重排编号。
-- 立即生效 + 5s 撤销 toast（撤销按原位置插回、重排编号）。不做二次确认弹窗：批注是轻量草稿，弹窗打断比误删更烦。
+- 立即生效 + 单槽撤销 toast（撤销按原位置插回、重排编号）。不做二次确认弹窗：批注是轻量草稿，弹窗打断比误删更烦。
 - `orphan` 记录的删除不需要页签，直接改会话存储。
 
 **保存后的一致性**：一次编辑同时落到三处，靠一个事件扇出，禁止各自维护副本——
@@ -584,38 +571,58 @@ record.locator  = 跨文档可用的结构定位符
 
 `thumbnail`：**保存批注时**按目标 rect 裁剪的小图（宽 ≤512px，D2；卡片按 24px 渲染，消息里保持可读），待发卡片缩略图与消息附件共用它；`screenshot_unavailable: true` 表示保存时就没截到（目标在视口外 / 捕获失败）。`orphan` 记录不影响这两个字段——图在保存时就定格了。记录本身序列化进消息时**去掉 `thumbnail` 的 base64**，只留 `screenshot_ref` 指向附件。
 
-### 5.2 消息载荷（嵌在消息文本里）
+### 5.2 消息载荷（结构化上下文）
 
-沿用基线的承载方式：消息 `text` = `"Page annotations\n"` + JSON（`web/src/lib/pageAnnotationMessage.js:3`），截图作为普通 attachment 随消息（`contentParts` 的 image part）。用户同时敲了话时，`text` = `{用户文本}\n\nPage annotations\n{json}`；解析层按**末尾分隔段**识别，不再要求 `startsWith`。
+消息 `text` 只保留用户输入；批注放在 `contexts`，截图作为普通 attachment 随消息（`contentParts` 的 image part）。
 
 ```json
 {
-  "page": {"url": "...", "title": "..."},
-  "annotations": [ /* 记录全文，含 state / target_invalid 标记 */ ]
+  "type": "page_annotations",
+  "version": 2,
+  "pages": [{
+    "page_id": "browser-page-1",
+    "url": "https://example.com/",
+    "title": "Example",
+    "shot": "page-annotations-message-0.png",
+    "annotations": [{
+      "id": "annotation-1",
+      "number": 1,
+      "element": "div",
+      "state": "live",
+      "description": "用户描述",
+      "targets": [{"id": "target-1", "tag": "div", "locator": "div#target-1", "text": "网页原文"}],
+      "region": null,
+      "differences": [{"property": "gap", "target_id": "target-1", "old_value": "8px", "new_value": "16px"}]
+    }]
+  }]
 }
 ```
 
-- 不加 `type`/`id`：消息本身就是批注批次，解析层按文本头识别。
-- `annotations` 是冻结副本：页签关闭后仍完整可读。
-- 跨页签混批时 `page` 取第一条记录所在页（向后兼容），**每条记录自带 `page_url` / `page_title`（Q23）才是权威**；卡片与模型都按 `page_url` 分组。
-- 截图**按条一张**（Q25/Q28 + D2）：直接取 `record.thumbnail`（保存时按 rect 裁剪），文件名 `page-annotations-<record_id>.png`，与记录用 `screenshot_ref` 关联；无图的记录标 `screenshot_unavailable`（`orphan` 记录**不在此列**，它保存时已经截过）。
+- `contexts` 是冻结副本：页签关闭后仍完整可读。
+- 跨页签混批按 `pages[]` 分组；每页有独立的 `page_id`、`url`、`title` 和 `shot`。
+- 截图按页上传并标记 `page_shot:true`，文件名与页面 `shot` 对应。
 - 一条消息只发一次 POST：用户文本与批注不会拆成两条（拆开会让 agent 多跑一轮 turn）。
 
 ### 5.3 模型侧所见
 
-模型读到的就是消息 `text` 原文，即 `Page annotations` + JSON。字段含义：
+服务端先按白名单净化 `contexts`，再展开成带来源标记的正文，最后追加 `User request:` 与用户原文。模型看到的是分段文本，不是隐藏 JSON：
 
 ```
-page.url / page.title           当前页面
-annotations[].number            本轮展示序号
-annotations[].description       用户写的批注
-annotations[].targets[].locator 唯一 CSS 路径（重放/定位用）
-annotations[].targets[].source  {file,line,column}（React dev 才有，可能为 null）
-annotations[].targets[].components 组件栈（prod 也有）
-annotations[].differences[]     {property, old_value, new_value}
-annotations[].state             live | replayable | stale
-annotations[].target_invalid    true = 记录来自别的文档，不要按当前 DOM 找
+[page N] <title>
+Source: <url>
+Annotation M
+Element: <tag>
+Description: <用户描述>
+Page text:
+<targets[].text>
+Styles:
+<property>: <old_value> -> <new_value>
+
+User request:
+<用户原文>
 ```
+
+展开前最多保留 16 页、64 条批注；描述与网页文本各截到 4000 字节，展开正文截到 40000 字节。页面内容被明确标记为引用材料，不作为指令解释。持久化的 `page_annotations_context` 部件只用于只读卡片，不要求 provider 再渲染一次 JSON。
 
 ---
 
@@ -645,19 +652,19 @@ annotations[].target_invalid    true = 记录来自别的文档，不要按当�
 | 新增 `pageAnnotationPendingStore.js` | `session_id → page_id → records` + `orphans[]`，订阅原生状态事件，供卡片与弹窗读取 |
 | `PageAnnotations.jsx` | `read` 失败不终止轮询；按住期间浮窗 `inert`；草稿按 page+locator 暂存；挂载无条件 `read` 一次；`Enter`=添加 / `Shift+Enter` 换行；浮窗支持「编辑已有记录」态（描述回填 + `focus()` + 图钉高亮） |
 | `pageAnnotations.js` | 去掉批次相关；新增 `reapply`；controller 支持 quiet 命令并发 |
-| `pageAnnotationBatches.js` | **删除**，替换为 `pageAnnotationMessage.js`（载荷构造 + 解析 + 发送确认；截图在 save 时已由原生生成，此处不做裁剪） |
-| `pageAnnotationMessage.js` | 解析放宽到「末尾 `\nPage annotations\n` 分隔段」；卡片按 `page_url` 分组；保留 `comments[]` 形状以兼容现有测试 |
-| `PageAnnotationMessageCard.jsx` | **只读**：载荷解析 + 渲染「整屏截屏 + 页面标题 + `N 条注释`」；悬停标签浮出明细（元素标签 + 描述，最多 5 条，超出滚动）；不加任何按钮 |
+| `pageAnnotationBatches.js` | **删除**；上下文载荷与发送确认分别由 `annotationOutbox.js` / `annotationSubmission.js` 负责 |
+| `pageAnnotationMessage.js` | 只从 `page_annotations_context` 部件构造卡片；保留 `comments[]` 形状，不解析正文内嵌 JSON |
+| `PageAnnotationMessageCard.jsx` | **只读**：渲染「整屏截屏 + 页面标题 + `N 条注释`」；悬停标签浮出明细（元素标签 + 描述，最多 5 条，超出滚动）；不加任何按钮 |
 | 新增 `pageAnnotationDraftStore.js` | 内存 Map（`page_id + target_locator` → 描述草稿），跨 `document_id` 存活 |
-| `lib/selectionChatContext.js` | 不改（`page_annotation` 不走 `contexts`） |
-| `ChatView.jsx` | 消息卡片渲染分发（只读快照，不读写 composer 状态）；**发送时把待发批注并入本次 POST**（用户文本 + payload 合并一条） |
+| `lib/selectionChatContext.js` | 不改；`page_annotations` 通过普通 `contexts` 提交 |
+| `ChatView.jsx` | 消息卡片渲染分发（只读快照，不读写 composer 状态）；**发送时把待发批注并入本次 POST**（用户文本 + `contexts.page_annotations` 合并一条） |
 
 ### 服务端
 
 | 文件 | 改动 |
 |---|---|
-| `routes_sessions.cpp` | 删除 `annotation_batch_id` 字段校验与 `annotation_batch_not_accepted` 404 分支；新增 `GET /api/sessions/:id/messages?client_message_id=` 查询（读 `metadata`，供 40s 超时自查） |
-| `openai_provider.cpp` / `anthropic_provider.cpp` | 不改（JSON 在消息 text 里，模型直接读） |
+| `routes_sessions.cpp` / `server_helpers.cpp` | 识别、净化并限量 `page_annotations`；展开为带来源标记的正文；持久化 `page_annotations_context` 部件与 `metadata.contexts` |
+| `openai_provider.cpp` / `anthropic_provider.cpp` | 不改；provider 直接消费已展开的正文 |
 
 ---
 
@@ -682,9 +689,9 @@ annotations[].target_invalid    true = 记录来自别的文档，不要按当�
 |---|---|
 | 原生模型 | 四态转换；删除后重排；`discard` 归 1；`replace_document` 转 `replayable` 且编号保留；quiet 命令不占 `busy_`；并发 `read` + `preview_style` 不互相拒绝；`in_flight` 不计入 `pending_count` 且不参与 `sync`/重放；**关页签 → 记录转 `orphan` 而非析构**；`orphan` 不参与 `sync`；按 `page_id` 分组编号 |
 | 页内 runtime（node:test + vm） | `sync` 幂等；整层 `hide_markers`；原图态图钉隐藏、释放恢复；`reapply` 的值相等闸（相等写入 / 不等标 stale）；**观察窗口内元素晚到仍能补上**；文本 diff 重放；`Enter`=save / `Shift+Enter` 换行；`open_record_popup` 回填描述 + `focus()` + 滚动进视口 |
-| 前端 | 按住三路径（up/cancel/leave）+ 两路兜底（blur/visibilitychange）+ **键盘不触发**（空格与 Enter 均不进 `held`）；read 失败后循环仍继续；草稿按 `page+locator` 跨 `document_id` 暂存；待发卡片跨页签聚合；`adjustable` 判定（live 才 true，replayable/stale/orphan 全 false）；铅笔路径 A（激活页签 + 打开浮窗）/ 路径 B（弹窗，无「调整」）；删除 + 5s 撤销；发送→`in_flight`→确认清空 / 40s 自查（查到即成功、查不到才回滚）；**三触发点等价**（输入框 / 工具栏 / `Ctrl+Enter` 各触发一次，断言 `submitWithAnnotations` 调用参数完全一致，且只产生一次 POST） |
+| 前端 | 按住三路径（up/cancel/leave）+ 两路兜底（blur/visibilitychange）+ **键盘不触发**（空格与 Enter 均不进 `held`）；read 失败后循环仍继续；草稿按 `page+locator` 跨 `document_id` 暂存；待发卡片跨页签聚合；`adjustable` 判定（live 才 true，replayable/stale/orphan 全 false）；铅笔路径 A（激活页签 + 打开浮窗）/ 路径 B（弹窗，无「调整」）；删除 + 单槽撤销；发送→`in_flight`→确认清空 / 40s 自查（查到即成功、查不到才回滚）；**三触发点等价**（输入框 / 工具栏 / `Ctrl+Enter` 各触发一次，断言 `submitWithAnnotations` 调用参数完全一致，且只产生一次 POST） |
 | 集成 | save → 导航 → reapply → 编号不变；**关页签 → 卡片仍在 → 弹窗改文本 → 仍可发送（有图，图是 save 时那张）**；跨页签混批发一条消息；多会话各自页签互不影响；发送中关页签不阻塞；用户文本 + 批注合并成一条消息且解析正确；**发送阶段零捕获**（断点确认不再调 `captureScreenshot`） |
-| 契约 | `Page annotations` 文本头 + payload 的前后端解析一致（构造端与 `parsePageAnnotationMessage`，含「用户文本在前」的形态）；`composer_content` 封闭枚举未被触碰；已发消息无任何可写入口 |
+| 契约 | `contexts.page_annotations` 经服务端净化后生成 `page_annotations_context` 部件；正文不再内嵌 JSON；`composer_content` 封闭枚举未被触碰；已发消息无任何可写入口 |
 | 冒烟 | Windows 真实 WebView2：按住原图无闪烁、无卡死；mac：视口外目标发送不报错、明示未附图 |
 
 ---

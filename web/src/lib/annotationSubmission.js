@@ -64,6 +64,15 @@ export function annotationContext(pages) {
   return { type: 'page_annotations', version: 2, pages };
 }
 
+export function annotationSubmissionCacheKey(sessionId, text, records) {
+  return JSON.stringify({
+    sessionId: String(sessionId || ''),
+    text: String(text ?? ''),
+    recordIds: (records || []).map((record) => String(record?.id || '')),
+    pages: annotationPagesPayload(groupRecordsByPage(records)),
+  });
+}
+
 export function annotationShotName(clientId, index) {
   return `${SHOT_PREFIX}-${clientId}-${index + 1}.png`;
 }
@@ -99,7 +108,15 @@ export async function requestAnnotationSubmit(sessionId) {
 
 // 超时自查（#215）：40 秒没收到确认时，先自己去查这条到底进没进去，再决定怎么办。
 // 查到 → 视为成功，不重发；查不到 → 批注退回待发；查询本身失败 → 不回滚。
+// 请求本身超时（api.js 默认 30 秒）同样走这条自查，否则 30 秒先抛错，
+// 40 秒的兜底永远走不到。
 export const ANNOTATION_SEND_TIMEOUT_MS = 40000;
+
+export function isAnnotationTimeoutError(error) {
+  return error?.status === 408 ||
+    error?.code === 'TIMEOUT' ||
+    error?.name === 'AbortError';
+}
 
 export async function findMessageByClientId(api, sessionId, clientMessageId) {
   if (!clientMessageId) return false;
@@ -117,35 +134,44 @@ export async function annotationSendOutcome({
   });
   const settled = Promise.resolve(send).then(
     (value) => ({ status: 'accepted', value }),
-    (error) => { throw error; },
+    (error) => ({ status: 'rejected', error }),
   );
+  let result;
   try {
-    const result = await Promise.race([settled, timeout]);
-    if (result.status !== 'timeout') return result;
+    result = await Promise.race([settled, timeout]);
   } finally {
     if (timer) clearTimeout(timer);
+  }
+  if (result.status === 'accepted') return result;
+  if (result.status === 'rejected' && !isAnnotationTimeoutError(result.error)) {
+    throw result.error;
   }
   try {
     const found = await findMessageByClientId(api, sessionId, clientMessageId);
     return found ? { status: 'confirmed' } : { status: 'lost' };
   } catch {
+    // 自查本身失败：不回滚，交给用户决定重试还是撤销。
     return { status: 'unknown' };
   }
 }
 
 // 把待发记录组装成一条消息：上传每页的整屏图（已发卡片配图），批注结构走
-// contexts/browser_context，正文只保留用户输入的自然语言。
+// contexts/page_annotations，正文只保留用户输入的自然语言。
 // 返回的 settle(ok) 负责发送成功后的清理：活着页签上删掉已发记录，orphan 只清本地。
 export async function prepareAnnotationSubmission({
   sessionId, text, attachments = [], records = [], outbox = null, api,
   invoke = runPageAnnotationCommand,
   makeId = () => globalThis.crypto?.randomUUID?.() || String(Date.now()),
+  retry = null,
 }) {
   const groups = groupRecordsByPage(records).filter((group) => group.records.length > 0);
   const bodyText = String(text ?? '');
+  const cacheKey = annotationSubmissionCacheKey(sessionId, bodyText, records);
+  if (retry?.cacheKey === cacheKey) return retry.prepared;
   if (!groups.length) {
     return {
-      text: bodyText, contexts: [], attachments, recordIds: [], groups, pages: [], settle: () => {},
+      text: bodyText, contexts: [], attachments, recordIds: [], groups, pages: [],
+      cacheKey, clientMessageId: '', settle: () => {},
     };
   }
   const clientId = makeId();
@@ -189,6 +215,9 @@ export async function prepareAnnotationSubmission({
     groups,
     pages,
     shotAttachments,
+    cacheKey,
+    // 发送方用它作为 client_message_id：超时自查和重试都认同一条消息。
+    clientMessageId: clientId,
     settle,
   };
 }

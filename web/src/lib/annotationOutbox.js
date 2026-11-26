@@ -55,6 +55,8 @@ export function createAnnotationOutbox() {
   // pageId -> { id, url, title, closed, documentId, pageShot, records: [] }
   const pages = new Map();
   const descriptionOverrides = new Map();
+  // 本地已删除、原生存储还没删掉的记录。页签轮询送来的旧快照不能把它们复活。
+  const suppressed = new Set();
   const listeners = new Set();
   let snapshot = EMPTY_SNAPSHOT;
 
@@ -103,7 +105,7 @@ export function createAnnotationOutbox() {
       if (!pageId) return;
       const previous = pages.get(pageId);
       const records = pageSnapshot && Array.isArray(pageSnapshot.records)
-        ? pageSnapshot.records.map((record) => {
+        ? pageSnapshot.records.filter((record) => !suppressed.has(String(record?.id || ''))).map((record) => {
             const normalized = normalizeAnnotationRecord(record, {
               id: pageId,
               title: title || previous?.title || '',
@@ -114,6 +116,13 @@ export function createAnnotationOutbox() {
               : normalized;
           })
         : (previous?.records || []);
+      if (pageSnapshot && Array.isArray(pageSnapshot.records)) {
+        // 原生已经删掉这条了：不再需要抑制，避免集合无限增长。
+        const live = new Set(pageSnapshot.records.map((record) => String(record?.id || '')));
+        for (const id of suppressed) {
+          if (!live.has(id)) suppressed.delete(id);
+        }
+      }
       const next = {
         id: pageId,
         url: url || previous?.url || '',
@@ -159,7 +168,10 @@ export function createAnnotationOutbox() {
     discardPage(pageId) {
       const page = pages.get(pageId);
       if (!page) return;
-      for (const record of page.records) descriptionOverrides.delete(record.id);
+      for (const record of page.records) {
+        descriptionOverrides.delete(record.id);
+        suppressed.delete(record.id);
+      }
       pages.set(pageId, { ...page, records: [] });
       recompute();
     },
@@ -182,6 +194,7 @@ export function createAnnotationOutbox() {
       const target = new Set((ids || []).map(String));
       if (!target.size) return;
       let changed = false;
+      for (const id of target) suppressed.delete(id);
       for (const [pageId, page] of pages) {
         const next = page.records.filter((record) => !target.has(record.id));
         if (next.length !== page.records.length) {
@@ -194,12 +207,65 @@ export function createAnnotationOutbox() {
       }
       if (changed) recompute();
     },
+    // 立即从待发集合里摘掉（删除按钮按下那一刻），返回被摘掉的记录供撤销。
+    // 原生存储的删除由调用方延后提交，撤销窗口内不碰它。
+    remove(id) {
+      const key = String(id || '');
+      if (!key) return null;
+      for (const [pageId, page] of pages) {
+        const index = page.records.findIndex((record) => record.id === key);
+        if (index < 0) continue;
+        const removed = page.records[index];
+        const records = page.records.slice(0, index).concat(page.records.slice(index + 1));
+        suppressed.add(key);
+        pages.set(pageId, { ...page, records });
+        recompute();
+        return removed;
+      }
+      return null;
+    },
+    // 撤销：放回原来的页面并按编号插回原位。
+    restore(record) {
+      const key = String(record?.id || '');
+      const pageId = String(record?.pageId || '');
+      if (!key || !pageId) return false;
+      suppressed.delete(key);
+      let page = pages.get(pageId);
+      if (!page) {
+        page = {
+          id: pageId,
+          url: String(record.pageUrl || ''),
+          title: String(record.pageTitle || ''),
+          closed: true,
+          documentId: '',
+          pageShot: '',
+          records: [],
+        };
+        pages.set(pageId, page);
+      }
+      if (page.records.some((item) => item.id === key)) return true;
+      const restored = {
+        ...record,
+        id: key,
+        pageId,
+        pageTitle: record.pageTitle || page.title || '',
+        pageUrl: record.pageUrl || page.url || '',
+        number: Number.isInteger(record.number) && record.number > 0 ? record.number : 0,
+        state: page.closed ? 'orphan' : (record.state || 'live'),
+        sent: false,
+      };
+      const records = page.records.concat(restored).sort((a, b) => a.number - b.number);
+      pages.set(pageId, { ...page, records });
+      recompute();
+      return true;
+    },
     pendingRecords: () => snapshot.records,
     pendingCount: () => snapshot.pendingCount,
     pagesWithPending: () => snapshot.pages.filter((page) => page.count > 0),
     reset() {
       pages.clear();
       descriptionOverrides.clear();
+      suppressed.clear();
       recompute();
     },
   };

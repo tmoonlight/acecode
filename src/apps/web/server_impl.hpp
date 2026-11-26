@@ -159,6 +159,14 @@ struct SelectionPromptContext {
     std::string prompt;
 };
 
+// =====================================================================
+// PageAnnotationPromptContext — used by session send handler
+// =====================================================================
+struct PageAnnotationPromptContext {
+    nlohmann::json meta = nlohmann::json::array();
+    std::string prompt;
+};
+
 struct ParsedSessionUserInputRequest {
     bool ok = false;
     int status = 400;
@@ -217,6 +225,13 @@ std::optional<nlohmann::json> sanitized_selection_context_meta(const nlohmann::j
 SelectionPromptContext build_selection_prompt_context(const nlohmann::json& contexts);
 std::string build_selection_augmented_prompt(const SelectionPromptContext& selection,
                                               const std::string& original_text);
+std::string build_quoted_context_augmented_prompt(
+    const std::string& context_prompt,
+    const std::string& original_text);
+std::optional<nlohmann::json> sanitized_page_annotations_context_meta(
+    const nlohmann::json& ctx);
+PageAnnotationPromptContext build_page_annotation_prompt_context(
+    const nlohmann::json& contexts);
 
 std::uint64_t parse_seq(const std::string& s);
 std::string trim_trailing_slash(std::string value);
@@ -235,6 +250,18 @@ AuthResult check_explicit_token(std::string_view server_token,
 constexpr std::size_t kMaxSelectionContextChars = 40000;
 constexpr std::size_t kMaxSelectionAnnotationChars = 4000;
 constexpr std::size_t kMaxSelectionAnnotations = 64;
+constexpr std::size_t kMaxPageAnnotationPages = 16;
+constexpr std::size_t kMaxPageAnnotations = 64;
+constexpr std::size_t kMaxPageAnnotationTargets = 64;
+constexpr std::size_t kMaxPageAnnotationDifferences = 32;
+constexpr std::size_t kMaxPageAnnotationDescriptionChars = 4000;
+constexpr std::size_t kMaxPageAnnotationTextChars = 4000;
+constexpr std::size_t kMaxPageAnnotationPromptChars = 40000;
+constexpr std::size_t kMaxPageAnnotationMetaTextChars = 131072;
+constexpr std::size_t kMaxPageAnnotationUrlChars = 2048;
+constexpr std::size_t kMaxPageAnnotationTitleChars = 512;
+constexpr std::size_t kMaxPageAnnotationElementChars = 64;
+constexpr std::size_t kMaxPageAnnotationLocatorChars = 512;
 
 struct UpdateJobStatus {
     std::string job_id;

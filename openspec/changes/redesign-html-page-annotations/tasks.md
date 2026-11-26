@@ -27,7 +27,7 @@
   - [x] 工具栏发送按钮改为调 `submitWithAnnotations()`（保留按钮，删三态）
   - [x] 工具栏「按住看原图」只留指针路径 + `blur` / `visibilitychange` 兜底（D-8）
   - [x] 用户文本 + 批注合并一条消息；批注结构走 `contexts` 的 `page_annotations` 上下文，正文只保留自然语言
-  - [x] 旧版正文内嵌 `Page annotations` 载荷仍可解析，已发卡片统一只读渲染
+  - [x] 已发卡片只从 `page_annotations_context` 部件渲染，不解析正文内嵌载荷
   - [x] 40s 未确认 → 按 `client_message_id` 自查再决定回滚
 - [x] **P5 待发卡片与逐条编辑**
   - [x] 会话级待发集合由会话 store 供给，关页签后仍可编辑/删除
@@ -49,3 +49,17 @@
   - [x] 页内工具栏按当前页签统计待发数，待发卡片仍按会话总数聚合
   - [x] 新建元素批注和从待发卡片进入编辑后，焦点落到批注描述框
   - [x] 页内批注浮层改用矩形 native 挖洞 + 页面背景色衬底，圆角由 Chromium 抗锯齿绘制，消除黑底锯齿
+
+## PR #202 评审修复
+
+- [x] 恢复 `external/cpp-mcp` 指针到 `62a8c88`
+- [x] 删除导航围栏，移除发送后 `remove` 的拦截，并恢复 modal suspension 下的轮询边界
+- [x] 批注截图改为视口捕获，校验返回 `{valid:true}`，截图命令单独放宽大小上限并补测试
+- [x] macOS 源列表补入 `agent_browser_host_common.cpp`
+- [x] 铅笔编辑清理生命周期状态，按运行时目标引用定位，保存时替换旧图钉
+- [x] 待发删除立即生效且支持单槽撤销；超时先按 `client_message_id` 自查，重试复用同一 ID
+- [x] 服务端净化并限量 `page_annotations`，分段展开进模型正文，持久化 `page_annotations_context`
+- [x] 更新 API/设计文档，注册遗漏测试，删除旧正文解析、缺失 helper 依赖和无关改动
+- [x] Windows C++ 定向测试、完整 Web 测试和 Web build 收口
+- [ ] Windows 完整 CTest 收口
+- [ ] macOS 编译及 Windows/macOS Desktop 实机验收

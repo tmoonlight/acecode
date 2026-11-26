@@ -23,5 +23,5 @@
 - 原生：`page_annotation_session.hpp`（重写记录层）、新增 `session_annotation_store.hpp`、`agent_browser_host_*`（`close_page` 不再析构记录、状态事件改为广播会话内所有页签）、`page_annotation_host_adapter.hpp`（截图命令调用点前移）。
 - 前端：`PageAnnotationSendBar.jsx`（去发送/截图按钮）、`PageAnnotations.jsx`（编辑已有记录态）、新增 `PageAnnotationPendingCard.jsx` / `PageAnnotationEditDialog.jsx` / `pageAnnotationPendingStore.js`、删除 `pageAnnotationBatches.js`。
 - 服务端：`routes_sessions.cpp` 删 `annotation_batch_id` 校验与 404 分支；新增按 `client_message_id` 查询消息的接口（读 `metadata`，不需要新列）。
-- 契约：消息 `text` 允许「用户文本 + `\nPage annotations\n` + JSON」形态，解析层从 `startsWith` 放宽为末尾分隔段；`composer_content` 封闭枚举**不动**。
+- 契约：消息 `contexts` 接受 `page_annotations` 部件，服务端净化后展开进正文并持久化 `page_annotations_context`；`composer_content` 封闭枚举**不动**。
 - 取代：`openspec/changes/add-html-page-annotations/`（标记 superseded，不再维护）。

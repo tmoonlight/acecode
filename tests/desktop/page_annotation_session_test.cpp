@@ -55,7 +55,7 @@ protected:
         request["description"] = description;
         request["target_id"] = "target-1";
         ASSERT_TRUE(prepare(request)) << error;
-        EXPECT_EQ(expression.find(description), std::string::npos);
+        EXPECT_EQ(expression.find(Json(description).dump()), std::string::npos);
         ASSERT_TRUE(session.complete(session.sequence(), result(), error)) << error;
     }
 
@@ -86,8 +86,6 @@ TEST_F(PageAnnotationSessionTest, PassivePollIsBoundedAndNeverAdvancesCommandSeq
     EXPECT_FALSE(session.finish_poll(replaced));
     EXPECT_FALSE(session.pollable());
     EXPECT_TRUE(session.finish_poll(current));
-    EXPECT_TRUE(session.navigation.reserve());
-    EXPECT_EQ(session.begin_poll(), 0);
 }
 
 TEST_F(PageAnnotationSessionTest, SnapshotRetainsPageBackgroundForOverlayCorners) {
@@ -250,6 +248,9 @@ TEST_F(PageAnnotationSessionTest, ModalSuspensionIsValidatedAndTracked) {
     suspended_result["modal_suspended"] = true;
     ASSERT_TRUE(session.complete(session.sequence(), suspended_result, error)) << error;
     EXPECT_EQ(session.snapshot()["modal_suspended"], true);
+    const auto suspended_poll = session.begin_poll();
+    EXPECT_NE(suspended_poll, 0);
+    EXPECT_TRUE(session.finish_poll(suspended_poll));
 
     auto bad_result_request = command("set_modal_suspended");
     bad_result_request["enabled"] = false;
@@ -265,6 +266,9 @@ TEST_F(PageAnnotationSessionTest, ModalSuspensionIsValidatedAndTracked) {
     resumed_result["modal_suspended"] = false;
     ASSERT_TRUE(session.complete(session.sequence(), resumed_result, error)) << error;
     EXPECT_EQ(session.snapshot()["modal_suspended"], false);
+    const auto poll = session.begin_poll();
+    EXPECT_NE(poll, 0);
+    EXPECT_TRUE(session.finish_poll(poll));
 
     session.replace_document();
     EXPECT_EQ(session.snapshot()["modal_suspended"], false);
@@ -690,6 +694,116 @@ TEST_F(PageAnnotationSessionTest, RemovePinsRuntimeCommandCarriesDocumentIdentit
     EXPECT_EQ(payload["numbers"], Json::array({1, 3}));
 }
 
+TEST_F(PageAnnotationSessionTest, EditSaveReusesRecordAndNumber) {
+    start();
+    select();
+    save("Original");
+    const auto original = session.snapshot()["records"][0];
+    auto request = command("edit_record");
+    request["record_id"] = original["id"];
+    ASSERT_TRUE(prepare(request)) << error;
+    EXPECT_NE(expression.find("\"number\":1"), std::string::npos);
+    ASSERT_TRUE(session.complete(session.sequence(), result(true, true, target()), error)) << error;
+    EXPECT_EQ(session.snapshot()["editing_record_id"], original["id"]);
+    EXPECT_EQ(session.snapshot()["draft_description"], "Original");
+
+    save("Updated");
+    const auto records = session.snapshot()["records"];
+    ASSERT_EQ(records.size(), 1u);
+    EXPECT_EQ(records[0]["id"], original["id"]);
+    EXPECT_EQ(records[0]["number"], 1);
+    EXPECT_EQ(records[0]["description"], "Updated");
+    EXPECT_EQ(session.snapshot()["editing_record_id"], "");
+}
+
+TEST_F(PageAnnotationSessionTest, EditFailureAndCancelClearEditingState) {
+    start();
+    select();
+    save("Original");
+    const auto original = session.snapshot()["records"][0];
+    auto request = command("edit_record");
+    request["record_id"] = original["id"];
+    ASSERT_TRUE(prepare(request)) << error;
+    ASSERT_TRUE(session.complete(session.sequence(), result(true, true, target()), error)) << error;
+
+    auto save_request = command("save");
+    save_request["description"] = "Failed edit";
+    save_request["target_id"] = "target-1";
+    ASSERT_TRUE(prepare(save_request)) << error;
+    session.fail(session.sequence());
+    EXPECT_EQ(session.snapshot()["editing_record_id"], "");
+    EXPECT_EQ(session.snapshot()["draft_description"], "");
+
+    ASSERT_TRUE(prepare(request)) << error;
+    ASSERT_TRUE(session.complete(session.sequence(), result(true, true, target()), error)) << error;
+    ASSERT_TRUE(prepare(command("cancel"))) << error;
+    ASSERT_TRUE(session.complete(session.sequence(), result(), error)) << error;
+    EXPECT_EQ(session.snapshot()["editing_record_id"], "");
+    select();
+    save("New record");
+    const auto records = session.snapshot()["records"];
+    ASSERT_EQ(records.size(), 2u);
+    EXPECT_EQ(records[0]["description"], "Original");
+    EXPECT_EQ(records[1]["description"], "New record");
+    EXPECT_EQ(records[1]["number"], 2);
+}
+
+TEST_F(PageAnnotationSessionTest, EditingRemovedRecordReturnsError) {
+    start();
+    select();
+    save("Original");
+    const auto original = session.snapshot()["records"][0];
+    auto request = command("edit_record");
+    request["record_id"] = original["id"];
+    ASSERT_TRUE(prepare(request)) << error;
+    ASSERT_TRUE(session.complete(session.sequence(), result(true, true, target()), error)) << error;
+
+    auto remove = command("remove");
+    remove["record_ids"] = Json::array({original["id"]});
+    std::vector<int> removed;
+    ASSERT_TRUE(session.submission(remove, error, &removed)) << error;
+    auto save_request = command("save");
+    save_request["description"] = "Must not succeed";
+    save_request["target_id"] = "target-1";
+    ASSERT_TRUE(prepare(save_request)) << error;
+    EXPECT_FALSE(session.complete(session.sequence(), result(), error));
+    EXPECT_EQ(error, "Annotation was removed while editing");
+    EXPECT_EQ(session.snapshot()["records"], Json::array());
+    EXPECT_EQ(session.snapshot()["editing_record_id"], "");
+}
+
+TEST_F(PageAnnotationSessionTest, AnnotationCaptureIsViewportAndValidationReturnsValidObject) {
+    bool full_page = true;
+    EXPECT_TRUE(browser_capture::request_mode(annotation_capture_params(), full_page).empty());
+    EXPECT_FALSE(full_page);
+
+    std::string evaluated;
+    Json value = {{"valid", true}};
+    const auto validate = annotation_capture_validation(
+        annotation_capture_validation_expression(),
+        [&](const std::string& expression, std::function<void(bool, Json)> done) {
+            evaluated = expression;
+            done(true, value);
+        });
+    ASSERT_TRUE(validate);
+    bool valid = false;
+    validate([&](bool ok) { valid = ok; });
+    EXPECT_EQ(evaluated, "({valid:true})");
+    EXPECT_TRUE(valid);
+
+    // 布尔结果不算通过：这条钉住原来的 "true" 校验表达式。
+    for (const auto& boolean : {Json(true), Json(false)}) {
+        value = boolean;
+        bool accepted = true;
+        validate([&](bool ok) { accepted = ok; });
+        EXPECT_FALSE(accepted) << boolean;
+    }
+    value = {{"valid", false}};
+    bool accepted = true;
+    validate([&](bool ok) { accepted = ok; });
+    EXPECT_FALSE(accepted);
+}
+
 TEST_F(PageAnnotationSessionTest, HostSubmissionReportsRemovedNumbersForPinCleanup) {
     start();
     select();
@@ -761,14 +875,10 @@ TEST_F(PageAnnotationSessionTest, LifecycleReportsAreAtomicDocumentBoundAndStick
     EXPECT_EQ(session.snapshot()["records"][0]["valid"], false);
 }
 
-TEST_F(PageAnnotationSessionTest, NavigationReservationBlocksRemovalWhileRecordsOutliveTheDocument) {
+TEST_F(PageAnnotationSessionTest, NavigationStillAllowsRemovingRecordsThatOutliveTheDocument) {
     start(); select(); save("Retain");
     auto request = command("remove");
     request["record_ids"] = Json::array({session.snapshot()["records"][0]["id"]});
-    ASSERT_TRUE(session.navigation.reserve());
-    EXPECT_FALSE(prepare(command("start")));
-    EXPECT_FALSE(session.submission(request, error));
-    session.navigation.finish();
     session.replace_document();
     EXPECT_TRUE(session.submission(request, error)) << error;
     EXPECT_EQ(session.snapshot()["records"], Json::array());
@@ -780,15 +890,10 @@ TEST_F(PageAnnotationSessionTest, NavigationSuspendsOldCallbacksWithoutDiscardin
     ASSERT_TRUE(prepare(command("read")));
     const auto old = session.sequence();
     const auto response = result();
-    ASSERT_TRUE(session.navigation.reserve());
-    ASSERT_TRUE(session.navigation.arm());
-    ASSERT_TRUE(session.navigation.start());
     session.suspend();
     EXPECT_FALSE(session.complete(old, response, error));
-    EXPECT_FALSE(prepare(command("read")));
-    session.navigation.finish();
+    ASSERT_TRUE(prepare(command("read"))) << error;
     EXPECT_EQ(session.snapshot()["records"][0]["valid"], true);
-    ASSERT_TRUE(prepare(command("read")));
     EXPECT_TRUE(session.complete(session.sequence(), result(), error));
     ASSERT_TRUE(prepare(command("read")));
     EXPECT_TRUE(session.complete(session.sequence(), {{"error", "replaced_document"}}, error));

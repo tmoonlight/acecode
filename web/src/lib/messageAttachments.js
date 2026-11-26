@@ -8,10 +8,17 @@ export function attachmentsFromContentParts(contentParts = []) {
 export function contextsFromContentParts(contentParts = []) {
   if (!Array.isArray(contentParts)) return [];
   return contentParts
-    .filter((part) => part && (part.type === 'browser_context' || part.type === 'selection_context'))
+    .filter((part) => part && (
+      part.type === 'browser_context' ||
+      part.type === 'selection_context' ||
+      part.type === 'page_annotations_context'
+    ))
     .map((part) => ({
       ...(part.context || {}),
-      type: part.context?.type || (part.type === 'selection_context' ? 'selection' : 'browser'),
+      type: part.context?.type || (
+        part.type === 'selection_context' ? 'selection'
+          : part.type === 'page_annotations_context' ? 'page_annotations' : 'browser'
+      ),
     }));
 }
 

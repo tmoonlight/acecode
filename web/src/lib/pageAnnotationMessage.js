@@ -2,22 +2,6 @@ import {
   attachmentsFromContentParts, contextsFromContentParts, isImageAttachment,
 } from './messageAttachments.js';
 
-const HEADER = 'Page annotations\n';
-const SEPARATOR = '\n\nPage annotations\n';
-
-function splitMessage(text) {
-  const source = String(text ?? '');
-  const index = source.lastIndexOf(HEADER);
-  if (index < 0) return null;
-  // 头部要么在开头（v1 纯批注消息），要么前面正好隔一个空行（v2 用户正文 + 批注）。
-  // 中间随便出现的字符串不算，避免把用户正文里的同名字样当载荷。
-  if (index !== 0 && source.slice(index - 2, index) !== '\n\n') return null;
-  return {
-    head: index === 0 ? '' : source.slice(0, index - 2),
-    body: source.slice(index + HEADER.length),
-  };
-}
-
 function normalizeAnnotation(item, index, pageTitle) {
   if (!item || typeof item !== 'object') return null;
   const description = String(item.description || '').trim();
@@ -65,39 +49,12 @@ function pageAnnotationCard(rawPages) {
   };
 }
 
-// 兼容两种载荷：
-//   v1 `Page annotations\n{page, annotations}`（旧消息，纯文本逐条）
-//   v2 `{用户正文}\n\nPage annotations\n{version, pages:[{title,url,shot,annotations}]}`
-export function parsePageAnnotationMessage(text) {
-  const split = splitMessage(text);
-  if (!split) return null;
-  let payload;
-  try {
-    payload = JSON.parse(split.body);
-  } catch {
-    return null;
-  }
-  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return null;
-  let rawPages;
-  if (Array.isArray(payload.pages)) rawPages = payload.pages;
-  else if (Array.isArray(payload.annotations)) rawPages = [{ ...(payload.page || {}), annotations: payload.annotations }];
-  else return null;
-  const card = pageAnnotationCard(rawPages);
-  if (!card) return null;
-  return {
-    text: split.head.trim(),
-    ...card,
-  };
-}
-
-// 新消息把批注作为 browser_context 随消息保存；正文只保留用户输入。
-// 旧消息仍由 parsePageAnnotationMessage 兼容正文内嵌载荷。
 export function pageAnnotationCardFromContexts(contentParts) {
   const context = contextsFromContentParts(contentParts)
     .find((item) => item.type === 'page_annotations');
   if (!context) return null;
   const card = pageAnnotationCard(context.pages);
-  return card ? { text: '', ...card, fromContext: true } : null;
+  return card ? { text: '', ...card } : null;
 }
 
 // 复制出去的是人读文本，不是原始载荷（PRD §6.7）。

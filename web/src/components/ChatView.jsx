@@ -62,6 +62,7 @@ import {
 import { InputBar } from './InputBar.jsx';
 import { normalizeComposerPayload } from '../lib/composerSubmission.js';
 import { annotationOutboxFor } from '../lib/annotationOutbox.js';
+import { useAnnotationOutbox } from '../lib/useAnnotationOutbox.js';
 import {
   annotationSendOutcome, localizedAnnotationSendError, prepareAnnotationSubmission,
   registerAnnotationSubmitter,
@@ -669,10 +670,6 @@ function isRealWorkspaceHash(hash) {
 const EXPERT_SWITCH_CANONICAL_POLL_ATTEMPTS = 6;
 const EXPERT_SWITCH_CANONICAL_POLL_INTERVAL_MS = 160;
 const FORK_ACTION_KEY = 'fork-session';
-
-const EMPTY_ANNOTATION_STATE = Object.freeze({
-  revision: 0, records: Object.freeze([]), pages: Object.freeze([]), pendingCount: 0,
-});
 
 export function ChatView({ titleTarget, actionsTarget, children, sessionRef, sessionId, homeLogoEffectEnabled = true, homeIntentSuggestions = [], onHomeIntentPrompt, homeComposerDrafts = {}, homeComposerAttentionRequest = 0, onHomeComposerDraftLoad, onHomeComposerDraftChange, onHomeComposerDraftAccepted, onHomeComposerDraftPatch, modelProfileRevision = 0, onSessionPromoted, onSessionExpertChanged, onHomeWorkspaceChange, onCommandWorkspaceChange, onConsoleCwdChange, onFindInConversation, onOpenModelSettings, health, autoFocusOnDesktopWindowFocus = false, onPermissionRequest, onQuestionRequest, permissionRequests = [], onPermissionDecision, questionRequest, onQuestionResolve, onPermissionModeChanged, onSubagentTasksChange, recentExpertIds = [], onRememberExpert, onInitialDraftConsumed, showSidePanel = false, responsiveSidebars = null, rightPanelPopupWidth, onRightPanelPopupResize, sidePanelWidth = 280, onSidePanelResize, previewPanelWidth = 640, previewPanelAutoFit = false, onPreviewPanelResize, onPreviewPanelVisibleChange, onRegisterPreviewLeaveGuard, sidePanelCollapsed = false, sidePanelListCollapsed = false, onToggleSidePanel, onRevealPreviewPanel, onToggleSidePanelList, onRevealSidePanelList, sidePanelMaximized = false, onToggleSidePanelMaximized, previewPresenting = false, onTogglePreviewPresentation, showAceCodeAvatar = false, showSessionTime = true, messageAutoCollapse = true, followUpPrompts = true, busySendMode = 'steer', summaryPanelWidth, onSummaryPanelResize, onEditWorkspace, summaryPanelOpen = false, onToggleSummaryPanel, nativeSurfacesVisible = true }) {
   const ref = useMemo(() => normalizeSessionRef(sessionRef, sessionId), [sessionRef, sessionId]);
@@ -3686,6 +3683,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
   // 'fork'(Ctrl+Alt+Enter,在分叉出的新会话里发送)。
   const submit = useStableCallback((text, { sendMode = 'send',
     extraAttachments = null, extraContexts = null, annotationSettle = null,
+    clientMessageId = null,
   } = {}) => {
     let annotationStatus = '';
     const settleAnnotations = (status) => {
@@ -4090,7 +4088,9 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
       ? { ...payload, worktree: sessionWorktreeIntent }
       : { ...payload };
     if (!isBuiltin) {
-      sessionSendPayload.client_message_id = `input-${targetSid}-${globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`}`;
+      // 批注发送复用组装阶段定下的 id，超时自查和重试都认它。
+      sessionSendPayload.client_message_id = clientMessageId ||
+        `input-${targetSid}-${globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`}`;
     }
     // 空会话的首条消息要先建 worktree:同样可能等很久。
     const sessionStartToken = sessionWorktreeIntent
@@ -4163,13 +4163,11 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
 
   // 批注容器：会话级待发集合。页签那边只上报快照，这里只读。
   const annotationBox = useMemo(() => annotationOutboxFor(sid, api), [sid, api]);
-  const annotationState = useSyncExternalStore(
-    useCallback((listener) => (annotationBox ? annotationBox.subscribe(listener) : () => {}), [annotationBox]),
-    useCallback(() => annotationBox?.getSnapshot() || EMPTY_ANNOTATION_STATE, [annotationBox]),
-  );
+  const annotationState = useAnnotationOutbox(annotationBox);
 
   // 唯一的发送组装点（Q35）：输入框正文 + 会话内全部待发批注，发成一条消息。
   // 输入框发送按钮、页内工具栏、浮窗 Ctrl+Enter 三条路径最后都落到这里。
+  const annotationRetryRef = useRef(null);
   const submitWithAnnotations = useStableCallback(async (text, { sendMode = 'send' } = {}) => {
     const targetSid = sidRef.current;
     const value = typeof text === 'string' ? text : composerValueRef.current;
@@ -4187,20 +4185,28 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
         records,
         outbox: annotationBox,
         api,
+        retry: annotationRetryRef.current,
       });
     } catch (error) {
       const message = localizedAnnotationSendError(error?.message || error);
       toast({ kind: 'err', text: message });
       return { ok: false, error: message };
     }
+    annotationRetryRef.current = { cacheKey: prepared.cacheKey, prepared };
     let result;
     try {
       result = await submit(prepared.text, {
         sendMode,
         extraAttachments: prepared.shotAttachments,
         extraContexts: prepared.contexts,
+        clientMessageId: prepared.clientMessageId,
         annotationSettle: (status) => {
-          if (status === 'sent') prepared.settle(true);
+          if (status === 'sent') {
+            // 发送成功后原生存储里的记录整体作废，撤销窗口也跟着结束。
+            pendingAnnotationRemovalRef.current = null;
+            annotationRetryRef.current = null;
+            prepared.settle(true);
+          }
           else if (status === 'failed') {
             toast({ kind: 'err', text: '批注未发出，仍在待发列表里，可重试' });
           }
@@ -4213,6 +4219,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
     }
     if (result?.ok === false) return result;
     if (result?.ok !== true) return { ok: false, error: '发送失败' };
+    annotationRetryRef.current = null;
     return { ok: true, annotations: records.length };
   });
 
@@ -4233,7 +4240,27 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
     return [...groups.values()];
   }, [annotationState]);
 
-  // 删除待发批注：活页签走原生存储，已关闭页签只剩本地这份清单。
+  // 删除待发批注：本地立即摘掉，原生存储的删除延后到撤销窗口结束，
+  // 否则撤销后下一次快照会把记录抹掉。撤销槽只有最近一条，所以新的一次
+  // 删除就是上一条的窗口终点。
+  const pendingAnnotationRemovalRef = useRef(null);
+  const commitPendingAnnotationRemoval = useStableCallback(() => {
+    const pending = pendingAnnotationRemovalRef.current;
+    pendingAnnotationRemovalRef.current = null;
+    if (!pending?.pageId || !pending.id) return;
+    void runPageAnnotationCommand(pending.pageId, {
+      action: 'remove', document_id: '', record_ids: [pending.id],
+    }).catch(() => {});
+  });
+  useEffect(() => () => {
+    const commit = pendingAnnotationRemovalRef.current;
+    pendingAnnotationRemovalRef.current = null;
+    if (!commit?.pageId || !commit.id) return;
+    void runPageAnnotationCommand(commit.pageId, {
+      action: 'remove', document_id: '', record_ids: [commit.id],
+    }).catch(() => {});
+  }, []);
+
   const [editingAnnotation, setEditingAnnotation] = useState(null);
   const editAnnotationRecord = useStableCallback(async (record) => {
     const result = await requestAnnotationEdit(record.pageId, record, {
@@ -4258,14 +4285,20 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
 
   const deleteAnnotationRecord = useStableCallback((record) => {
     if (!record?.id) return;
+    const removed = annotationBox?.remove(record.id);
+    if (!removed) return;
     const page = annotationState.pages.find((item) => item.id === record.pageId);
-    if (page?.closed || !record.pageId) {
-      annotationBox?.markSent([record.id]);
-      return;
+    if (page?.closed || !record.pageId) return;
+    commitPendingAnnotationRemoval();
+    pendingAnnotationRemovalRef.current = { pageId: record.pageId, id: record.id };
+  });
+
+  const restoreAnnotationRecord = useStableCallback((record) => {
+    if (!record?.id) return;
+    if (pendingAnnotationRemovalRef.current?.id === record.id) {
+      pendingAnnotationRemovalRef.current = null;
     }
-    void runPageAnnotationCommand(record.pageId, {
-      action: 'remove', document_id: '', record_ids: [record.id],
-    }).catch(() => {});
+    annotationBox?.restore(record);
   });
 
   const drainQueuedInput = useStableCallback(() => {
@@ -6984,6 +7017,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
             pages={annotationGroups}
             onDelete={deleteAnnotationRecord}
             onEdit={editAnnotationRecord}
+            onRestore={restoreAnnotationRecord}
           />
           {editingAnnotation ? (
             <PageAnnotationEditDialog

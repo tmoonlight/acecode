@@ -452,26 +452,31 @@ inline constexpr const char kPageAnnotationRuntime[] = R"ACEANNOTATION(
           selectedId = '';
           break;
         case 'edit_record': {
-          // 从待发卡片点铅笔回到页面（#217）：按保存时记下的 locator 找回元素，
-          // 重新进入批注态并把草稿切换成这一条。窗口内的重放（#216 的 replayable）
-          // 以后可以复用这条路径，所以只做「定位 + 选中」，不碰描述。
-          const locator = typeof next.locator === 'string' ? next.locator : '';
-          if (!locator || locator.length > 2048 || selectionMode) return {error:'stale_target'};
-          let element = null;
-          try { element = document.querySelector(locator); } catch { element = null; }
-          if (!connected(element)) return {error:'stale_target'};
+          // 从待发卡片点铅笔回到页面（#217）：按图钉编号取回保存时的元素引用。
+          // locator 只是「标签名 + id」，既不唯一也不保证能重新查到；图钉持有的
+          // 是活文档里的真实节点，重进对话框不会换成页面上第一个同名元素。
+          const number = Number.isSafeInteger(next.number) ? next.number : null;
+          if (number === null || selectionMode) return {error:'stale_target'};
+          const pin = pins.find(item => item.number === number);
+          if (!pin || pin.invalid || !pin.targets.every(connected)) return {error:'stale_target'};
           active = true;
           markersHidden = false;
           modalSuspended = false;
           targets.length = 0;
-          targets.push(element);
-          draftChains.set(element, ancestors(element));
-          observe(element);
-          region = null;
-          selected = element;
-          if (!ids.has(element)) ids.set(element, `target-${++sequence}`);
-          selectedId = ids.get(element);
-          styles.select(element, selectedId);
+          region = pin.region ? {...pin.region} : null;
+          selected = null;
+          selectedId = '';
+          for (const element of pin.targets) {
+            targets.push(element);
+            draftChains.set(element, ancestors(element));
+            observe(element);
+            if (!ids.has(element)) ids.set(element, `target-${++sequence}`);
+          }
+          if (targets.length) {
+            selected = targets[0];
+            selectedId = ids.get(selected);
+            styles.select(selected, selectedId);
+          }
           open = true;
           layout();
           break;
@@ -481,7 +486,7 @@ inline constexpr const char kPageAnnotationRuntime[] = R"ACEANNOTATION(
               (!selected && !region) || (selected ? selectedId : null) !== next.target_id ||
               JSON.stringify(targets.map(target => ids.get(target))) !== JSON.stringify(next.target_ids) ||
               (region ? !next.region || ['x','y','width','height'].some(field => region[field] !== next.region[field])
-                : next.region !== null)) return {error:'stale_target'};
+                : next.region !== null) || !Number.isSafeInteger(next.number)) return {error:'stale_target'};
           if (original) return {error:'original_view_active'};
           const result = textPreview.save();
           if (result.error) return result;
@@ -500,6 +505,13 @@ inline constexpr const char kPageAnnotationRuntime[] = R"ACEANNOTATION(
             shadow.append(savedOutline);
           }
           for (const target of targets) observe(target);
+          // 编辑保存复用原编号：先撤掉同编号的旧图钉，让图钉与记录一一对应。
+          const previous = pins.findIndex(item => item.number === next.number);
+          if (previous >= 0) {
+            pins[previous].marker.remove();
+            pins[previous].outline?.remove();
+            pins.splice(previous, 1);
+          }
           pins.push({number:next.number, targets:[...targets], chains:targets.map(ancestors), region, marker, outline:savedOutline, invalid:false});
           clearDraft();
           return {...snapshot(), differences};

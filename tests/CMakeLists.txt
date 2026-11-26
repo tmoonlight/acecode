@@ -76,10 +76,6 @@ file(GLOB_RECURSE ACECODE_TEST_SOURCES CONFIGURE_DEPENDS
 )
 
 add_executable(acecode_unit_tests ${ACECODE_TEST_SOURCES})
-target_sources(acecode_unit_tests PRIVATE
-    ${CMAKE_SOURCE_DIR}/src/apps/desktop/agent_browser_capture_cdp.cpp
-    ${CMAKE_SOURCE_DIR}/src/apps/desktop/agent_browser_capture_layout.cpp
-    ${CMAKE_SOURCE_DIR}/src/apps/desktop/agent_browser_state_json.cpp)
 
 add_executable(acecode_runtime_log_fixture
     ${CMAKE_CURRENT_SOURCE_DIR}/utils/helpers/runtime_log_fixture.cpp

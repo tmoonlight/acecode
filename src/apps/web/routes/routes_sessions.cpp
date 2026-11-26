@@ -328,6 +328,10 @@ WebServer::Impl::parse_session_user_input_request(
     SelectionPromptContext selection_context =
         build_selection_prompt_context(contexts);
     const bool selection_expanded = !selection_context.prompt.empty();
+    PageAnnotationPromptContext page_annotation_context =
+        build_page_annotation_prompt_context(contexts);
+    const bool page_annotations_expanded =
+        !page_annotation_context.prompt.empty();
 
     std::vector<ResolvedSessionReference> resolved_references;
     resolved_references.reserve(session_references.size());
@@ -502,9 +506,16 @@ WebServer::Impl::parse_session_user_input_request(
             }
         }
     }
-    if (selection_expanded) {
-        text = build_selection_augmented_prompt(
-            selection_context, original_text);
+    if (selection_expanded || page_annotations_expanded) {
+        std::string quoted_context;
+        if (selection_expanded) {
+            quoted_context += selection_context.prompt;
+        }
+        if (page_annotations_expanded) {
+            quoted_context += page_annotation_context.prompt;
+        }
+        text = build_quoted_context_augmented_prompt(
+            quoted_context, original_text);
     }
     if (session_references_expanded) {
         text = build_session_reference_augmented_prompt(
@@ -512,7 +523,8 @@ WebServer::Impl::parse_session_user_input_request(
     }
 
     result.input.text = text;
-    if (expanded || selection_expanded || session_references_expanded) {
+    if (expanded || selection_expanded || page_annotations_expanded ||
+        session_references_expanded) {
         result.input.display_text = original_text;
     }
     if (!client_message_id.empty()) {
@@ -590,6 +602,7 @@ WebServer::Impl::parse_session_user_input_request(
         }
 
         json context_meta = json::array();
+        bool page_annotations_recorded = false;
         for (const auto& context : contexts) {
             if (!context.is_object()) continue;
             if (json_string_field(context, "type") == "selection") {
@@ -599,6 +612,19 @@ WebServer::Impl::parse_session_user_input_request(
                 parts.push_back(json{
                     {"type", "selection_context"},
                     {"context", *metadata},
+                });
+            } else if (json_string_field(context, "type") ==
+                       "page_annotations") {
+                if (page_annotations_recorded ||
+                    page_annotation_context.meta.empty()) {
+                    continue;
+                }
+                page_annotations_recorded = true;
+                const json metadata = page_annotation_context.meta[0];
+                context_meta.push_back(metadata);
+                parts.push_back(json{
+                    {"type", "page_annotations_context"},
+                    {"context", metadata},
                 });
             } else {
                 context_meta.push_back(context);
@@ -622,6 +648,10 @@ WebServer::Impl::parse_session_user_input_request(
         }
         if (selection_expanded) {
             result.input.metadata["selection_context_expanded"] = true;
+            result.input.metadata["display_text"] = original_text;
+        }
+        if (page_annotations_expanded) {
+            result.input.metadata["page_annotations_expanded"] = true;
             result.input.metadata["display_text"] = original_text;
         }
     }
@@ -2235,7 +2265,7 @@ void WebServer::Impl::register_sessions() {
                 }
             }
 
-            const bool ok = deps.session_client->send_input(id, parsed.input);
+            bool ok = deps.session_client->send_input(id, parsed.input);
             if (!ok) {
                 crow::response r(404);
                 r.body = R"({"error":"unknown session"})";

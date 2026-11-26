@@ -73,7 +73,6 @@ public:
                                    const std::string&, std::uint64_t) = 0;
     virtual void navigation_policy_decided(
         const std::string&, WKWebView*, WKNavigationAction*, bool, bool) = 0;
-    virtual bool annotation_navigation_allowed(const std::string&, WKWebView*, WKNavigationAction*) = 0;
     // 把系统已注册的外部 URI/SSO scheme 交给操作系统。返回 true 表示已交接,
     // 随后 WebView 的取消回调按「已处理」对待而不是导航失败。
     virtual bool handoff_external_url(const std::string&, WKWebView*,
@@ -436,7 +435,6 @@ static void* kACECodeAgentBrowserStateObservation =
             [self pageIDValue], webView, url);
     }
     if (owner_) {
-        if (allowed) allowed = owner_->annotation_navigation_allowed([self pageIDValue], webView, navigationAction);
         owner_->navigation_policy_decided(
             [self pageIDValue], webView, navigationAction, allowed, handed_off);
     }
@@ -1018,7 +1016,6 @@ struct AgentBrowserHost::Impl final
         auto waiters = std::move(page->ready_waiters);
         page->ready_waiters.clear();
         if (!ok) {
-            page->annotations.navigation.finish();
             update_page(page, [&error](AgentBrowserState& value) {
                 value.ready = false;
                 value.error = error;
@@ -1036,13 +1033,11 @@ struct AgentBrowserHost::Impl final
             const std::string url = page->restore_url;
             page->restore_url.clear();
             std::string navigate_error;
-            page->annotations.navigation.arm();
-            if (!navigate_on_ui(page->id, url, &navigate_error, true)) {
-                page->annotations.navigation.finish();
+            if (!navigate_on_ui(page->id, url, &navigate_error)) {
                 LOG_WARN("[agent-browser][macos] failed to restore " + page->id +
                          " after cookie store change: " + navigate_error);
             }
-        } else page->annotations.navigation.finish();
+        }
         apply_bounds(page);
     }
 
@@ -1427,7 +1422,6 @@ struct AgentBrowserHost::Impl final
             for (const auto& id : agent_browser_pages_to_rebuild(page_store_bindings(), *mode)) {
                 if (const auto candidate = find_page(id)) affected.push_back(candidate);
             }
-            if (!reserve_annotation_pages(affected, error, true)) return false;
         }
         const bool persisted = update_agent_browser_store_state(
             [&mode, &plan](AgentBrowserStoreState& state) {
@@ -1441,7 +1435,6 @@ struct AgentBrowserHost::Impl final
                 return true;
             });
         if (!persisted) {
-            for (const auto& candidate : affected) candidate->annotations.navigation.finish();
             assign_error(error, "failed to save the Agent Browser cookie setting");
             return false;
         }
@@ -1476,16 +1469,18 @@ struct AgentBrowserHost::Impl final
         }
         const AgentBrowserCookieStoreKey key = page->store;
         const auto affected = annotation_store_pages(*this, key);
-        if (!reserve_annotation_pages(affected, error, true)) return false;
-        const auto reload = annotation_transition_tickets(affected);
         const auto weak = weak_from_this();
         const std::string requested_page = page_id;
         clear_data_store(store_for_key(key),
-                         [weak, key, requested_page, reload](bool ok, const std::string& clear_error) {
+                         [weak, key, requested_page, affected](bool ok, const std::string& clear_error) {
             const auto self = weak.lock();
             if (!self) return;
-            annotation_reload_reserved(*self, reload, key, ok,
-                [](const auto& candidate) { return [candidate->webview reload] != nil; });
+            if (ok) {
+                for (const auto& candidate : affected) {
+                    if (!candidate->closing && self->find_page(candidate->id) == candidate &&
+                        candidate->webview && candidate->store == key) [candidate->webview reload];
+                }
+            }
             if (ok) {
                 LOG_INFO("[agent-browser][macos] browsing data cleared: " + key.id());
             } else {
@@ -1550,7 +1545,7 @@ struct AgentBrowserHost::Impl final
 
     bool navigate_on_ui(const std::string& page_id,
                         const std::string& input,
-                        std::string* error, bool approved = false) {
+                        std::string* error) {
         auto page = find_page(page_id);
         if (!page || !page->webview || page->closing || !page->store_prepared) {
             assign_error(error, "Agent Browser page is still starting");
@@ -1566,8 +1561,6 @@ struct AgentBrowserHost::Impl final
             }.dump()));
             return false;
         }
-        if (!approved && !annotation_fragment_navigation(page->state.url, *normalized) &&
-            !reserve_annotation_pages({page}, error)) return false;
         LOG_INFO(("[agent-browser][macos] " + json{
             {"event", "navigation_requested"},
             {"page_id", page_id},
@@ -1578,7 +1571,6 @@ struct AgentBrowserHost::Impl final
         } else {
             NSURL* url = [NSURL URLWithString:ns_string(*normalized)];
             if (!url) {
-                page->annotations.navigation.finish();
                 assign_error(error, "Agent Browser URL is invalid");
                 return false;
             }
@@ -1586,17 +1578,6 @@ struct AgentBrowserHost::Impl final
                 page->webview, [NSURLRequest requestWithURL:url]);
         }
         return true;
-    }
-
-    bool reserve_annotation_pages(const std::vector<std::shared_ptr<Page>>& affected, std::string* error, bool hold = false) {
-        return annotation_reserve_pages(*this, affected, error, hold);
-    }
-
-    bool annotation_navigation_allowed(const std::string& page_id, WKWebView* webview,
-                                       WKNavigationAction* action) override {
-        const auto page = find_page(page_id);
-        if (!page || page->webview != webview) return false;
-        return annotation_allow_action(*this, page, action);
     }
 
     bool page_shared_with_agent(const std::shared_ptr<Page>& page) const {
@@ -1621,7 +1602,6 @@ struct AgentBrowserHost::Impl final
                             std::uint64_t navigation_id) override {
         auto page = find_page(page_id);
         if (!page || page->webview != webview) return;
-        if (!page->annotations.navigation.start(page->annotations.navigation.navigating())) return;
         page->annotations.suspend();
         {
             std::lock_guard<std::mutex> lock(state_mutex);
@@ -1889,7 +1869,6 @@ struct AgentBrowserHost::Impl final
             return;
         }
         refresh_page_identity(page);
-        page->annotations.navigation.finish();
         update_page(page, [](AgentBrowserState& value) {
             value.loading = false;
             value.content_state = kAgentBrowserContentStateLive;
@@ -1947,7 +1926,6 @@ struct AgentBrowserHost::Impl final
             return;
         }
 
-        page->annotations.navigation.finish();
         if (decision == BrowserNavigationDecision::kRestorePrevious) {
             // 被新导航取代、重定向替换或已交给操作系统的外部 scheme。这些是引擎
             // 内部的中间取消,不是这次浏览的最终结果 —— 发布错误页只会造成录屏里
@@ -2004,10 +1982,6 @@ struct AgentBrowserHost::Impl final
                                WKWebView* webview) override {
         auto page = find_page(page_id);
         if (page && page->webview == webview && !page->closing) {
-            if (page->annotations.navigation.reserved() && page->annotations.navigation.armed() &&
-                !webview.loading && annotation_fragment_navigation(page->state.url, utf8_string(webview.URL.absoluteString))) {
-                page->annotations.navigation.finish();
-            }
             refresh_page_identity(page);
         }
     }
@@ -2016,7 +1990,6 @@ struct AgentBrowserHost::Impl final
         auto page = find_page(page_id);
         if (!page) return;
         page->annotations.replace_document();
-        page->annotations.navigation.finish();
         LOG_ERROR(("[agent-browser][macos] " + json{
             {"event", "web_content_process_terminated"},
             {"page_id", page_id},
@@ -2065,7 +2038,6 @@ struct AgentBrowserHost::Impl final
             {"decision", allowed ? "load_in_page" : "cancel"},
         }.dump();
         if (allowed) {
-            if (!reserve_annotation_pages({page}, nullptr)) return;
             LOG_INFO(log_line);
             load_agent_browser_request(page->webview, request);
         } else {
@@ -2459,10 +2431,6 @@ void AgentBrowserHost::Impl::call_command_on_ui(
         return;
     }
     if (method == "Page.reload") {
-        if (!reserve_annotation_pages({page}, nullptr)) {
-            finish_proxy_call(pending, {{"ok", false}, {"page_id", page_id}, {"error", "Navigation cancelled"}});
-            return;
-        }
         [page->webview reload];
         finish_proxy_call(pending,
             {{"ok", true}, {"page_id", page_id},
@@ -2511,10 +2479,6 @@ void AgentBrowserHost::Impl::call_command_on_ui(
                 {{"ok", false}, {"page_id", page_id},
                  {"error", "Browser history entry is invalid"}});
         } else {
-            if (!reserve_annotation_pages({page}, nullptr)) {
-                finish_proxy_call(pending, {{"ok", false}, {"page_id", page_id}, {"error", "Navigation cancelled"}});
-                return;
-            }
             [page->webview goToBackForwardListItem:
                 page->history_items[static_cast<std::size_t>(entry_id - 1)]];
             finish_proxy_call(pending,
@@ -2967,7 +2931,6 @@ bool AgentBrowserHost::go_back(const std::string& page_id,
                                std::string* error) {
     auto page = impl_ ? impl_->find_page(page_id) : nullptr;
     if (page && page->webview && page->webview.canGoBack) {
-        if (!impl_->reserve_annotation_pages({page}, error)) return false;
         [page->webview goBack];
         return true;
     }
@@ -2979,7 +2942,6 @@ bool AgentBrowserHost::go_forward(const std::string& page_id,
                                   std::string* error) {
     auto page = impl_ ? impl_->find_page(page_id) : nullptr;
     if (page && page->webview && page->webview.canGoForward) {
-        if (!impl_->reserve_annotation_pages({page}, error)) return false;
         [page->webview goForward];
         return true;
     }
@@ -2991,7 +2953,6 @@ bool AgentBrowserHost::reload(const std::string& page_id,
                               std::string* error) {
     auto page = impl_ ? impl_->find_page(page_id) : nullptr;
     if (page && page->webview) {
-        if (!impl_->reserve_annotation_pages({page}, error)) return false;
         [page->webview reload];
         return true;
     }

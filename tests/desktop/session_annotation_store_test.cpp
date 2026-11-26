@@ -247,6 +247,33 @@ TEST_F(SessionAnnotationStoreTest, AttachScreenshotStoresThumbnailAndPageShot) {
     }, error));
 }
 
+TEST_F(SessionAnnotationStoreTest, AttachScreenshotAcceptsRealPngPayloadsButCapsTheCommand) {
+    auto store = std::make_shared<SessionAnnotationStore>();
+    Driver driver(store, "page-1");
+    driver.start();
+    driver.select();
+    driver.save("needs a real picture");
+    const auto id = store->records("page-1")[0]["id"].get<std::string>();
+
+    // 真实网页的整屏 PNG 远大于普通提交上限；补图命令要能过。
+    const std::string page_shot = "data:image/png;base64," + std::string(1024 * 1024, 'A');
+    std::string error;
+    ASSERT_TRUE(driver.session.submission({
+        {"action", "attach_screenshot"}, {"document_id", ""}, {"record_id", id},
+        {"thumbnail", "data:image/png;base64,AAA"}, {"page_shot", page_shot},
+    }, error)) << error;
+    EXPECT_EQ(driver.session.snapshot()["page_shot"].get<std::string>().size(), page_shot.size());
+
+    // 上限仍然存在：超过 8 MiB 的整条命令被拒，且不改动已存状态。
+    const auto before = driver.session.snapshot();
+    EXPECT_FALSE(driver.session.submission({
+        {"action", "attach_screenshot"}, {"document_id", ""},
+        {"page_shot", "data:image/png;base64," + std::string(8 * 1024 * 1024, 'B')},
+    }, error));
+    EXPECT_EQ(error, "Invalid annotation submission");
+    EXPECT_EQ(driver.session.snapshot(), before);
+}
+
 TEST_F(SessionAnnotationStoreTest, RemoveErasesRecordsWithoutDocumentCheck) {
     auto store = std::make_shared<SessionAnnotationStore>();
     Driver driver(store, "page-1");

@@ -1,44 +1,24 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useState } from 'react';
 import { VsIcon } from './Icon.jsx';
 
 // 待发批注卡片：输入框正上方，按页面分组。会话级视图——已关闭页签的记录
 // 也在里面（组头标注「页面已关闭」），它们仍能编辑文本、删除、发送（PRD §6.4）。
 export function PageAnnotationPendingCard({ pages, onEdit, onDelete, onRestore }) {
-  const [pendingRemoval, setPendingRemoval] = useState(null);
-  const timersRef = useRef(new Map());
-  useEffect(() => () => {
-    for (const timer of timersRef.current.values()) clearTimeout(timer);
-    timersRef.current.clear();
-  }, []);
-
-  const groups = useMemo(() => (pages || [])
-    .map((page) => ({
-      ...page,
-      records: (page.records || []).filter((record) => !(
-        pendingRemoval && pendingRemoval.id === record.id
-      )),
-    }))
-    .filter((page) => page.records.length > 0), [pages, pendingRemoval]);
+  // 删除立即生效；只保留最近一条可撤销，连删两条时第一条不再回来。
+  const [lastRemoved, setLastRemoved] = useState(null);
+  const groups = (pages || []).filter((page) => (page.records || []).length > 0);
 
   const total = groups.reduce((sum, page) => sum + page.records.length, 0);
-  if (!total && !pendingRemoval) return null;
+  if (!total && !lastRemoved) return null;
 
   const remove = (record) => {
-    setPendingRemoval({ id: record.id, record });
-    const timer = setTimeout(() => {
-      timersRef.current.delete(record.id);
-      setPendingRemoval(null);
-      onDelete?.(record);
-    }, 5000);
-    timersRef.current.set(record.id, timer);
+    setLastRemoved(record);
+    onDelete?.(record);
   };
 
   const undo = () => {
-    const timer = timersRef.current.get(pendingRemoval?.id);
-    if (timer) clearTimeout(timer);
-    timersRef.current.delete(pendingRemoval?.id);
-    const record = pendingRemoval?.record;
-    setPendingRemoval(null);
+    const record = lastRemoved;
+    setLastRemoved(null);
     onRestore?.(record);
   };
 
@@ -48,7 +28,7 @@ export function PageAnnotationPendingCard({ pages, onEdit, onDelete, onRestore }
       <header className="ace-annotation-pending-head">
         <span>待发批注</span>
         <span className="ace-annotation-pending-count">{`${total} 条`}</span>
-        {pendingRemoval ? (
+        {lastRemoved ? (
           <span className="ace-annotation-pending-undo" role="status">
             已删除
             <button type="button" onClick={undo}>撤销</button>

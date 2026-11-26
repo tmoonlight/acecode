@@ -22,7 +22,7 @@ AnnotationLifecycle annotation_lifecycle(std::weak_ptr<Host> weak, std::weak_ptr
         bool valid = false;
         if (page->annotations.recover_document_loss(result)) {
             valid = true;
-        } else if (!page->annotations.navigation.blocked()) {
+        } else {
             valid = page->annotations.observe_lifecycle(result);
         }
         const auto snapshot = page->annotations.snapshot().dump();
@@ -87,6 +87,17 @@ inline browser_capture::Validate annotation_capture_validation(
             done(ok && value.is_object() && value.contains("valid") && value["valid"] == true);
         });
     };
+}
+
+// 批注截图按视口抓：前端拿到图后按视口坐标裁剪。整页捕获会把视口图换成
+// 整页图，裁剪位置随页面高度和滚动偏移一起错。
+inline nlohmann::json annotation_capture_params() {
+    return {{"format", "png"}, {"captureBeyondViewport", false}};
+}
+
+// 校验表达式必须求值成对象，annotation_capture_validation 只认 valid 字段。
+inline std::string annotation_capture_validation_expression() {
+    return "({valid:true})";
 }
 
 }

@@ -55,8 +55,9 @@ Session
 
 **合并成一条消息**：正文只放用户文本；批注结构作为 `contexts` 里的
 `{type:"page_annotations", version:2, pages:[...]}` 提交，服务端转成
-`browser_context` content part，既送给模型也持久化给只读卡片。拆成两条 POST
-会触发两轮 turn。旧版正文内嵌 `Page annotations` 载荷的消息仍由解析层兼容。
+`page_annotations_context` content part，并把净化后的来源、元素、描述、网页文本
+和样式差异展开进模型正文；原始文本继续作为显示文本。拆成两条 POST 会触发
+两轮 turn。消息渲染只认上下文部件，不解析正文内嵌载荷。
 
 **铅笔路径的页签解析**：编辑注册表只属于当前挂载的页签，不能据此判断其它页签
 是否还存在。先按 `page_id`、再按 `url` 在 App 级浏览器页面登记表中定位页面；
@@ -81,7 +82,7 @@ Session
 
 `adjustable = state === 'live' && 页签存活 && document_id 匹配`，两个入口共用这一条判定。
 
-删除 = 立即生效 + 5s 撤销 toast，不做二次确认（批注是轻量草稿，弹窗打断比误删更烦）。
+删除 = 立即生效 + 单槽撤销 toast，不做二次确认（批注是轻量草稿，弹窗打断比误删更烦）。
 
 ### D-5 截图在 save 时裁
 

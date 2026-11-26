@@ -57,7 +57,7 @@ HMR 分两种情形，都不改变结论：
 | 2560×1440 DPR2（`scale=1/dpr`） | 2560×1440 | 463 KB | 29.2 ms | 0.2 ms | 1.2 ms | **30.3 ms** | **36.5 ms** |
 | 2560×1440 DPR2（**没做** scale 修正） | 5120×2880 | 4602 KB | 154.1 ms | 0.2 ms | 10.5 ms | **163.3 ms** | **237.6 ms** |
 
-原始数据：`C:/Users/Administrator/AppData/Local/Temp/annotation-bench/`（`index.html` + `drive.mjs`，可重跑）。
+原始数据：临时目录 `annotation-bench/`（`index.html` + `drive.mjs`，可重跑；路径随环境变化）。
 
 **三条读法：**
 

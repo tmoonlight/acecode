@@ -123,7 +123,6 @@ struct AgentBrowserHost::Impl
         std::uint64_t element_selection_generation = 0;
         std::uint64_t favicon_generation = 0;
         std::uint64_t current_navigation_id = 0;
-        bool annotation_certificate_retry = false;
         std::string content_state_before_navigation =
             kAgentBrowserContentStateEmpty;
         std::string favicon_before_navigation;
@@ -737,15 +736,13 @@ struct AgentBrowserHost::Impl
         if (!page->restore_url.empty() && page->webview) {
             const std::string url = std::move(page->restore_url);
             page->restore_url.clear();
-            page->annotations.navigation.arm();
             const HRESULT navigated =
                 page->webview->Navigate(acecode::utf8_to_wide(url).c_str());
             if (FAILED(navigated)) {
-                page->annotations.navigation.finish();
                 LOG_WARN("[agent-browser] failed to restore " + page->id +
                          " after cookie store change (" + hresult_text(navigated) + ")");
             }
-        } else page->annotations.navigation.finish();
+        }
         LOG_INFO("[agent-browser] page ready: " + page->id + " (store " +
                  page->store.id() + ")");
     }
@@ -1216,7 +1213,6 @@ struct AgentBrowserHost::Impl
     void retry_navigation_after_certificate(
         const std::shared_ptr<Page>& page) {
         if (!page || !page->webview) return;
-        page->annotation_certificate_retry = true;
         std::string uri;
         {
             std::lock_guard<std::mutex> lock(state_mutex);
@@ -1323,7 +1319,7 @@ struct AgentBrowserHost::Impl
                     ::CoTaskMemFree(raw);
                     std::uint64_t navigation_id = 0;
                     args->get_NavigationId(&navigation_id);
-                    if (!annotation_start_navigation(*self, current, args, uri, navigation_id)) return S_OK;
+                    annotation_suspend_for_navigation(current, uri);
                     {
                         std::lock_guard<std::mutex> lock(self->state_mutex);
                         if (current->current_navigation_id != navigation_id &&
@@ -1421,7 +1417,6 @@ struct AgentBrowserHost::Impl
                         self->retry_navigation_after_certificate(current);
                         return S_OK;
                     }
-                    current->annotations.navigation.finish();
                     LPWSTR raw_source = nullptr;
                     current->webview->get_Source(&raw_source);
                     const std::string source = raw_source
@@ -1490,8 +1485,6 @@ struct AgentBrowserHost::Impl
                             }
                             self->clear_console_logs(current);
                             self->invalidate_element_selection(current);
-                        } else if (current && current->annotations.navigation.reserved() && current->annotations.navigation.armed()) {
-                            current->annotations.navigation.finish();
                         }
                         self->refresh_source_history_title(current);
                     }
@@ -1569,7 +1562,6 @@ struct AgentBrowserHost::Impl
                     if (failure_kind.empty()) return S_OK;
 
                     current->annotations.replace_document();
-                    current->annotations.navigation.finish();
                     self->invalidate_element_selection(current);
                     self->update_page(current, [&](AgentBrowserState& state) {
                         state.page_annotations_json = current->annotations.snapshot().dump();
@@ -1791,7 +1783,6 @@ struct AgentBrowserHost::Impl
             for (const auto& id : agent_browser_pages_to_rebuild(page_store_bindings(), *mode)) {
                 if (const auto candidate = find_page(id)) affected.push_back(candidate);
             }
-            if (!reserve_annotation_pages(affected, error, true)) return false;
         }
         // 档位相同也写一次:状态里可能是空(从未选过)或别的版本写入的未知值。
         const bool persisted = update_agent_browser_store_state(
@@ -1806,7 +1797,6 @@ struct AgentBrowserHost::Impl
                 return true;
             });
         if (!persisted) {
-            for (const auto& candidate : affected) candidate->annotations.navigation.finish();
             assign_error(error, "failed to save the Agent Browser cookie setting");
             return false;
         }
@@ -1846,14 +1836,16 @@ struct AgentBrowserHost::Impl
         const AgentBrowserCookieStoreKey key = page->creation_started
             ? page->store : agent_browser_cookie_store_key(cookie_mode, page->state.owner);
         const auto affected = annotation_store_pages(*this, key);
-        if (!reserve_annotation_pages(affected, error, true)) return false;
-        const auto reload = annotation_transition_tickets(affected);
         const auto weak = weak_from_this();
-        clear_store(key, [weak, key, page_id, reload](bool ok, const std::string& clear_error) {
+        clear_store(key, [weak, key, page_id, affected](bool ok, const std::string& clear_error) {
             const auto self = weak.lock();
             if (!self) return;
-            annotation_reload_reserved(*self, reload, key, ok,
-                [](const auto& candidate) { return SUCCEEDED(candidate->webview->Reload()); });
+            if (ok) {
+                for (const auto& candidate : affected) {
+                    if (!candidate->closing && self->find_page(candidate->id) == candidate &&
+                        candidate->webview && candidate->store == key) candidate->webview->Reload();
+                }
+            }
             if (ok) {
                 LOG_INFO("[agent-browser] browsing data cleared: " + key.id());
             } else {
@@ -2040,20 +2032,14 @@ struct AgentBrowserHost::Impl
             assign_error(error, normalize_error);
             return false;
         }
-        if (!annotation_fragment_navigation(page->state.url, *url) && !reserve_annotation_pages({page}, error)) return false;
         const HRESULT result = page->webview->Navigate(
             acecode::utf8_to_wide(*url).c_str());
         if (FAILED(result)) {
-            page->annotations.navigation.finish();
             assign_error(error, "WebView2 navigation failed (" +
                                     hresult_text(result) + ")");
             return false;
         }
         return true;
-    }
-
-    bool reserve_annotation_pages(const std::vector<std::shared_ptr<Page>>& affected, std::string* error, bool hold = false) {
-        return annotation_reserve_pages(*this, affected, error, hold);
     }
 
     bool set_shared_with_agent_on_ui(const std::string& page_id,
@@ -2205,6 +2191,20 @@ struct AgentBrowserHost::Impl
         const std::shared_ptr<Page>& page, const nlohmann::json& params,
         const std::shared_ptr<PendingProxyCall>& pending,
         const std::string& annotation_validation = {}) {
+        bool full_page = false;
+        const auto mode_error = browser_capture::request_mode(params, full_page);
+        if (!mode_error.empty()) {
+            finish_proxy_call(pending, {{"ok", false}, {"page_id", page->id},
+                {"error", mode_error}});
+            return;
+        }
+        // 视口截图直接交给 CDP：整页管线会把视口图换成整页图，批注按视口坐标
+        // 裁剪时会错位。整页请求继续走下面的测量与分段捕获。
+        if (!full_page) {
+            proxy_command(page->webview, page->id, "Page.captureScreenshot", params,
+                [pending](nlohmann::json response) { finish_proxy_call(pending, std::move(response)); });
+            return;
+        }
         const auto weak = weak_from_this();
         const auto webview = page->webview;
         const auto navigation_id = page->navigation.current_navigation_id();
@@ -2284,9 +2284,8 @@ struct AgentBrowserHost::Impl
                 return;
             }
         }
-        annotation_proxy_transition(*this, page, method, pending, [page, page_id, method, params](auto done) {
-            proxy_command(page->webview, page_id, method, params, std::move(done));
-        });
+        proxy_command(page->webview, page_id, method, params,
+            [pending](nlohmann::json response) { finish_proxy_call(pending, std::move(response)); });
     }
 
     void execute_proxy_request_on_ui(
@@ -2626,9 +2625,7 @@ bool AgentBrowserHost::go_back(const std::string& page_id,
 #ifdef _WIN32
     auto page = impl_ ? impl_->find_page(page_id) : nullptr;
     if (page && page->webview && page->state.can_go_back) {
-        if (!impl_->reserve_annotation_pages({page}, error)) return false;
         if (SUCCEEDED(page->webview->GoBack())) return true;
-        page->annotations.navigation.finish();
     }
     assign_error(error, "Agent Browser cannot go back");
 #else
@@ -2643,9 +2640,7 @@ bool AgentBrowserHost::go_forward(const std::string& page_id,
 #ifdef _WIN32
     auto page = impl_ ? impl_->find_page(page_id) : nullptr;
     if (page && page->webview && page->state.can_go_forward) {
-        if (!impl_->reserve_annotation_pages({page}, error)) return false;
         if (SUCCEEDED(page->webview->GoForward())) return true;
-        page->annotations.navigation.finish();
     }
     assign_error(error, "Agent Browser cannot go forward");
 #else
@@ -2660,9 +2655,7 @@ bool AgentBrowserHost::reload(const std::string& page_id,
 #ifdef _WIN32
     auto page = impl_ ? impl_->find_page(page_id) : nullptr;
     if (page && page->webview) {
-        if (!impl_->reserve_annotation_pages({page}, error)) return false;
         if (SUCCEEDED(page->webview->Reload())) return true;
-        page->annotations.navigation.finish();
     }
     assign_error(error, "Agent Browser page is still starting");
 #else

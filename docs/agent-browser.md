@@ -497,8 +497,10 @@ Windows 翻译单元编译通过，`openspec validate add-html-page-annotations 
 工具栏隐藏，退出批注后也不保留孤立发送按钮。点击卡片外会取消当前草稿但保留批注模式。
 `调整` 和提交按钮都有气泡说明，提交气泡同时显示 `Enter 发送 · Ctrl+Enter`。
 
-送给模型的正文仍是 `Page annotations` 加结构化 JSON，并附整页截图。会话里不铺开
-JSON：只显示卡片，顶部是整页图裁切，下面是页面标题和有内容的描述；多条才显示编号。
+发送时正文只保留用户输入，批注通过 `contexts[].type = "page_annotations"` 随消息
+提交，并附每页截图。daemon 净化并展开为带来源标记的正文后送给模型；会话里保存
+`page_annotations_context` 部件，只显示卡片，顶部是整页图裁切，下面是页面标题和
+有内容的描述；多条才显示编号。
 地址栏按钮固定 30×30，开启后不追加“批注”文字，避免工具栏宽度变化。
 
 新增验证：`pnpm --dir web test:annotations:browser` 启动独立临时 headless Chromium

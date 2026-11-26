@@ -44,7 +44,6 @@ import {
   contentPartsWithoutAnnotationScreenshots,
   pageAnnotationCardFromContexts,
   pageAnnotationMessageCopyText,
-  parsePageAnnotationMessage,
 } from '../lib/pageAnnotationMessage.js';
 import { basenameForPath } from '../lib/selectionChatContext.js';
 import { DESKTOP_CONTEXT_ACTION_EVENT, DESKTOP_CONTEXT_ACTIONS } from '../lib/desktopContextMenu.js';
@@ -331,16 +330,12 @@ function UserBubble({
   const hasBubbleBody = composerContent
     ? composerContent.parts.some((part) => !isThumbnailPart(part))
     : !!content;
-  const annotationCard = useMemo(() => parsePageAnnotationMessage(
-    composerContent ? composerContentText(composerContent) : content,
-  ) || pageAnnotationCardFromContexts(contentParts), [composerContent, content, contentParts]);
+  const annotationCard = useMemo(() => pageAnnotationCardFromContexts(contentParts), [contentParts]);
   const annotationShots = useMemo(() => (annotationCard ? annotationShotsByName(contentParts) : null),
     [annotationCard, contentParts]);
-  const annotationCopyText = annotationCard?.fromContext
-    ? (composerContent
-      ? extractSessionReferences(composerContentClipboardText(composerContent)).displayText
-      : content)
-    : annotationCard?.text;
+  const annotationCopyText = composerContent
+    ? extractSessionReferences(composerContentClipboardText(composerContent)).displayText
+    : content;
   // f300:2400 多万字符的旧消息整段进 pre-wrap 气泡会卡死页面。气泡只渲染有界预览,
   // 截断时显示 … 与「查看全文」(只读对话框);复制仍取全文。
   const messagePreview = useMemo(() => {
@@ -395,12 +390,7 @@ function UserBubble({
         align="right"
       />
       {/* 用户正文与批注卡片同时存在：先显示说的话，再显示只读批注卡片。 */}
-      {annotationCard?.text ? (
-        <div className="ace-user-message-bubble ace-chat-message-content min-w-0 max-w-full px-3.5 py-2 rounded-[14px] rounded-br-[4px] bg-accent-bg border border-accent-soft text-fg text-[13px] leading-[1.5] whitespace-pre-wrap break-words">
-          {annotationCard.text}
-        </div>
-      ) : null}
-      {(!annotationCard || annotationCard.fromContext) ? naturalBubble : null}
+      {naturalBubble}
       {annotationCard ? (
         <PageAnnotationMessageCard pages={annotationCard.pages} shots={annotationShots} />
       ) : null}
@@ -672,7 +662,9 @@ export const Message = memo(function Message({
     // 轻量提示;原文存到 metadata.display_text,UI 优先显示原文,不让用户看到
     // 内部展开。
     const hasDisplayText = metadata && typeof metadata.display_text === 'string'
-      && (metadata.display_text.length > 0 || metadata.selection_context_expanded);
+      && (metadata.display_text.length > 0 ||
+          metadata.selection_context_expanded ||
+          metadata.page_annotations_expanded);
     const displayContent = hasDisplayText
       ? metadata.display_text
       : content;
