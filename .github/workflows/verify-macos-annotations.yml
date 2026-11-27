@@ -16,6 +16,7 @@ jobs:
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/include/nlohmann"
           curl -fsSL --retry 3 -o "$RUNNER_TEMP/include/nlohmann/json.hpp" https://github.com/nlohmann/json/releases/download/v3.12.0/json.hpp
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/include/nlohmann/json_fwd.hpp" https://raw.githubusercontent.com/nlohmann/json/v3.12.0/single_include/nlohmann/json_fwd.hpp
           for arch in arm64 x86_64; do
             for src in src/apps/desktop/{agent_browser_capture_mac,agent_browser_host_mac,agent_browser_macos_helpers}.mm; do
               echo "Compiling $src for $arch"
