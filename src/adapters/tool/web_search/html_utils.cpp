@@ -1,5 +1,6 @@
 #include "html_utils.hpp"
 
+#include <algorithm>
 #include <cctype>
 #include <cstdint>
 #include <string>
@@ -172,6 +173,30 @@ std::string truncate_with_ellipsis(std::string_view in, std::size_t max_codepoin
     out.append(in.data(), i);
     out.append("\xE2\x80\xA6"); // U+2026 HORIZONTAL ELLIPSIS
     return out;
+}
+
+std::string normalize_url_for_dedup(std::string url) {
+    const auto fragment = url.find('#');
+    if (fragment != std::string::npos) url.erase(fragment);
+
+    const auto scheme = url.find("://");
+    if (scheme != std::string::npos) {
+        const auto authority_end = url.find_first_of("/?", scheme + 3);
+        const auto lowercase_end = authority_end == std::string::npos
+            ? url.size() : authority_end;
+        std::transform(url.begin(), url.begin() +
+                           static_cast<std::string::difference_type>(lowercase_end),
+                       url.begin(), [](unsigned char c) {
+                           return static_cast<char>(std::tolower(c));
+                       });
+    }
+
+    const auto query = url.find('?');
+    const auto path_end = query == std::string::npos ? url.size() : query;
+    if (path_end > 0 && url[path_end - 1] == '/') {
+        url.erase(path_end - 1, 1);
+    }
+    return url;
 }
 
 } // namespace acecode::web_search

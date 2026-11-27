@@ -76,8 +76,10 @@ ACECode 是一个运行在终端里的 AI 编程助手，基于 FTXUI 提供交�
    - Anthropic：填写 Anthropic 模型 id
 
 3. **API 配置**（openai / anthropic provider 需要）
-   - Base URL：API 地址，如 `http://localhost:1234/v1` 或 `https://api.anthropic.com/v1`
+   - Base URL：API 地址，如 `http://localhost:1234/v1` 或 `https://api.anthropic.com/v1`。Anthropic 协议的请求地址是 Base URL 加 `/messages`，第三方兼容网关的地址也要写到 `/v1`（例如 `https://api.example.com/anthropic/v1`）
    - API Key：鉴权密钥
+
+Desktop / Web 在「设置 > 模型」新增模型时，第三方 Anthropic 兼容网关可选左侧的 **Custom Anthropic-compatible API**，或在 **Custom OpenAI-compatible API** 的「API 协议」里选 **Anthropic Messages**，两者等价；切换协议时已填的模型 ID、Base URL 和 API Key 会保留。填好 Base URL 和 API Key 后可点「探测模型」，按 Anthropic 的 `GET /v1/models` 接口拉取模型列表；网关没有实现这个接口时会探测失败，模型 ID 仍可手动填写。
 
 配置保存在 `~/.acecode/config.json`。配置向导会写入一条默认 `saved_models` 条目并设置 `default_model_name`，之后启动无需重复配置。
 
@@ -275,6 +277,9 @@ Desktop 文件树中也可以右键文件或文件夹并选择“添加到会话
 | `/skills help` | 显示技能系统使用说明 |
 | `/connectors` | 打开能力中心并选中 Connectors 页签 |
 | `/tools` | 打开能力中心并选中 Tools 页签 |
+| `/websearch` | 查看搜索后端和探测到的网络地区 |
+| `/websearch use domestic` | 本会话使用 AnySearch 匿名搜索，结果不足时自动用 360 补齐 |
+| `/websearch reset` | 恢复配置指定的搜索方式 |
 | `/hooks` | 打开能力中心并选中 Hooks 页签 |
 | `/init` | 让 LLM 分析当前仓库，自动生成或改进 `AGENTS.md`（详见下方小节） |
 | `/history` | 列出当前工作目录的持久化输入历史（旧→新编号） |
@@ -847,7 +852,7 @@ OpenAI 兼容网关或 Anthropic 模型如果推理时间很长、连接容易�
 
 也可以在启动前设置环境变量 `ACECODE_OPENAI_STREAM_TIMEOUT_MS`，它会覆盖旧式 `openai.stream_timeout_ms` 默认值；未在 `saved_models` 中显式设置 `stream_timeout_ms` 的 OpenAI 或 Anthropic 条目会使用该全局值。
 
-如果 OpenAI 兼容或 Anthropic 流式请求因为客户端超时失败，ACECode 会丢弃该连接已经产生的临时输出，重新建立新的请求并继续重试；timeout 重试没有固定次数上限，直到某次请求成功、用户中断或进程退出为止。非 timeout 的临时 HTTP/网络错误仍使用有限重试策略。Anthropic 模型 id 目前需要手动输入，Desktop/Web 的模型列表刷新仍只支持 Copilot 和 OpenAI-compatible `/models` 探测。
+如果 OpenAI 兼容或 Anthropic 流式请求因为客户端超时失败，ACECode 会丢弃该连接已经产生的临时输出，重新建立新的请求并继续重试；timeout 重试没有固定次数上限，直到某次请求成功、用户中断或进程退出为止。非 timeout 的临时 HTTP/网络错误仍使用有限重试策略。TUI 配置向导里 Anthropic 模型 id 需要手动输入；Desktop/Web 的「探测模型」支持 Copilot、Grok、OpenAI-compatible `/models` 和 Anthropic `/v1/models`。
 
 ---
 

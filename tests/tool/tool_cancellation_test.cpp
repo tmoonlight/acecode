@@ -124,7 +124,7 @@ void verify_search_cancellation(bool parallel) {
             web_search::BackendRouter router(cfg);
             router.register_backend(std::make_unique<BlockingSearch>("rss", first));
             router.register_backend(std::make_unique<BlockingSearch>("duckduckgo", second));
-            router.resolve_active(web_search::Region::Unknown);
+            router.resolve_active(web_search::Region::Global);
             auto result = router.search_with_fallback("owned query", 3, &abort, {});
             EXPECT_TRUE(std::holds_alternative<SearchError>(result));
         }

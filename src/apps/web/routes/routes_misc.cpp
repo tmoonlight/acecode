@@ -34,6 +34,26 @@ json desktop_guided_tour_state_json() {
     };
 }
 
+constexpr const char* kSidebarExtensionsKey = "desktop_sidebar_extensions_v1";
+
+bool valid_sidebar_extensions(const json& value) {
+    const auto valid_ids = [](const json& ids) {
+        return ids.is_array() && ids.size() <= 64 &&
+            std::all_of(ids.begin(), ids.end(), [](const json& id) {
+                return id.is_string() && !id.get_ref<const std::string&>().empty() &&
+                    id.get_ref<const std::string&>().size() <= 64;
+            });
+    };
+    return value.is_object() && value.size() == 2 &&
+        value.contains("order") && valid_ids(value["order"]) &&
+        value.contains("pinned") && valid_ids(value["pinned"]);
+}
+
+json stored_sidebar_extensions(const json& state) {
+    const auto it = state.find(kSidebarExtensionsKey);
+    return it != state.end() && valid_sidebar_extensions(*it) ? *it : json(nullptr);
+}
+
 json desktop_notifications_to_json(const DesktopNotificationsConfig& config) {
     return json{
         {"enabled", config.enabled},
@@ -1079,6 +1099,36 @@ void WebServer::Impl::register_ui_preferences() {
         ([this](const crow::request& req, const std::string&) {
             return cors_preflight(req);
         });
+        CROW_ROUTE(app, "/api/ui/desktop/sidebar-extensions")
+            .methods(crow::HTTPMethod::Options, crow::HTTPMethod::GET, crow::HTTPMethod::PUT)
+        ([this](const crow::request& req) {
+            if (req.method == crow::HTTPMethod::Options) return cors_preflight(req);
+            if (auto rej = require_auth(req)) return std::move(*rej);
+            const auto respond = [&](int status, const json& body) {
+                crow::response r(status);
+                r.add_header("Content-Type", "application/json");
+                r.add_header("Cache-Control", "no-store");
+                r.body = body.dump();
+                return with_cors(req, std::move(r));
+            };
+            if (req.method == crow::HTTPMethod::GET)
+                return respond(200, stored_sidebar_extensions(read_state_json()));
+
+            const auto prefs = json::parse(req.body, nullptr, false);
+            if (!valid_sidebar_extensions(prefs))
+                return respond(400, {{"error", "BAD_REQUEST"}, {"message", "Expected order and pinned ID lists"}});
+            const auto flag = req.url_params.get("if_absent");
+            const bool if_absent = flag && std::string(flag) == "1";
+            const auto result = update_state_json_at({}, [&](json& state) {
+                const auto current = stored_sidebar_extensions(state);
+                if (prefs == current || (if_absent && !current.is_null())) return false;
+                state[kSidebarExtensionsKey] = prefs;
+                return true;
+            });
+            if (!result) return respond(500, {{"error", "PERSIST_FAILED"}, {"message", "Could not save sidebar extensions"}});
+            return respond(200, result.state.at(kSidebarExtensionsKey));
+        });
+
         // Desktop guided-tour state lives in state.json instead of localStorage:
         // Desktop's random daemon port and Edge fallback profile are not stable origins.
         CROW_ROUTE(app, "/api/ui/onboarding/desktop").methods(crow::HTTPMethod::GET)
@@ -2129,7 +2179,7 @@ void WebServer::Impl::register_ui_preferences() {
             return with_cors(req, std::move(r));
         });
 
-        // POST /api/models/probe: best-effort OpenAI-compatible /models probe.
+        // POST /api/models/probe: best-effort OpenAI-compatible or Anthropic /models probe.
         CROW_ROUTE(app, "/api/models/probe").methods(crow::HTTPMethod::POST)
         ([this](const crow::request& req) {
             if (auto rej = require_auth(req)) return std::move(*rej);
@@ -2220,7 +2270,7 @@ void WebServer::Impl::register_ui_preferences() {
                 return probe_success({std::move(result.models), {}});
             }
 
-            auto result = probe_openai_models(*parsed);
+            auto result = probe_connection_models(*parsed);
             if (!result.models) {
                 return json_err(result.error_code == "INVALID_REQUEST_HEADER" ? 400 : 502,
                                 result.error_code.c_str(), result.error);

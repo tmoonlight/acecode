@@ -51,6 +51,73 @@ OpenAiModelsProbeResult probe_openai_models(
     }
 }
 
+// Anthropic Models API:GET <base_url>/models,与运行时的 <base_url>/messages 同一个前缀;
+// 认证走 x-api-key + anthropic-version。分页用 has_more / last_id → after_id,
+// 页数设上限,防止网关一直返回 has_more 造成死循环。
+OpenAiModelsProbeResult probe_anthropic_models(
+    const ModelProbeRequest& request, const std::atomic<bool>* cancel) {
+    constexpr int kMaxPages = 10;
+    if (cancel && cancel->load()) return {};
+    std::string base = request.base_url;
+    while (!base.empty() && base.back() == '/') base.pop_back();
+    cpr::Header headers = {
+        {"Content-Type", "application/json"},
+        {"anthropic-version", "2023-06-01"},
+    };
+    if (!request.api_key.empty()) headers["x-api-key"] = request.api_key;
+    std::string header_error;
+    const auto resolved = resolve_request_headers(request.request_headers, header_error);
+    if (!resolved) return {{}, "INVALID_REQUEST_HEADER", header_error};
+    for (const auto& [key, value] : *resolved) headers[key] = value;
+
+    nlohmann::json merged = {{"data", nlohmann::json::array()}};
+    std::string after_id;
+    for (int page = 0; page < kMaxPages; ++page) {
+        cpr::Parameters parameters{{"limit", "1000"}};
+        if (!after_id.empty()) parameters.Add({"after_id", after_id});
+        const std::string url = base + "/models";
+        const auto proxy = network::proxy_options_for(url);
+        const auto response = cpr::Get(
+            cpr::Url{url}, headers, parameters, network::build_ssl_options(proxy),
+            proxy.proxies, proxy.auth, cpr::Timeout{10000},
+            cpr::ProgressCallback{[cancel](cpr::cpr_off_t, cpr::cpr_off_t,
+                                         cpr::cpr_off_t, cpr::cpr_off_t, intptr_t) {
+                return !cancel || !cancel->load();
+            }});
+        if (cancel && cancel->load()) return {};
+        if (response.status_code == 0) return {{}, "PROBE_FAILED", response.error.message};
+        if (response.status_code < 200 || response.status_code >= 300) {
+            return {{}, "PROBE_HTTP_ERROR",
+                    "upstream returned HTTP " + std::to_string(response.status_code)};
+        }
+        nlohmann::json body;
+        try {
+            body = nlohmann::json::parse(response.text);
+        } catch (const std::exception& error) {
+            return {{}, "PROBE_BAD_JSON", error.what()};
+        }
+        // 不分页的兼容网关可能直接回数组或 OpenAI 形状,原样交给通用解析。
+        if (!body.is_object() || !body.contains("data") || !body["data"].is_array()) {
+            return {parse_openai_models(body), {}, {}};
+        }
+        for (auto& item : body["data"]) merged["data"].push_back(std::move(item));
+        const auto last = body.find("last_id");
+        if (!body.value("has_more", false) || last == body.end() || !last->is_string() ||
+            last->get<std::string>().empty() || last->get<std::string>() == after_id) {
+            break;
+        }
+        after_id = last->get<std::string>();
+    }
+    return {parse_openai_models(merged), {}, {}};
+}
+
+OpenAiModelsProbeResult probe_connection_models(
+    const ModelProbeRequest& request, const std::atomic<bool>* cancel) {
+    return request.provider == "anthropic"
+        ? probe_anthropic_models(request, cancel)
+        : probe_openai_models(request, cancel);
+}
+
 namespace {
 
 // 构造单个条目的模型管理 JSON。该响应只从经过认证的模型路由返回，
@@ -455,22 +522,25 @@ std::optional<ModelProbeRequest> parse_model_probe_request(const nlohmann::json&
         err = "catalog_provider_id is too long";
         return std::nullopt;
     }
-    if (request.provider != "openai" && request.provider != "copilot" &&
+    const bool http_provider =
+        request.provider == "openai" || request.provider == "anthropic";
+    if (!http_provider && request.provider != "copilot" &&
         request.provider != "grok") {
         err_code = "UNKNOWN_PROVIDER";
-        err = "model probing currently supports provider=openai, provider=copilot, "
-              "or provider=grok";
+        err = "model probing currently supports provider=openai, provider=anthropic, "
+              "provider=copilot, or provider=grok";
         return std::nullopt;
     }
-    if (request.provider == "openai" && request.base_url.empty()) {
+    if (http_provider && request.base_url.empty()) {
         err_code = "MISSING_BASE_URL";
         err = "base_url is required";
         return std::nullopt;
     }
     if (!request.request_headers.empty()) {
-        if (request.provider != "openai") {
+        if (!http_provider) {
             err_code = "INVALID_REQUEST_HEADER";
-            err = "request_headers are only supported for provider=openai";
+            err = "request_headers are only supported for provider=openai or "
+                  "provider=anthropic";
             return std::nullopt;
         }
         if (!validate_request_headers(request.request_headers, err)) {

@@ -1,13 +1,13 @@
 #include "backend_router.hpp"
 
 #include "duckduckgo_backend.hpp"
+#include "domestic_backend.hpp"
+#include "html_utils.hpp"
 #include "rss_search_backend.hpp"
 #include "utils/logger.hpp"
 #include "utils/abandonable_call.hpp"
 
-#include <algorithm>
 #include <array>
-#include <cctype>
 #include <chrono>
 #include <future>
 #include <sstream>
@@ -34,37 +34,14 @@ SearchOutcome search_cancellable(std::shared_ptr<WebSearchBackend> backend,
 }
 
 bool is_known_backend_name(const std::string& name) {
-    return name == "parallel" || name == "rss" ||
+    return name == "parallel" || name == "rss" || name == "domestic" ||
            name == "duckduckgo" || name == "bing_cn" ||
            name == "bochaai" || name == "tavily";
 }
 
-constexpr std::array<const char*, 2> kParallelBackendNames = {
-    "rss", "duckduckgo"
-};
-
-std::string normalize_url_for_dedup(std::string url) {
-    const auto fragment = url.find('#');
-    if (fragment != std::string::npos) url.erase(fragment);
-
-    const auto scheme = url.find("://");
-    if (scheme != std::string::npos) {
-        const auto authority_end = url.find_first_of("/?", scheme + 3);
-        const auto lowercase_end = authority_end == std::string::npos
-            ? url.size() : authority_end;
-        std::transform(url.begin(), url.begin() +
-                           static_cast<std::string::difference_type>(lowercase_end),
-                       url.begin(), [](unsigned char c) {
-                           return static_cast<char>(std::tolower(c));
-                       });
-    }
-
-    const auto query = url.find('?');
-    const auto path_end = query == std::string::npos ? url.size() : query;
-    if (path_end > 0 && url[path_end - 1] == '/') {
-        url.erase(path_end - 1, 1);
-    }
-    return url;
+std::array<const char*, 2> parallel_sources(Region region) {
+    if (region == Region::Global) return {"rss", "duckduckgo"};
+    return {"domestic", "rss"};
 }
 
 std::string bounded_warning(const std::string& backend,
@@ -90,18 +67,25 @@ void BackendRouter::register_backend(std::unique_ptr<WebSearchBackend> b) {
     }
 }
 
-std::string BackendRouter::compute_active_name(Region /*region*/) const {
-    if (cfg_.backend == "auto" || cfg_.backend == "bing_cn" ||
+std::string BackendRouter::compute_active_name(Region region) const {
+    if (cfg_.backend == "auto") {
+        return region == Region::Global ? "duckduckgo" : "domestic";
+    }
+    if (cfg_.backend == "bing_cn" ||
         cfg_.backend == "bochaai" || cfg_.backend == "tavily") {
         return "duckduckgo";
     }
-    return cfg_.backend; // parallel / rss / duckduckgo(配置已校验)
+    return cfg_.backend;
 }
 
 void BackendRouter::resolve_active(Region region) {
-    std::string desired = compute_active_name(region);
     std::lock_guard<std::mutex> lk(mu_);
     resolved_region_ = region;
+    if (!manual_selection_) resolve_config_unlocked(region);
+}
+
+void BackendRouter::resolve_config_unlocked(Region region) {
+    std::string desired = compute_active_name(region);
     if (desired == "parallel") {
         if (!backends_.empty()) {
             active_ = "parallel";
@@ -112,15 +96,14 @@ void BackendRouter::resolve_active(Region region) {
         return;
     }
     if (backends_.find(desired) == backends_.end()) {
-        // 没注册(比如 DDG 未注入)→ 用任意一个已注册的兜底。
-        if (!backends_.empty()) {
-            active_ = backends_.begin()->first;
-            LOG_WARN("[web_search] desired backend '" + desired +
-                     "' not registered; falling back to '" + active_ + "'");
-        } else {
-            active_.clear();
-            LOG_WARN("[web_search] no backends registered, web_search disabled");
+        for (const auto* fallback : {"duckduckgo", "domestic", "rss"}) {
+            if (backends_.count(fallback)) {
+                active_ = fallback;
+                return;
+            }
         }
+        active_.clear();
+        LOG_WARN("[web_search] no usable backend registered");
         return;
     }
     active_ = std::move(desired);
@@ -132,9 +115,10 @@ bool BackendRouter::set_active(const std::string& name) {
         return false;
     }
     if (name == "parallel") {
-        for (const char* backend_name : kParallelBackendNames) {
+        for (const char* backend_name : parallel_sources(resolved_region_)) {
             if (backends_.find(backend_name) != backends_.end()) {
                 active_ = name;
+                manual_selection_ = true;
                 return true;
             }
         }
@@ -144,11 +128,15 @@ bool BackendRouter::set_active(const std::string& name) {
         return false;
     }
     active_ = name;
+    manual_selection_ = true;
     return true;
 }
 
 void BackendRouter::reset_to_config(Region region) {
-    resolve_active(region);
+    std::lock_guard<std::mutex> lk(mu_);
+    resolved_region_ = region;
+    manual_selection_ = false;
+    resolve_config_unlocked(region);
 }
 
 std::string BackendRouter::active_name() const {
@@ -170,10 +158,12 @@ BackendRouter::search_parallel(std::string_view query, int limit,
     const auto started = std::chrono::steady_clock::now();
 
     std::array<std::shared_ptr<WebSearchBackend>, 2> backends;
+    std::array<const char*, 2> sources;
     {
         std::lock_guard<std::mutex> lk(mu_);
-        for (std::size_t i = 0; i < kParallelBackendNames.size(); ++i) {
-            backends[i] = find_unlocked(kParallelBackendNames[i]);
+        sources = parallel_sources(resolved_region_);
+        for (std::size_t i = 0; i < sources.size(); ++i) {
+            backends[i] = find_unlocked(sources[i]);
         }
     }
 
@@ -182,7 +172,7 @@ BackendRouter::search_parallel(std::string_view query, int limit,
     for (std::size_t i = 0; i < backends.size(); ++i) {
         if (!backends[i]) continue;
         auto backend = backends[i];
-        const std::string backend_name = kParallelBackendNames[i];
+        const std::string backend_name = sources[i];
         launched[i] = true;
         futures[i] = std::async(std::launch::async,
             [backend = std::move(backend), backend_name, query = std::string(query),
@@ -203,8 +193,8 @@ BackendRouter::search_parallel(std::string_view query, int limit,
     }
 
     std::array<Outcome, 2> outcomes = {
-        SearchError{SearchError::Kind::Disabled, "backend is not registered", "rss"},
-        SearchError{SearchError::Kind::Disabled, "backend is not registered", "duckduckgo"},
+        SearchError{SearchError::Kind::Disabled, "backend is not registered", sources[0]},
+        SearchError{SearchError::Kind::Disabled, "backend is not registered", sources[1]},
     };
     for (std::size_t i = 0; i < futures.size(); ++i) {
         if (launched[i]) outcomes[i] = futures[i].get();
@@ -221,16 +211,21 @@ BackendRouter::search_parallel(std::string_view query, int limit,
     for (std::size_t i = 0; i < outcomes.size(); ++i) {
         if (std::holds_alternative<SearchResponse>(outcomes[i])) {
             successful[i] = &std::get<SearchResponse>(outcomes[i]);
+            const auto& warnings = successful[i]->warnings;
+            combined.warnings.insert(combined.warnings.end(), warnings.begin(), warnings.end());
             ++success_count;
         } else {
             combined.warnings.push_back(bounded_warning(
-                kParallelBackendNames[i], std::get<SearchError>(outcomes[i])));
+                sources[i], std::get<SearchError>(outcomes[i])));
         }
     }
 
-    if (success_count == 0) {
+    const bool empty_domestic_search = sources[0] == std::string_view("domestic") &&
+        !successful[0] && successful[1] && successful[1]->hits.empty();
+    if (success_count == 0 || empty_domestic_search) {
         std::ostringstream message;
-        message << "all web search backends failed";
+        message << (empty_domestic_search ? "no usable web search results" :
+                                            "all web search backends failed");
         for (const auto& warning : combined.warnings) {
             message << "; " << warning;
         }
@@ -253,7 +248,7 @@ BackendRouter::search_parallel(std::string_view query, int limit,
                 if (!normalized.empty() && !seen_urls.insert(normalized).second) {
                     continue;
                 }
-                hit.backend_name = kParallelBackendNames[i];
+                if (hit.backend_name.empty()) hit.backend_name = sources[i];
                 combined.hits.push_back(std::move(hit));
                 made_progress = true;
                 break;
@@ -364,6 +359,7 @@ std::vector<std::string> BackendRouter::registered_names_for_test() const {
 }
 
 void register_default_backends(BackendRouter& router, const WebSearchConfig& cfg) {
+    router.register_backend(std::make_unique<DomesticBackend>(cfg.timeout_ms));
     router.register_backend(
         std::make_unique<RssSearchBackend>(cfg.rss_base_url, cfg.timeout_ms));
     router.register_backend(

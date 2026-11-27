@@ -62,13 +62,13 @@ std::string format_iso8601(long long epoch_ms) {
 }
 
 bool is_known_backend_name(const std::string& s) {
-    return s == "parallel" || s == "rss" ||
+    return s == "parallel" || s == "rss" || s == "domestic" ||
            s == "duckduckgo" || s == "bing_cn" ||
            s == "bochaai" || s == "tavily";
 }
 
 bool is_implemented_backend_name(const std::string& s) {
-    return s == "parallel" || s == "rss" ||
+    return s == "parallel" || s == "rss" || s == "domestic" ||
            s == "duckduckgo";
 }
 
@@ -129,20 +129,20 @@ std::string dispatch_websearch_subcommand(const std::string& sub) {
         std::string rest = trim(sub.size() > 3 ? sub.substr(3) : "");
         if (rest.empty()) {
             return "Usage: /websearch use <backend>\n"
-                   "Available: parallel, rss, duckduckgo";
+                   "Available: parallel, rss, duckduckgo, domestic";
         }
         if (!is_known_backend_name(rest)) {
             return "Unknown backend '" + rest +
-                   "'. Valid: parallel, rss, duckduckgo "
+                   "'. Valid: parallel, rss, duckduckgo, domestic "
                    "(bochaai/tavily not implemented yet)";
         }
         if (rest == "bing_cn") {
             return "Backend 'bing_cn' is disabled because its result quality is too low. "
-                   "Use parallel, rss, or duckduckgo.";
+                   "Use parallel, rss, duckduckgo, or domestic.";
         }
         if (!is_implemented_backend_name(rest)) {
             return "Backend '" + rest +
-                   "' is not implemented yet. Use parallel, rss, or duckduckgo.";
+                   "' is not implemented yet. Use parallel, rss, duckduckgo, or domestic.";
         }
         if (!rt.router().set_active(rest)) {
             return "Backend '" + rest + "' is not registered in this process.";
@@ -166,7 +166,7 @@ std::string dispatch_websearch_subcommand(const std::string& sub) {
 void register_websearch_command(CommandRegistry& registry) {
     registry.register_command({
         "websearch",
-        "Show or switch web search (parallel / RSS / DuckDuckGo)",
+        "Show or switch web search (parallel / RSS / DuckDuckGo / domestic)",
         cmd_websearch,
     });
 }

@@ -4,14 +4,18 @@ import {
   addManualModelToDraft,
   applyCatalogModelToDraft,
   applyCatalogProviderToDraft,
+  applyModelApiProtocolToDraft,
   buildModelMutationPayload,
   buildModelMutationPayloads,
   emptyModelProfileDraft,
   hasAdvancedModelValues,
   isAutoModelAlias,
+  isCustomCompatibilityProvider,
   isCustomReasoningDraft,
   markModelMetadataOverrides,
   modelAliasProviderName,
+  modelApiProtocolOptions,
+  modelApiProtocolValue,
   modelFieldPolicy,
   modelNameSuggestion,
   modelRowsFromProbe,
@@ -390,7 +394,8 @@ run('原生 Anthropic 保留推理配置和受支持的请求头', () => {
   assert.equal(policy.show_reasoning, true);
   assert.equal(policy.show_request_headers, true);
   assert.equal(policy.show_max_output, true);
-  assert.equal(policy.can_probe, false);
+  // Anthropic Models API(GET /v1/models)可探测,官方与自定义兼容网关同一条路。
+  assert.equal(policy.can_probe, true);
 });
 
 run('原生 Anthropic 编辑可保留并显式清空请求头', () => {
@@ -1602,4 +1607,141 @@ run('采样参数:响应契约校验', () => {
   assert.throws(() => normalizeSavedModelList([{ ...base, sampling: { top_k: 1.5 } }]), /top_k/);
   assert.throws(() => normalizeSavedModelList([{ ...base, sampling: { temperature: '1' } }]), /temperature/);
   assert.throws(() => normalizeSavedModelList([{ ...base, sampling: [] }]), /sampling/);
+});
+
+// 自定义 Anthropic 兼容 API(第三方网关的 Anthropic Messages 端点),与 daemon 目录一致。
+const customAnthropicProvider = {
+  id: 'custom-anthropic',
+  name: 'Custom Anthropic-compatible API',
+  runtime_provider: 'anthropic',
+  base_url: '',
+  doc: '',
+  api_key_env: '',
+  auth_mode: 'required',
+  endpoint_editable: true,
+  endpoint_modes: ['base_url'],
+  model_input: 'manual',
+  models_dev_provider_id: null,
+  group: 'custom',
+};
+const allCustomProviders = [anthropicProvider, customAnthropicProvider, customProvider, openRouterProvider];
+
+// 触发场景:用户在「自定义 OpenAI 兼容 API」表单里打开「API 协议」下拉。
+// 期望:自定义兼容 API 列出三种协议(第三项 Anthropic Messages),普通 OpenAI 系
+// 目录 Provider 仍只有两种;旧 daemon 目录里没有 custom-anthropic 时不出现第三项。
+run('自定义兼容 API 的协议下拉含 Anthropic Messages，普通 Provider 只有两种', () => {
+  const values = (provider, providers) => modelApiProtocolOptions(provider, providers)
+    .map((option) => option.value);
+  assert.deepEqual(values(customProvider, allCustomProviders),
+    ['chat_completions', 'responses', 'anthropic_messages']);
+  assert.deepEqual(values(customAnthropicProvider, allCustomProviders),
+    ['chat_completions', 'responses', 'anthropic_messages']);
+  assert.deepEqual(values(openRouterProvider, allCustomProviders), ['chat_completions', 'responses']);
+  assert.deepEqual(values(customProvider, [customProvider]), ['chat_completions', 'responses']);
+  assert.equal(isCustomCompatibilityProvider(customAnthropicProvider), true);
+  assert.equal(isCustomCompatibilityProvider(anthropicProvider), false);
+  // 共享 fixture 里的 custom-anthropic 也能被严格 normalizer 接受。
+  const shared = normalizeModelCatalogSummary(sharedCatalogContract.summary).providers
+    .find((item) => item.id === 'custom-anthropic');
+  assert.equal(shared.runtime_provider, 'anthropic');
+  assert.deepEqual(shared.endpoint_modes, ['base_url']);
+  assert.equal(modelFieldPolicy(shared).edit_base_url, true);
+  assert.equal(modelFieldPolicy(shared).show_api_protocol, false);
+});
+
+// 触发场景:用户在自定义 OpenAI 表单填好模型 ID、Base URL、密钥后,把协议改成 Anthropic Messages,
+// 再改回 Responses。期望:运行时与目录条目跟着换,已填字段全部保留;切到 Anthropic 时
+// 完整端点模式退回 Base URL(Anthropic 不支持),也不带 api_protocol。
+// 回归点:若复用 applyCatalogProviderToDraft,模型 ID / Base URL / 密钥会被清空。
+run('切换到 Anthropic Messages 保留已填字段并换到 custom-anthropic', () => {
+  const filled = {
+    ...applyCatalogProviderToDraft(emptyModelProfileDraft(), customProvider),
+    name: 'my-claude', model: 'deepseek-chat, kimi-k2',
+    base_url: 'https://api.example.com/anthropic/v1', api_key: 'sk-test',
+    request_headers_json: '{"X-Team":"acecode"}', endpoint_mode: 'full_url',
+    api_protocol: 'responses', context_window: '128000',
+  };
+  assert.equal(modelApiProtocolValue(filled), 'responses');
+  const anthropic = applyModelApiProtocolToDraft(filled, customProvider, allCustomProviders, 'anthropic_messages');
+  assert.equal(anthropic.provider, 'anthropic');
+  assert.equal(anthropic.catalog_provider_id, 'custom-anthropic');
+  assert.equal(anthropic.models_dev_provider_id, '');
+  assert.equal(anthropic.api_protocol, '');
+  assert.equal(anthropic.endpoint_mode, 'base_url');
+  for (const field of ['name', 'model', 'base_url', 'api_key', 'request_headers_json', 'context_window']) {
+    assert.equal(anthropic[field], filled[field], field);
+  }
+  assert.equal(modelApiProtocolValue(anthropic), 'anthropic_messages');
+
+  const built = buildModelMutationPayloads(anthropic, customAnthropicProvider);
+  assert.equal(built.ok, true);
+  assert.equal(built.payloads.length, 2);
+  for (const payload of built.payloads) {
+    assert.equal(payload.provider, 'anthropic');
+    assert.equal(payload.base_url, 'https://api.example.com/anthropic/v1');
+    assert.equal(payload.api_key, 'sk-test');
+    assert.deepEqual(payload.request_headers, { 'X-Team': 'acecode' });
+    assert.equal(Object.hasOwn(payload, 'api_protocol'), false);
+    assert.equal(Object.hasOwn(payload, 'endpoint_mode'), false);
+  }
+  // 自定义条目没有厂商名,批量别名只用模型 ID 本身。
+  assert.equal(modelAliasProviderName(customAnthropicProvider), '');
+
+  const back = applyModelApiProtocolToDraft(anthropic, customAnthropicProvider, allCustomProviders, 'responses');
+  assert.equal(back.provider, 'openai');
+  assert.equal(back.catalog_provider_id, 'custom-openai');
+  assert.equal(back.api_protocol, 'responses');
+  assert.equal(back.base_url, filled.base_url);
+  assert.equal(back.api_key, filled.api_key);
+  // 普通 OpenAI 系 Provider 拿不到 Anthropic Messages:草稿原样返回。
+  const catalogDraft = applyCatalogProviderToDraft(emptyModelProfileDraft(), openRouterProvider);
+  assert.equal(applyModelApiProtocolToDraft(catalogDraft, openRouterProvider, allCustomProviders, 'anthropic_messages'), catalogDraft);
+  assert.equal(applyModelApiProtocolToDraft(catalogDraft, openRouterProvider, allCustomProviders, 'responses').api_protocol, 'responses');
+});
+
+// 触发场景:编辑已保存的 Anthropic 预设。期望:官方地址的仍回到只读的官方条目;
+// Web 自定义保存的(无 hint)和 TUI「Custom Anthropic」保存的(hint 是 anthropic、地址是第三方)
+// 都回到 Base URL 可编辑的 custom-anthropic;旧 daemon 没有该条目时照旧落到官方条目。
+// 回归点:改动前第三方地址的 Anthropic 预设打开后 Base URL 只读,改不了地址。
+run('编辑第三方地址的 Anthropic 预设回到可编辑的自定义条目', () => {
+  const official = { name: 'claude', provider: 'anthropic', model: 'claude-sonnet-4-5',
+    base_url: 'https://api.anthropic.com/v1/', models_dev_provider_id: 'anthropic', api_key: 'sk' };
+  const webCustom = { name: 'ds', provider: 'anthropic', model: 'deepseek-chat',
+    base_url: 'https://api.example.com/anthropic/v1', api_key: 'sk' };
+  const tuiCustom = { ...webCustom, name: 'tui', models_dev_provider_id: 'anthropic' };
+  assert.equal(providerForSavedModel(allCustomProviders, official)?.id, 'anthropic');
+  assert.equal(providerForSavedModel(allCustomProviders, webCustom)?.id, 'custom-anthropic');
+  assert.equal(providerForSavedModel(allCustomProviders, tuiCustom)?.id, 'custom-anthropic');
+  assert.equal(providerForSavedModel([anthropicProvider, customProvider], webCustom)?.id, 'anthropic');
+  assert.equal(modelProfileDraftFromSaved(official).catalog_provider_id, 'anthropic');
+  const restored = modelProfileDraftFromSaved(webCustom);
+  assert.equal(restored.catalog_provider_id, 'custom-anthropic');
+  assert.equal(isCustomReasoningDraft(restored), true);
+  const edited = buildModelMutationPayload(restored, customAnthropicProvider, { editing: true });
+  assert.equal(edited.ok, true);
+  assert.equal(edited.payload.base_url, webCustom.base_url);
+  assert.equal(edited.payload.models_dev_provider_id, null);
+  assert.equal(edited.payload.endpoint_mode, null);
+  // TUI 保存的 hint 原样带回,不在编辑时被清掉。
+  const tuiEdited = buildModelMutationPayload(
+    modelProfileDraftFromSaved(tuiCustom), customAnthropicProvider, { editing: true },
+  );
+  assert.equal(tuiEdited.payload.models_dev_provider_id, 'anthropic');
+});
+
+// 触发场景:自定义 Anthropic 兼容网关点「探测模型」,daemon 返回 Anthropic /v1/models 的结果。
+// 期望:探测入口对 custom-anthropic 打开;探测行与 custom-openai 一样按自定义条目处理,
+// 上下文窗口照传,不会凭空带上推理声明。
+run('自定义 Anthropic 兼容 API 可以探测模型并生成可选行', () => {
+  assert.equal(modelFieldPolicy(customAnthropicProvider).can_probe, true);
+  const rows = modelRowsFromProbe({
+    models: ['claude-a', 'claude-b'],
+    model_context_windows: { 'claude-a': 200000 },
+    model_reasoning: { 'claude-a': null, 'claude-b': null },
+  }, customAnthropicProvider);
+  assert.deepEqual(rows.map((row) => row.id), ['claude-a', 'claude-b']);
+  assert.equal(rows[0].context_window, 200000);
+  assert.equal(rows[1].context_window, null);
+  assert.ok(rows.every((row) => row.reasoning === null));
+  assert.ok(rows.every((row) => !row.capabilities.includes('reasoning')));
 });

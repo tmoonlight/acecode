@@ -485,6 +485,14 @@
   },
   {
     "method": "GET",
+    "path": "/api/ui/desktop/sidebar-extensions"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/ui/desktop/sidebar-extensions"
+  },
+  {
+    "method": "GET",
     "path": "/api/ui/onboarding/desktop"
   },
   {

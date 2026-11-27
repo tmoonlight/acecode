@@ -124,3 +124,19 @@ await run('model test carries the selected Responses protocol to every request',
   assert.equal(calls.length, 2);
   assert.ok(calls.every((payload) => payload.api_protocol === 'responses'));
 });
+
+// 触发场景:自定义 Anthropic 兼容 API 照抄了不带 /v1 的网关地址(运行时拼成 .../messages),
+// 或模型 ID 写错,上游都回 404。期望:失败文案提示检查 Base URL 结尾与模型 ID;
+// OpenAI 系的 404 仍用原来的通用文案。
+await run('Anthropic 协议检测返回 404 时提示检查 Base URL 结尾和模型 ID', async () => {
+  const anthropicDraft = { ...draft, provider: 'anthropic' };
+  const notFound = { code: 'MODEL_TEST_HTTP_ERROR', upstreamStatus: 404, model: 'claude-x' };
+  const message = modelTestFailureMessage(notFound, anthropicDraft);
+  assert.match(message, /Base URL 以 \/v1 结尾/);
+  assert.match(message, /HTTP 404/);
+  assert.ok(!message.includes('secret'));
+  assert.doesNotMatch(modelTestFailureMessage(notFound, draft), /\/v1 结尾/);
+  assert.doesNotMatch(modelTestFailureMessage(
+    { ...notFound, upstreamStatus: 401 }, anthropicDraft,
+  ), /\/v1 结尾/);
+});

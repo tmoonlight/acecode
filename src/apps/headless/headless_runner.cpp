@@ -473,8 +473,9 @@ int run_print_mode(const HeadlessCliOptions& opts) {
     {
         auto cached = acecode::web_search::runtime().detector().cached_region();
         acecode::web_search::runtime().router().resolve_active(cached);
-        // headless 是短命进程:region 未知时不起后台探测线程(探测结果本轮
-        // 用不上还会拖慢退出),让 web_search 首次调用时自行 fallback。
+        if (cfg.web_search.enabled && cached == acecode::web_search::Region::Unknown) {
+            acecode::web_search::runtime().detect_region_async();
+        }
     }
 
     // workspace 元数据:让 -p 创建的会话在 Web/桌面端的 workspace 列表可见,

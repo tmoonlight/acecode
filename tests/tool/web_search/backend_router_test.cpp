@@ -1,11 +1,11 @@
 // 覆盖 src/tool/web_search/backend_router.{hpp,cpp}。
 //
 // 用 mock backend(继承 WebSearchBackend)注入受控响应,断言:
-//   - resolve_active 在 cfg=auto 下始终选择 DuckDuckGo
+//   - auto 和默认并行模式根据区域选择网页来源
 //   - 旧 bing_cn 配置安全降级到 DuckDuckGo
 //   - bochaai / tavily 占位 → fallback 到 auto 行为(注意 cfg 字段是 string,
 //     非法名会被 load_config 挡掉,这里只测占位 backend 的 fallback 行为)
-//   - parallel 只并发 RSS + DuckDuckGo,从不调用/合并 Bing CN
+//   - parallel 并发网页与 RSS，从不调用/合并 Bing CN
 //   - RSS 可回退 DuckDuckGo;DuckDuckGo 错误不再回退 Bing CN
 //   - set_active 拒绝 Bing CN 和未注册 backend
 
@@ -130,23 +130,28 @@ TEST_F(BackendRouterTest, AutoGlobalSelectsDdg) {
     EXPECT_EQ(r.active_name(), "duckduckgo");
 }
 
-// 场景:cfg=auto + region=Cn → active = bing_cn
-TEST_F(BackendRouterTest, AutoCnSelectsDdg) {
+TEST_F(BackendRouterTest, AutoCnSelectsDomestic) {
     WebSearchConfig cfg;
     cfg.backend = "auto";
     BackendRouter r(cfg);
     install_mocks(r, make_resp("duckduckgo", 0), make_resp("bing_cn", 0));
+    r.register_backend(std::make_unique<MockBackend>("domestic", make_resp("domestic", 1)));
     r.resolve_active(Region::Cn);
-    EXPECT_EQ(r.active_name(), "duckduckgo");
+    EXPECT_EQ(r.active_name(), "domestic");
 }
 
-// 场景:cfg=auto + region=Unknown → 悲观默认 bing_cn
-TEST_F(BackendRouterTest, AutoUnknownSelectsDdg) {
+TEST_F(BackendRouterTest, ColdStartUsesDomesticAndLateProbeRespectsManualSelection) {
     WebSearchConfig cfg;
     cfg.backend = "auto";
     BackendRouter r(cfg);
     install_mocks(r, make_resp("duckduckgo", 0), make_resp("bing_cn", 0));
+    r.register_backend(std::make_unique<MockBackend>("domestic", make_resp("domestic", 1)));
     r.resolve_active(Region::Unknown);
+    EXPECT_EQ(r.active_name(), "domestic");
+    ASSERT_TRUE(r.set_active("domestic"));
+    r.resolve_active(Region::Global);
+    EXPECT_EQ(r.active_name(), "domestic");
+    r.reset_to_config(Region::Global);
     EXPECT_EQ(r.active_name(), "duckduckgo");
 }
 
@@ -228,7 +233,7 @@ TEST_F(BackendRouterTest, RssRateLimitFallsBackWithoutChangingActive) {
 
 TEST_F(BackendRouterTest, DuckDuckGoNetworkErrorNeverFallsBackToBing) {
     WebSearchConfig cfg;
-    cfg.backend = "auto";
+    cfg.backend = "duckduckgo";
     BackendRouter r(cfg);
     auto mocks = install_mocks(
         r,
@@ -356,7 +361,7 @@ TEST_F(BackendRouterTest, ParallelAllFailuresReturnAggregateError) {
         "bing_cn", make_resp("bing_cn", 2));
     auto* bing_raw = bing.get();
     r.register_backend(std::move(bing));
-    r.resolve_active(Region::Cn);
+    r.resolve_active(Region::Global);
 
     auto out = r.search_with_fallback("query", 5, nullptr, nullptr);
     ASSERT_TRUE(std::holds_alternative<SearchError>(out));
@@ -367,6 +372,18 @@ TEST_F(BackendRouterTest, ParallelAllFailuresReturnAggregateError) {
     EXPECT_EQ(error.message.find("bing_cn"), std::string::npos);
     EXPECT_EQ(bing_raw->call_count, 0);
     EXPECT_EQ(r.active_name(), "parallel");
+}
+
+TEST_F(BackendRouterTest, DomesticFailureAndEmptyFeedReportSearchFailure) {
+    WebSearchConfig cfg;
+    BackendRouter router(cfg);
+    router.register_backend(std::make_unique<MockBackend>(
+        "domestic", SearchError{SearchError::Kind::Network, "both sources failed", "domestic"}));
+    router.register_backend(std::make_unique<MockBackend>("rss", make_resp("rss", 0)));
+    router.resolve_active(Region::Cn);
+    const auto outcome = router.search_with_fallback("query", 5, nullptr, nullptr);
+    ASSERT_TRUE(std::holds_alternative<SearchError>(outcome));
+    EXPECT_NE(std::get<SearchError>(outcome).message.find("both sources failed"), std::string::npos);
 }
 
 // 场景:旧 bing_cn 配置仍可加载,但运行时安全降级到 DuckDuckGo
@@ -508,5 +525,5 @@ TEST_F(BackendRouterTest, DefaultRegistrationExcludesBingCn) {
     BackendRouter r(cfg);
     register_default_backends(r, cfg);
     EXPECT_EQ(r.registered_names_for_test(),
-              (std::vector<std::string>{"duckduckgo", "rss"}));
+              (std::vector<std::string>{"domestic", "duckduckgo", "rss"}));
 }

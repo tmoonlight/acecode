@@ -6,6 +6,7 @@ from __future__ import annotations
 import hashlib
 import importlib.util
 import io
+import os
 import subprocess
 import shutil
 import sys
@@ -198,7 +199,10 @@ class VerifyPackageUnitTest(unittest.TestCase):
                         # Windows chmod has no POSIX execute bits. Simulate that
                         # boundary here while retaining real mode checks on Unix.
                         if sys.platform == "win32":
-                            access.return_value = bool(mode & 0o111)
+                            execute_bits = {helper: bool(mode & 0o111), simulator: True}
+                            access.side_effect = lambda path, flags: (
+                                flags == os.X_OK and execute_bits[Path(path)]
+                            )
                         verify_package.structural_checks(report, root, root, "darwin", ["tui"])
                         access.assert_any_call(helper, verify_package.os.X_OK)
                     self.assertEqual(report.failed, failures)

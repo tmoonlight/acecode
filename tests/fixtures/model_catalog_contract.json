@@ -49,6 +49,20 @@
         "models_dev_provider_id": null,
         "group": "custom",
         "endpoint_modes": ["base_url", "full_url"]
+      },
+      {
+        "id": "custom-anthropic",
+        "name": "Custom Anthropic-compatible API",
+        "runtime_provider": "anthropic",
+        "base_url": "",
+        "doc": "",
+        "auth_mode": "required",
+        "endpoint_editable": true,
+        "model_input": "manual",
+        "api_key_env": "",
+        "models_dev_provider_id": null,
+        "group": "custom",
+        "endpoint_modes": ["base_url"]
       }
     ]
   },

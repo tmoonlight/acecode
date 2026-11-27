@@ -21,6 +21,14 @@ import { providerDisplayName } from './providerCatalogGroups.js';
 export const MODEL_CATALOG_QUERY_LIMIT = 50;
 export const MODEL_ENDPOINT_MODES = ['base_url', 'full_url'];
 export const MODEL_API_PROTOCOLS = ['chat_completions', 'responses'];
+// 「API 协议」下拉的选项。前两项是 OpenAI 系 Provider 的 api_protocol 取值;
+// Anthropic Messages 只出现在自定义兼容 API 里,选它等于换到 custom-anthropic
+// 目录条目(运行时 provider = anthropic,不写 api_protocol)。
+const API_PROTOCOL_OPTIONS = Object.freeze([
+  Object.freeze({ value: 'chat_completions', label: 'Chat Completions', runtime_provider: 'openai' }),
+  Object.freeze({ value: 'responses', label: 'Responses', runtime_provider: 'openai' }),
+  Object.freeze({ value: 'anthropic_messages', label: 'Anthropic Messages', runtime_provider: 'anthropic' }),
+]);
 // 采样参数,全部可选:留空 = 不发送,由服务端决定。top_k / min_p 是 vLLM / SGLang
 // 等推理服务的扩展字段,只有 Chat Completions 会发出;Anthropic 支持 top_k、不支持
 // min_p;Responses 协议两者都不支持。取值范围与后端 validate_model_sampling_ranges 一致。
@@ -481,6 +489,18 @@ export function normalizeSavedModelProfile(raw, index = 0) {
   };
 }
 
+const CUSTOM_ANTHROPIC_PROVIDER_ID = 'custom-anthropic';
+
+function isOfficialAnthropicBaseUrl(value) {
+  const normalized = String(value || '').trim().replace(/\/+$/, '').toLowerCase();
+  return !normalized || normalized === ANTHROPIC_DEFAULT_BASE_URL.toLowerCase();
+}
+
+function isCustomAnthropicProfile(model) {
+  return String(model?.provider || '').trim().toLowerCase() === 'anthropic'
+    && !isOfficialAnthropicBaseUrl(model?.base_url);
+}
+
 export function normalizeSavedModelList(payload) {
   return requireArray(payload, 'saved models response').map(normalizeSavedModelProfile);
 }
@@ -493,6 +513,15 @@ export function providerForSavedModel(providers, model) {
   const runtimeProvider = normalizeIdentity(model?.provider);
   const providerHint = normalizeIdentity(model?.models_dev_provider_id);
   if (!runtimeProvider) return null;
+
+  // 官方地址以外的 Anthropic 端点(Web 自定义条目、TUI「Custom Anthropic」都可能
+  // 带 anthropic hint)回到 Base URL 可编辑的自定义条目;旧 daemon 没有它时照旧。
+  if (isCustomAnthropicProfile(model)) {
+    const custom = choices.find((provider) => (
+      normalizeIdentity(provider?.id) === CUSTOM_ANTHROPIC_PROVIDER_ID
+    ));
+    if (custom) return custom;
+  }
 
   if (providerHint) {
     return choices.find((provider) => (
@@ -622,6 +651,7 @@ export function markModelMetadataOverrides(draft, patch) {
 
 export function isCustomReasoningDraft(draft) {
   return draft?.catalog_provider_id === 'custom-openai'
+    || draft?.catalog_provider_id === CUSTOM_ANTHROPIC_PROVIDER_ID
     || (draft?.provider === 'anthropic' && draft?.capabilities_source === 'manual')
     || (!draft?.catalog_provider_id && !draft?.models_dev_provider_id
       && ['openai', 'anthropic'].includes(draft?.provider));
@@ -630,7 +660,7 @@ export function isCustomReasoningDraft(draft) {
 export function modelRowsFromProbe(response, provider) {
   const normalized = normalizeModelProbeResult(response);
   const aceModel = provider?.id === 'acemodel' || provider?.models_dev_provider_id === 'acemodel';
-  const custom = provider?.id === 'custom-openai';
+  const custom = provider?.id === 'custom-openai' || provider?.id === CUSTOM_ANTHROPIC_PROVIDER_ID;
   return normalized.models.map((id) => {
     const reasoning = custom ? null : normalized.reasoningByModel[id];
     const capabilities = normalized.capabilitiesByModel[id] || [];
@@ -846,7 +876,8 @@ export function modelProfileDraftFromSaved(raw) {
     ...emptyModelProfileDraft(),
     name: model.name,
     provider: model.provider,
-    catalog_provider_id: model.provider === 'anthropic' ? 'anthropic' :
+    catalog_provider_id: model.provider === 'anthropic'
+      ? (isCustomAnthropicProfile(model) ? CUSTOM_ANTHROPIC_PROVIDER_ID : 'anthropic') :
       model.provider === 'copilot' ? 'copilot' :
         model.provider === 'grok' ? 'grok' :
           model.models_dev_provider_id || 'custom-openai',
@@ -894,7 +925,8 @@ export function modelFieldPolicy(provider) {
     show_sampling: supportsHttpOptions,
     can_probe: value.runtime_provider === 'copilot'
       || value.runtime_provider === 'grok'
-      || value.runtime_provider === 'openai',
+      || value.runtime_provider === 'openai'
+      || value.runtime_provider === 'anthropic',
     model_input: value.model_input,
   };
 }
@@ -946,9 +978,61 @@ function parseSamplingDraft(draft, provider) {
   return { ok: true, value };
 }
 
-export function isCustomOpenAiCompatibilityProvider(provider) {
-  return provider?.runtime_provider === 'openai'
-    && provider?.model_input === 'manual';
+// 自定义兼容 API(custom-openai / custom-anthropic):端点可编辑,模型 ID 手填。
+export function isCustomCompatibilityProvider(provider) {
+  return provider?.model_input === 'manual'
+    && (provider?.runtime_provider === 'openai' || provider?.runtime_provider === 'anthropic');
+}
+
+function customProviderForRuntime(providers, runtimeProvider) {
+  return (Array.isArray(providers) ? providers : []).find((provider) => (
+    isCustomCompatibilityProvider(provider) && provider.runtime_provider === runtimeProvider
+  )) || null;
+}
+
+// 自定义兼容 API 列出目录里实际存在的协议(旧 daemon 没有 custom-anthropic 就只有两项);
+// 其它 OpenAI 系 Provider 只有 Chat Completions / Responses。
+export function modelApiProtocolOptions(provider, providers) {
+  if (isCustomCompatibilityProvider(provider)) {
+    return API_PROTOCOL_OPTIONS.filter((option) => (
+      customProviderForRuntime(providers, option.runtime_provider)
+    ));
+  }
+  return API_PROTOCOL_OPTIONS.filter((option) => option.runtime_provider === 'openai');
+}
+
+export function modelApiProtocolValue(draft) {
+  return draft?.provider === 'anthropic'
+    ? 'anthropic_messages'
+    : (draft?.api_protocol || 'chat_completions');
+}
+
+// 同一运行时内只改 api_protocol;自定义兼容 API 跨运行时切换时换目录条目,但模型 ID、
+// 别名、Base URL、密钥、请求头等已填字段原样保留(applyCatalogProviderToDraft 会清空它们)。
+export function applyModelApiProtocolToDraft(draft, provider, providers, protocol) {
+  const option = API_PROTOCOL_OPTIONS.find((item) => item.value === protocol);
+  if (!option) return draft;
+  const target = isCustomCompatibilityProvider(provider)
+    ? customProviderForRuntime(providers, option.runtime_provider)
+    : (option.runtime_provider === provider?.runtime_provider ? provider : null);
+  if (!target) return draft;
+  const apiProtocol = target.runtime_provider === 'openai' ? protocol : '';
+  if (draft?.provider === target.runtime_provider) {
+    return { ...draft, api_protocol: apiProtocol };
+  }
+  const endpointModes = Array.isArray(target.endpoint_modes) && target.endpoint_modes.length
+    ? target.endpoint_modes
+    : ['base_url'];
+  return {
+    ...draft,
+    provider: target.runtime_provider,
+    catalog_provider_id: target.id,
+    models_dev_provider_id: target.models_dev_provider_id || '',
+    api_protocol: apiProtocol,
+    endpoint_mode: endpointModes.includes(draft?.endpoint_mode)
+      ? draft.endpoint_mode
+      : endpointModes[0],
+  };
 }
 
 export function applyCatalogProviderToDraft(draft, provider) {
@@ -1002,10 +1086,10 @@ export function modelNameSuggestion(baseName, existingNames = []) {
   return uniqueModelAlias(String(baseName || '').trim() || 'model', existingNames);
 }
 
-// 多选时作为别名前缀的厂商名。自定义 OpenAI 兼容 API 没有真正的厂商
+// 多选时作为别名前缀的厂商名。自定义兼容 API 没有真正的厂商
 // (目录名是 "Custom OpenAI-compatible API"),拼进别名只会碍眼,返回空串 → 只用模型 ID。
 export function modelAliasProviderName(provider) {
-  if (!provider || isCustomOpenAiCompatibilityProvider(provider)) return '';
+  if (!provider || isCustomCompatibilityProvider(provider)) return '';
   return providerDisplayName(provider);
 }
 
@@ -1149,7 +1233,7 @@ export function buildModelMutationPayload(draft, provider, options = {}) {
   const model = String(draft.model || '').trim();
   const requestedName = String(draft.name || '').trim();
   const payload = {
-    name: requestedName || (isCustomOpenAiCompatibilityProvider(provider) ? model : ''),
+    name: requestedName || (isCustomCompatibilityProvider(provider) ? model : ''),
     provider: provider.runtime_provider,
     model,
   };

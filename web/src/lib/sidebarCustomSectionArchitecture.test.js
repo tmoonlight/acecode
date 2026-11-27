@@ -26,7 +26,7 @@ test('sidebar extensions open a flyout menu with settled counts', () => {
   const extensions = source('components/SidebarExtensions.jsx');
   assert.match(sidebar, /import \{ SidebarExtensions \} from '\.\/SidebarExtensions\.jsx'/);
   assert.doesNotMatch(sidebar, /CustomSidebarSection|sidebarCustomSectionExpanded/);
-  assert.match(extensions, /acecode\.sidebarExtensions\.v1/);
+  assert.match(extensions, /useSyncExternalStore\(store\.subscribe, store\.getSnapshot\)/);
   assert.match(extensions, /Promise\.allSettled\(\[/);
   assert.match(extensions, /api\.listSkills\(\)/);
   assert.match(extensions, /api\.getMcp\(\)/);

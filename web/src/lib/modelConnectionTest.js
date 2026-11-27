@@ -45,7 +45,11 @@ export function modelTestFailureMessage(error, draft) {
     MODEL_TEST_HTTP_ERROR: '模型服务返回错误，请检查密钥和模型配置',
     MODEL_TEST_FAILED: '未能获取模型回复，请检查配置后重试',
   };
-  const detail = messages[error?.code]
+  // Anthropic 协议按 Base URL + /messages 拼接;照抄不带 /v1 的网关地址会 404,
+  // 模型 ID 写错也是 404,两种都提示。
+  const anthropicNotFound = draft?.provider === 'anthropic' && error?.upstreamStatus === 404;
+  const detail = (anthropicNotFound && '接口或模型不存在，请确认 Base URL 以 /v1 结尾、模型 ID 正确')
+    || messages[error?.code]
     || lookupErrorMessage(error?.code, messages.MODEL_TEST_FAILED);
   const status = Number.isInteger(error?.upstreamStatus)
     ? ` (HTTP ${error.upstreamStatus})` : '';

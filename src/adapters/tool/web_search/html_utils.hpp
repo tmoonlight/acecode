@@ -29,4 +29,7 @@ std::string collapse_whitespace(std::string_view in);
 // 不在 UTF-8 多字节序列中间切。
 std::string truncate_with_ellipsis(std::string_view in, std::size_t max_codepoints);
 
+// Used for result identity only. Display the original URL.
+std::string normalize_url_for_dedup(std::string url);
+
 } // namespace acecode::web_search

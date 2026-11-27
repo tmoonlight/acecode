@@ -359,14 +359,14 @@ struct TuiConfig {
 // callers SHOULD branch on at runtime; the rest are passively consumed by
 // network::ProxyResolver.
 // Web search tool tunables. See openspec/changes/integrate-rss-web-search/.
-// `backend = "parallel"` concurrently searches RSS and DuckDuckGo.
+// `parallel` concurrently searches RSS and the regional web backend.
 // `backend = "rss"` uses AceCode's hosted curated index and falls back per
-// request to DuckDuckGo when unavailable or empty. `backend = "auto"` also
-// selects DuckDuckGo. Legacy "bing_cn" remains parseable but is disabled and
+// request to DuckDuckGo when unavailable or empty. `auto` selects DuckDuckGo
+// on global networks and the domestic backend otherwise. Legacy "bing_cn"
 // resolves to DuckDuckGo at runtime.
 struct WebSearchConfig {
     bool enabled = true;
-    // "parallel" | "rss" | "auto" | "duckduckgo" | legacy "bing_cn" | ...
+    // "parallel" | "rss" | "auto" | "duckduckgo" | "domestic" | legacy values
     std::string backend = "parallel";
     std::string api_key;        // Reserved for future API backends.
     std::string rss_base_url = "https://ge.bigjuan.xyz/rss-search";

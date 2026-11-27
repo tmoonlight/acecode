@@ -255,10 +255,9 @@ run('managed provider details use bounded desktop columns with independent scrol
 
 run('manual OpenAI-compatible provider keeps direct input and adds an explicit probe selector', () => {
   assert.match(picker, /const directModelIdInput = provider\?\.model_input === 'manual';/);
-  assert.match(
-    picker,
-    /\{!directModelIdInput && \(provider\.runtime_provider === 'openai' \|\| managedProvider\) && \(/,
-  );
+  // supportsProbe = OpenAI 兼容 / Anthropic(按 Base URL 探测)或受管 Provider。
+  assert.match(picker, /const supportsProbe = httpProbeProvider \|\| managedProvider;/);
+  assert.match(picker, /\{!directModelIdInput && supportsProbe && \(/);
   assert.match(
     picker,
     /\{directModelIdInput \? \([\s\S]*?htmlFor="custom-openai-model-id"[\s\S]*?id="custom-openai-model-id"[\s\S]*?value=\{draft\.model\}[\s\S]*?onDraftChange\(\{ \.\.\.draft, model: event\.target\.value \}\)/,
