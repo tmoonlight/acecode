@@ -16,6 +16,9 @@ const EMPTY_SNAPSHOT = Object.freeze({
   revision: 0, records: Object.freeze([]), pages: Object.freeze([]), pendingCount: 0,
 });
 
+// 待发卡片上删除一条之后，「撤销」保留多久。到时原生存储里那份才真正删掉。
+export const ANNOTATION_UNDO_WINDOW_MS = 5000;
+
 export function annotationState(record, page) {
   if (!page || page.closed) return 'orphan';
   const documentId = page.documentId || '';
@@ -129,9 +132,12 @@ export function createAnnotationOutbox() {
         title: title || previous?.title || '',
         closed: closed || (previous?.closed && !pageSnapshot),
         documentId: pageSnapshot?.document_id || '',
+        // 快照没带图时沿用上一张（页签关闭后的上报没有快照）。但这一页已经
+        // 没有任何记录时不沿用：原生在记录清空后释放了整屏图，这里跟着放掉，
+        // 免得下一批批注在截图失败时配上上一批的旧图。
         pageShot: typeof pageSnapshot?.page_shot === 'string' && pageSnapshot.page_shot
           ? pageSnapshot.page_shot
-          : (previous?.pageShot || ''),
+          : (records.length ? (previous?.pageShot || '') : ''),
         records,
       };
       if (closed) {

@@ -116,9 +116,49 @@ std::string strip_summary_prefix(const std::string& content) {
     return content.substr(start);
 }
 
+bool metadata_flag(const ChatMessage& message, const char* key) {
+    if (!message.metadata.is_object()) return false;
+    const auto it = message.metadata.find(key);
+    return it != message.metadata.end() && it->is_boolean() && it->get<bool>();
+}
+
+// 带网页批注的消息。content 里展开了网页标题、地址和被批注元素的原文,那些是
+// 网页给的数据,网页可以随便写。用户的话只有两处:输入框里打的字(display_text)
+// 和每条批注的描述(用户在批注框里写的)。两处都空时返回空串,绝不退回 content。
+std::string annotated_user_text(const ChatMessage& message) {
+    std::string text;
+    const auto display = message.metadata.find("display_text");
+    if (display != message.metadata.end() && display->is_string()) text = display->get<std::string>();
+    const auto contexts = message.metadata.find("contexts");
+    if (contexts == message.metadata.end() || !contexts->is_array()) return text;
+    for (const auto& context : *contexts) {
+        if (!context.is_object()) continue;
+        const auto type = context.find("type");
+        if (type == context.end() || !type->is_string() || *type != "page_annotations") continue;
+        const auto pages = context.find("pages");
+        if (pages == context.end() || !pages->is_array()) continue;
+        for (const auto& page : *pages) {
+            if (!page.is_object()) continue;
+            const auto annotations = page.find("annotations");
+            if (annotations == page.end() || !annotations->is_array()) continue;
+            for (const auto& annotation : *annotations) {
+                if (!annotation.is_object()) continue;
+                const auto description = annotation.find("description");
+                if (description == annotation.end() || !description->is_string()) continue;
+                const auto& value = description->get_ref<const std::string&>();
+                if (value.find_first_not_of(" \t\r\n") == std::string::npos) continue;
+                if (!text.empty()) text += "\n";
+                text += "Page annotation: " + value;
+            }
+        }
+    }
+    return text;
+}
+
 // 用户看到 / 输入的文字。content 里可能已经展开了 @文件 的内容或技能正文
 // (那些是数据,不是用户的话),有 display_text 时以它为准。
 std::string user_visible_text(const ChatMessage& message) {
+    if (metadata_flag(message, "page_annotations_expanded")) return annotated_user_text(message);
     if (message.metadata.is_object()) {
         const auto it = message.metadata.find("display_text");
         if (it != message.metadata.end() && it->is_string() && !it->get_ref<const std::string&>().empty()) {
@@ -126,12 +166,6 @@ std::string user_visible_text(const ChatMessage& message) {
         }
     }
     return message.content;
-}
-
-bool metadata_flag(const ChatMessage& message, const char* key) {
-    if (!message.metadata.is_object()) return false;
-    const auto it = message.metadata.find(key);
-    return it != message.metadata.end() && it->is_boolean() && it->get<bool>();
 }
 
 bool is_inter_agent_task(const ChatMessage& message) {
@@ -171,9 +205,11 @@ bool is_user_authored_message(const ChatMessage& message) {
     if (!message.subtype.empty()) return false;
     if (!message.metadata.is_object()) return true;
     // 真实用户消息上允许出现的布尔标记:回合中的插话、提问期间的插话、打断后
-    // 重新提交、选区上下文已展开。其余为 true 的标记一律视为程序注入的记号。
+    // 重新提交、选区上下文已展开、网页批注已展开(这种消息只取用户写的部分,
+    // 见 annotated_user_text)。其余为 true 的标记一律视为程序注入的记号。
     static constexpr const char* kBenignFlags[] = {
         "turn_steer", "question_interjection", "turn_interrupt", "selection_context_expanded",
+        "page_annotations_expanded",
     };
     for (auto it = message.metadata.begin(); it != message.metadata.end(); ++it) {
         const std::string& key = it.key();

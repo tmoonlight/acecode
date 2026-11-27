@@ -189,6 +189,9 @@ public:
             records.erase(std::remove_if(records.begin(), records.end(),
                 [&gone](const auto& record) { return record["id"] == gone["id"]; }), records.end());
         }
+        // 这一页没有待发记录了:整屏图已经随消息上传,留着只会让每次状态事件
+        // 都带着一张几百 KB 到几 MB 的图,并一直占着会话级存储。
+        if (records.empty()) store_->set_page_shot(page_id_, {});
         ++revision_;
         return true;
     }

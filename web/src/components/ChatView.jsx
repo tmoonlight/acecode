@@ -61,7 +61,7 @@ import {
 } from '../lib/composerAttachmentReservations.js';
 import { InputBar } from './InputBar.jsx';
 import { normalizeComposerPayload } from '../lib/composerSubmission.js';
-import { annotationOutboxFor } from '../lib/annotationOutbox.js';
+import { ANNOTATION_UNDO_WINDOW_MS, annotationOutboxFor } from '../lib/annotationOutbox.js';
 import { useAnnotationOutbox } from '../lib/useAnnotationOutbox.js';
 import {
   annotationSendOutcome, localizedAnnotationSendError, prepareAnnotationSubmission,
@@ -3686,7 +3686,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
   // 'fork'(Ctrl+Alt+Enter,在分叉出的新会话里发送)。
   const submit = useStableCallback((text, { sendMode = 'send',
     extraAttachments = null, extraContexts = null, annotationSettle = null,
-    clientMessageId = null,
+    clientMessageId = null, submittedDraft = null,
   } = {}) => {
     let annotationStatus = '';
     const settleAnnotations = (status) => {
@@ -3753,8 +3753,9 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
     );
     // 提交那一刻输入框里的原文。发送回执回来时拿它比对,用户在等待窗口里
     // 写下的下一条就不会被这次发送的清理吞掉。
-    const submittedComposerText = composerValueRef.current;
-    const submittedComposerContent = composerContentRef.current;
+    // 带批注的发送在调用这里之前先上传了截图,原文以组装前的快照为准。
+    const submittedComposerText = submittedDraft ? submittedDraft.text : composerValueRef.current;
+    const submittedComposerContent = submittedDraft ? submittedDraft.content : composerContentRef.current;
     const hasExtras = payloadHasExtras(payload) || hasPendingAttachments;
     const hasSwarmMode = typeof payload.swarm_mode === 'string';
     if (!payload.text.trim() && !hasExtras) {
@@ -4171,6 +4172,9 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
   // 唯一的发送组装点（Q35）：输入框正文 + 会话内全部待发批注，发成一条消息。
   // 输入框发送按钮、页内工具栏、浮窗 Ctrl+Enter 三条路径最后都落到这里。
   const annotationRetryRef = useRef(null);
+  // 上传整屏图和等发送回执都要时间。这期间三个入口再触发一次,会把同一批
+  // 批注再组装、再入队一遍(回复中尤其明显:两次都走插话)。
+  const annotationSubmitInFlightRef = useRef(false);
   const submitWithAnnotations = useStableCallback(async (text, { sendMode = 'send' } = {}) => {
     const targetSid = sidRef.current;
     const value = typeof text === 'string' ? text : composerValueRef.current;
@@ -4179,51 +4183,67 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
       return (await submit(value, { sendMode })) || { ok: false, error: '发送失败' };
     }
     if (!targetSid) return { ok: false, error: '请先打开一个对话再发送批注' };
-    const submissionText = composerContentSubmissionText(composerContentRef.current) || value;
-    let prepared;
+    if (annotationSubmitInFlightRef.current) return { ok: false, error: '批注正在发送' };
+    annotationSubmitInFlightRef.current = true;
     try {
-      prepared = await prepareAnnotationSubmission({
-        sessionId: targetSid,
-        text: submissionText,
-        records,
-        outbox: annotationBox,
-        api,
-        retry: annotationRetryRef.current,
-      });
-    } catch (error) {
-      const message = localizedAnnotationSendError(error?.message || error);
-      toast({ kind: 'err', text: message });
-      return { ok: false, error: message };
+      const submissionText = composerContentSubmissionText(composerContentRef.current) || value;
+      // 组装前输入框里的原文。上传期间用户接着打的字不属于这次发送,
+      // 发送成功后的清理拿这份快照比对,不会把新打的字一起清掉。
+      const submittedDraft = { text: composerValueRef.current, content: composerContentRef.current };
+      let prepared;
+      try {
+        prepared = await prepareAnnotationSubmission({
+          sessionId: targetSid,
+          text: submissionText,
+          records,
+          outbox: annotationBox,
+          api,
+          retry: annotationRetryRef.current,
+        });
+      } catch (error) {
+        const message = localizedAnnotationSendError(error?.message || error);
+        toast({ kind: 'err', text: message });
+        return { ok: false, error: message };
+      }
+      annotationRetryRef.current = { cacheKey: prepared.cacheKey, prepared };
+      // 上传期间切到了别的会话:submit 发往当前会话,不能把这批批注带过去。
+      if (sidRef.current !== targetSid) {
+        return { ok: false, error: '批注未发出，仍在待发列表里，可重试' };
+      }
+      let result;
+      try {
+        result = await submit(prepared.text, {
+          sendMode,
+          extraAttachments: prepared.shotAttachments,
+          extraContexts: prepared.contexts,
+          clientMessageId: prepared.clientMessageId,
+          submittedDraft,
+          annotationSettle: (status) => {
+            if (status === 'sent') {
+              // 撤销窗口里那条已删的记录不在这次发送里,原生存储那份要照常
+              // 删掉,否则下次打开页面它会回到待发列表。撤销入口同时收起。
+              commitPendingAnnotationRemoval();
+              setAnnotationUndoEpoch((epoch) => epoch + 1);
+              annotationRetryRef.current = null;
+              prepared.settle(true);
+            }
+            else if (status === 'failed') {
+              toast({ kind: 'err', text: '批注未发出，仍在待发列表里，可重试' });
+            }
+          },
+        });
+      } catch (error) {
+        const message = localizedAnnotationSendError(error?.message || error);
+        toast({ kind: 'err', text: message });
+        return { ok: false, error: message };
+      }
+      if (result?.ok === false) return result;
+      if (result?.ok !== true) return { ok: false, error: '发送失败' };
+      annotationRetryRef.current = null;
+      return { ok: true, annotations: records.length };
+    } finally {
+      annotationSubmitInFlightRef.current = false;
     }
-    annotationRetryRef.current = { cacheKey: prepared.cacheKey, prepared };
-    let result;
-    try {
-      result = await submit(prepared.text, {
-        sendMode,
-        extraAttachments: prepared.shotAttachments,
-        extraContexts: prepared.contexts,
-        clientMessageId: prepared.clientMessageId,
-        annotationSettle: (status) => {
-          if (status === 'sent') {
-            // 发送成功后原生存储里的记录整体作废，撤销窗口也跟着结束。
-            pendingAnnotationRemovalRef.current = null;
-            annotationRetryRef.current = null;
-            prepared.settle(true);
-          }
-          else if (status === 'failed') {
-            toast({ kind: 'err', text: '批注未发出，仍在待发列表里，可重试' });
-          }
-        },
-      });
-    } catch (error) {
-      const message = localizedAnnotationSendError(error?.message || error);
-      toast({ kind: 'err', text: message });
-      return { ok: false, error: message };
-    }
-    if (result?.ok === false) return result;
-    if (result?.ok !== true) return { ok: false, error: '发送失败' };
-    annotationRetryRef.current = null;
-    return { ok: true, annotations: records.length };
   });
 
   useEffect(() => {
@@ -4244,10 +4264,15 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
   }, [annotationState]);
 
   // 删除待发批注：本地立即摘掉，原生存储的删除延后到撤销窗口结束，
-  // 否则撤销后下一次快照会把记录抹掉。撤销槽只有最近一条，所以新的一次
-  // 删除就是上一条的窗口终点。
+  // 否则撤销后下一次快照会把记录抹掉。撤销槽只有最近一条：窗口在下一次
+  // 删除、发送成功、卸载或到时（ANNOTATION_UNDO_WINDOW_MS）时结束。
   const pendingAnnotationRemovalRef = useRef(null);
+  const annotationRemovalTimerRef = useRef(null);
+  // 发送成功会提前结束撤销窗口，待发卡片据此收起「撤销」。
+  const [annotationUndoEpoch, setAnnotationUndoEpoch] = useState(0);
   const commitPendingAnnotationRemoval = useStableCallback(() => {
+    if (annotationRemovalTimerRef.current) clearTimeout(annotationRemovalTimerRef.current);
+    annotationRemovalTimerRef.current = null;
     const pending = pendingAnnotationRemovalRef.current;
     pendingAnnotationRemovalRef.current = null;
     if (!pending?.pageId || !pending.id) return;
@@ -4255,14 +4280,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
       action: 'remove', document_id: '', record_ids: [pending.id],
     }).catch(() => {});
   });
-  useEffect(() => () => {
-    const commit = pendingAnnotationRemovalRef.current;
-    pendingAnnotationRemovalRef.current = null;
-    if (!commit?.pageId || !commit.id) return;
-    void runPageAnnotationCommand(commit.pageId, {
-      action: 'remove', document_id: '', record_ids: [commit.id],
-    }).catch(() => {});
-  }, []);
+  useEffect(() => () => commitPendingAnnotationRemoval(), [commitPendingAnnotationRemoval]);
 
   const [editingAnnotation, setEditingAnnotation] = useState(null);
   const editAnnotationRecord = useStableCallback(async (record) => {
@@ -4290,15 +4308,22 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
     if (!record?.id) return;
     const removed = annotationBox?.remove(record.id);
     if (!removed) return;
-    const page = annotationState.pages.find((item) => item.id === record.pageId);
-    if (page?.closed || !record.pageId) return;
+    // 上一条的撤销窗口到此结束，不管这一条在不在活页签上。
     commitPendingAnnotationRemoval();
+    const page = annotationState.pages.find((item) => item.id === record.pageId);
+    // 已关闭页签的记录只在本地这份清单里，没有原生存储可删。
+    if (page?.closed || !record.pageId) return;
     pendingAnnotationRemovalRef.current = { pageId: record.pageId, id: record.id };
+    // 比卡片上「撤销」消失的时刻稍晚一点提交，避免卡在同一毫秒的撤销落空。
+    annotationRemovalTimerRef.current = setTimeout(
+      commitPendingAnnotationRemoval, ANNOTATION_UNDO_WINDOW_MS + 500);
   });
 
   const restoreAnnotationRecord = useStableCallback((record) => {
     if (!record?.id) return;
     if (pendingAnnotationRemovalRef.current?.id === record.id) {
+      if (annotationRemovalTimerRef.current) clearTimeout(annotationRemovalTimerRef.current);
+      annotationRemovalTimerRef.current = null;
       pendingAnnotationRemovalRef.current = null;
     }
     annotationBox?.restore(record);
@@ -7023,6 +7048,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
             onDelete={deleteAnnotationRecord}
             onEdit={editAnnotationRecord}
             onRestore={restoreAnnotationRecord}
+            undoEpoch={annotationUndoEpoch}
           />
           {editingAnnotation ? (
             <PageAnnotationEditDialog

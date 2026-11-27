@@ -274,6 +274,44 @@ TEST_F(SessionAnnotationStoreTest, AttachScreenshotAcceptsRealPngPayloadsButCaps
     EXPECT_EQ(driver.session.snapshot(), before);
 }
 
+// 触发场景:一页上存了两条批注并补了整屏图,随后发送成功,前端按 id 把已发的
+// 记录从原生存储里删掉(先删一条,再删最后一条)。
+// 期望行为:还有待发记录时整屏图留着(发送时要上传它);最后一条删掉后整屏图
+// 一并释放。
+// 回归表现:整屏图(真实网页是几百 KB 到几 MB 的 data URL)在记录清空后仍留在
+// 会话级存储里,之后这个页签的每次状态事件、每次批注轮询都整份带着它。
+TEST_F(SessionAnnotationStoreTest, RemovingTheLastRecordReleasesThePageShot) {
+    auto store = std::make_shared<SessionAnnotationStore>();
+    Driver driver(store, "page-1");
+    driver.start();
+    driver.select();
+    driver.save("first");
+    driver.start();
+    driver.select();
+    driver.save("second");
+    ASSERT_EQ(store->records("page-1").size(), 2u);
+    const auto first = store->records("page-1")[0]["id"].get<std::string>();
+    const auto second = store->records("page-1")[1]["id"].get<std::string>();
+
+    std::string error;
+    ASSERT_TRUE(driver.session.submission({
+        {"action", "attach_screenshot"}, {"document_id", ""}, {"record_id", second},
+        {"thumbnail", "data:image/png;base64,AAA"},
+        {"page_shot", "data:image/png;base64,BBB"},
+    }, error)) << error;
+
+    ASSERT_TRUE(driver.session.submission({
+        {"action", "remove"}, {"document_id", ""}, {"record_ids", Json::array({first})},
+    }, error)) << error;
+    EXPECT_EQ(driver.session.snapshot()["page_shot"], "data:image/png;base64,BBB");
+
+    ASSERT_TRUE(driver.session.submission({
+        {"action", "remove"}, {"document_id", ""}, {"record_ids", Json::array({second})},
+    }, error)) << error;
+    EXPECT_TRUE(store->records("page-1").empty());
+    EXPECT_EQ(driver.session.snapshot()["page_shot"], "");
+}
+
 TEST_F(SessionAnnotationStoreTest, RemoveErasesRecordsWithoutDocumentCheck) {
     auto store = std::make_shared<SessionAnnotationStore>();
     Driver driver(store, "page-1");

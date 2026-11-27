@@ -1,11 +1,21 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { VsIcon } from './Icon.jsx';
+import { ANNOTATION_UNDO_WINDOW_MS } from '../lib/annotationOutbox.js';
 
 // 待发批注卡片：输入框正上方，按页面分组。会话级视图——已关闭页签的记录
 // 也在里面（组头标注「页面已关闭」），它们仍能编辑文本、删除、发送（PRD §6.4）。
-export function PageAnnotationPendingCard({ pages, onEdit, onDelete, onRestore }) {
+export function PageAnnotationPendingCard({ pages, onEdit, onDelete, onRestore, undoEpoch = 0 }) {
   // 删除立即生效；只保留最近一条可撤销，连删两条时第一条不再回来。
   const [lastRemoved, setLastRemoved] = useState(null);
+  // 「撤销」只留一小段时间。一直留着的话,删掉最后一条后这张卡片会以
+  // 「0 条 已删除 撤销」的样子永远挂在输入框上方。
+  useEffect(() => {
+    if (!lastRemoved) return undefined;
+    const timer = setTimeout(() => setLastRemoved(null), ANNOTATION_UNDO_WINDOW_MS);
+    return () => clearTimeout(timer);
+  }, [lastRemoved]);
+  // 发送成功后已删的那条在原生存储里也删掉了,撤销不回来,入口一并收起。
+  useEffect(() => { setLastRemoved(null); }, [undoEpoch]);
   const groups = (pages || []).filter((page) => (page.records || []).length > 0);
 
   const total = groups.reduce((sum, page) => sum + page.records.length, 0);

@@ -105,6 +105,7 @@ export const ENGLISH_SOURCE_OVERRIDES = Object.freeze({
   '发送未确认，批注已退回待发，可重试': 'Send unconfirmed. The annotations are back in the pending list; retry when ready.',
   '没有收到发送确认，消息可能仍在发送中': 'No send confirmation arrived. The message may still be on its way.',
   '批注未发出，仍在待发列表里，可重试': 'The annotations were not sent and stay in the pending list; retry when ready.',
+  '批注正在发送': 'The annotations are already being sent.',
   '截图解码失败': 'Could not decode the screenshot',
   '无法读取网页批注，正在重试': 'Could not read page annotations. Retrying.',
   '网页内容已变化，请重新批注后再发送': 'The page content changed. Annotate again before sending.',

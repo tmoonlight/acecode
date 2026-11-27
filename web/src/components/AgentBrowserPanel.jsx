@@ -108,23 +108,36 @@ export function AgentBrowserPanel({
   }, [annotationOutbox, pageId, state.url, state.title, state.closed, annotations.snapshot]);
   // 保存后补图（#212）：记录数一涨就说明刚存了一条，截一次视口、裁两张图回填。
   // 放在面板而不是保存命令里，是因为捕获是异步的，且失败不能阻塞保存。
-  const captureStateRef = useRef({ pageId: '', count: 0 });
+  // annotations 每次渲染都是新对象：把它放进依赖，任何一次重渲染（保存后紧跟
+  // 的页面状态事件就是一次）都会作废在途的截图，而记录数没有再涨，不会重截，
+  // 这条批注就永远没有图。所以只按「页面 + 记录数」触发，命令与快照从 ref 取，
+  // 只有换页或卸载才作废在途的截图。
+  const annotationsRef = useRef(annotations);
+  annotationsRef.current = annotations;
+  const capturePageRef = useRef('');
   useEffect(() => {
-    const snapshot = annotations.snapshot;
-    const records = Array.isArray(snapshot?.records) ? snapshot.records : [];
+    capturePageRef.current = pageId;
+    return () => { capturePageRef.current = ''; };
+  }, [pageId]);
+  const captureStateRef = useRef({ pageId: '', count: 0 });
+  const annotationRecordCount = Array.isArray(annotations.snapshot?.records)
+    ? annotations.snapshot.records.length
+    : 0;
+  useEffect(() => {
     const previous = captureStateRef.current;
-    captureStateRef.current = { pageId, count: records.length };
-    if (previous.pageId !== pageId || records.length <= previous.count) return undefined;
-    const record = records[records.length - 1];
-    let cancelled = false;
+    captureStateRef.current = { pageId, count: annotationRecordCount };
+    if (previous.pageId !== pageId || annotationRecordCount <= previous.count) return;
+    const snapshot = annotationsRef.current.snapshot;
+    const record = snapshot.records[annotationRecordCount - 1];
+    const current = () => capturePageRef.current === pageId;
     void (async () => {
       try {
         const result = await capturePageAnnotationScreenshot(pageId);
-        if (cancelled || result?.ok !== true) return;
+        if (!current() || result?.ok !== true) return;
         const rect = captureRectForRecord(record, snapshot.viewport);
         const images = await cropAnnotationImages(result.data, rect, snapshot.viewport);
-        if (cancelled) return;
-        await annotations.command('attach_screenshot', {
+        if (!current()) return;
+        await annotationsRef.current.command('attach_screenshot', {
           record_id: record.id,
           thumbnail: images.thumbnail,
           page_shot: images.pageShot,
@@ -133,12 +146,9 @@ export function AgentBrowserPanel({
         // 捕获失败只是该条无图，卡片退化为标签 + 文本片段。
       }
     })();
-    return () => { cancelled = true; };
-  }, [pageId, annotations, annotations.snapshot]);
-  // 铅笔路径（#217）：切到这一页，按 locator 重新选中那条记录。annotations
-  // 每次渲染都是新对象，用 ref 保证注册表只挂一次。
-  const annotationsRef = useRef(annotations);
-  annotationsRef.current = annotations;
+  }, [pageId, annotationRecordCount]);
+  // 铅笔路径（#217）：切到这一页，按图钉编号重新选中那条记录。注册表只挂一次，
+  // 命令同样从上面的 ref 取。
   useEffect(() => {
     if (!sessionId || !annotations.snapshot?.document_id) return undefined;
     return registerAnnotationEditor(pageId, async (record) => {

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import {
+  ANNOTATION_UNDO_WINDOW_MS,
   annotationElement,
   annotationState,
   createAnnotationOutbox,
@@ -329,9 +330,61 @@ assert.match(chatView, /pendingAnnotationRemovalRef/,
 const pendingCard = fs.readFileSync(
   new URL('../components/PageAnnotationPendingCard.jsx', import.meta.url), 'utf8',
 );
-assert.doesNotMatch(pendingCard, /setTimeout/,
-  'delete must take effect immediately, not after a 5 second window');
-assert.match(pendingCard, /onDelete\?\.\(record\)/);
+// 触发场景：待发卡片上点垃圾桶删除一条批注，随后发送、再删一条，或什么都不做。
+// 期望行为：删除当下就从待发集合摘掉（发送组装看不到它）；「撤销」只保留
+// ANNOTATION_UNDO_WINDOW_MS，到时卡片收起入口、原生存储里那份才真正删掉；
+// 发送成功会提前结束窗口并同样真正删掉。
+// 回归表现：
+//   - 5 秒后才调 onDelete：窗口内发送，被删的那条照样发给模型；
+//   - 入口不带计时：删掉最后一条后卡片以「0 条 已删除 撤销」永远挂在输入框上方，
+//     原生存储里那份也一直不删，重载页面后它回到待发列表；
+//   - 发送成功时只把待删标记清空而不提交：同样重载后复活。
+assert.match(pendingCard,
+  /const remove = \(record\) => \{\s*setLastRemoved\(record\);\s*onDelete\?\.\(record\);\s*\};/,
+  'delete must take effect immediately, not after the undo window');
+assert.match(pendingCard, /setTimeout\(\(\) => setLastRemoved\(null\), ANNOTATION_UNDO_WINDOW_MS\)/,
+  'the undo affordance must expire instead of pinning an empty card above the composer');
+assert.match(pendingCard, /useEffect\(\(\) => \{ setLastRemoved\(null\); \}, \[undoEpoch\]\)/,
+  'a successful send must retract the undo affordance');
 assert.match(pendingCard, /onRestore\?\.\(record\)/);
+assert.equal(ANNOTATION_UNDO_WINDOW_MS, 5000);
+
+assert.match(chatView,
+  /setTimeout\(\s*commitPendingAnnotationRemoval, ANNOTATION_UNDO_WINDOW_MS \+ 500\)/,
+  'the deferred native removal must be committed when the undo window ends');
+assert.match(chatView,
+  /if \(status === 'sent'\) \{[\s\S]{0,400}commitPendingAnnotationRemoval\(\);[\s\S]{0,200}prepared\.settle\(true\);/,
+  'a successful send must commit the deferred removal, not just forget it');
+assert.doesNotMatch(chatView, /if \(status === 'sent'\) \{[\s\S]{0,400}pendingAnnotationRemovalRef\.current = null;/);
+assert.match(chatView, /useEffect\(\(\) => \(\) => commitPendingAnnotationRemoval\(\), \[commitPendingAnnotationRemoval\]\)/,
+  'unmount must commit the deferred removal');
+
+// 触发场景：有待发批注时连按两次 Enter，或 Enter 后再点页内工具栏的发送；
+// 上传整屏图期间切到另一个会话；上传期间用户接着在输入框里打字。
+// 期望行为：同一批批注只组装、只提交一次；不会被带到另一个会话；
+// 发送成功后的清理以组装前的输入框快照为准，新打的字留着。
+// 回归表现：回复中两次调用各自入队，同一批批注被插话两遍。
+assert.match(chatView,
+  /if \(annotationSubmitInFlightRef\.current\) return \{ ok: false, error: '批注正在发送' \};\s*annotationSubmitInFlightRef\.current = true;\s*try \{/,
+  'a second trigger while an annotation send is in flight must not assemble another one');
+assert.match(chatView, /\} finally \{\s*annotationSubmitInFlightRef\.current = false;\s*\}/);
+assert.match(chatView,
+  /annotationRetryRef\.current = \{ cacheKey: prepared\.cacheKey, prepared \};[\s\S]{0,200}if \(sidRef\.current !== targetSid\) \{/,
+  'annotations prepared for one session must not be submitted into another');
+assert.match(chatView, /submittedDraft \? submittedDraft\.text : composerValueRef\.current/,
+  'draft cleanup must compare against the text captured before the screenshots were uploaded');
+
+// 触发场景：保存一条批注后面板去截视口图（原生往返约几百毫秒），这期间面板因为
+// 页面状态事件、忙碌标记变化重渲染。
+// 期望行为：在途的截图不受重渲染影响，只有换页或卸载才作废。
+// 回归表现：依赖里带着每次渲染都是新对象的 annotations，重渲染把在途截图标成
+// 已取消，而记录数没有再涨、不会重截，这条批注永远没有缩略图和整屏图。
+const browserPanel = fs.readFileSync(
+  new URL('../components/AgentBrowserPanel.jsx', import.meta.url), 'utf8',
+);
+assert.match(browserPanel, /\}, \[pageId, annotationRecordCount\]\);/,
+  'the capture effect must only re-run when the page or the record count changes');
+assert.doesNotMatch(browserPanel, /\[pageId, annotations, annotations\.snapshot\]/);
+assert.match(browserPanel, /await annotationsRef\.current\.command\('attach_screenshot'/);
 
 console.log('[pass] annotation outbox aggregates per session and assembles one message');

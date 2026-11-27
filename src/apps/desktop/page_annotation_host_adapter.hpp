@@ -84,10 +84,9 @@ void annotation_dispatch(const std::shared_ptr<Host>& host, const std::string& p
     if (command.is_object() && command.value("action", nlohmann::json()) == "screenshot") {
         const auto pending = page->annotations.requests.add(
             [completion](nlohmann::json response) { completion(response.dump()); });
-        if (!pending) {
-            completion(nlohmann::json{{"ok", false}, {"error", "Annotation capture is already running"}}.dump());
-            return;
-        }
+        // add() 登记失败时已经带着原因回调过一次,这里再回调会让同一次 bridge
+        // 调用收到两个应答。
+        if (!pending) return;
         host->capture_screenshot(page, annotation_capture_params(), pending,
             annotation_capture_validation_expression());
         return;
