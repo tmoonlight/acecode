@@ -165,7 +165,7 @@ public:
                         capture_error = validate_png(bytes, operation->bounds_);
                     }
                     if (!capture_error.empty()) { operation->fail(capture_error); return; }
-                    operation->verify(std::move(bytes));
+                    operation->verify_unchanged(std::move(bytes));
                 });
         });
     }
@@ -185,7 +185,9 @@ private:
                    {"error", error}, {"recoverable", true}});
     }
 
-    void verify(std::string bytes) {
+    // Not named `verify`: AssertMacros.h on macOS defines a function-like
+    // macro with that name, and this header is included from Objective-C++.
+    void verify_unchanged(std::string bytes) {
         measure_([operation = shared_from_this(), bytes = std::move(bytes)](
                      Bounds after, std::string error) {
             if (!operation->check_current()) return;
