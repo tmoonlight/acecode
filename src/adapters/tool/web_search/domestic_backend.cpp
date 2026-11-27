@@ -118,7 +118,7 @@ std::optional<SearchError> read_anysearch(const HttpProbeResult& response, const
 std::optional<SearchError> read_so360(const HttpProbeResult& response, const VisitHit& visit) {
     if (auto error = http_error(response, "so360")) return error;
     bool saw_result = false;
-    visit_so360_results(response.body, [&](SearchHit hit) {
+    visit_so360_results(response.body, [&saw_result, &visit](SearchHit hit) {
         saw_result = true;
         return visit(std::move(hit));
     });
@@ -149,7 +149,7 @@ DomesticBackend::search(std::string_view query, int limit, const std::atomic<boo
     SearchResponse out;
     out.backend_name = name();
     std::unordered_set<std::string> seen;
-    const auto visit = [&](SearchHit hit) {
+    const auto visit = [&seen, &out, cancelled, limit](SearchHit hit) {
         hit.title = truncate_with_ellipsis(collapse_whitespace(hit.title), 512);
         if (hit.url.size() <= 4096 && !hit.title.empty()) {
             auto normalized = normalize_url_for_dedup(hit.url);
@@ -161,7 +161,7 @@ DomesticBackend::search(std::string_view query, int limit, const std::atomic<boo
         }
         return !cancelled() && out.hits.size() < static_cast<std::size_t>(limit);
     };
-    auto record = [&](const std::optional<SearchError>& error) {
+    auto record = [&out](const std::optional<SearchError>& error) {
         if (error) out.warnings.push_back(error->backend_name + ": " + error->message);
     };
 
