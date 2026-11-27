@@ -1,0 +1,63 @@
+name: Verify published v1.0.37 Linux upgrade
+on:
+  push:
+    branches: [codex/verify-linux-upgrade-v1.0.37]
+permissions: {}
+jobs:
+  upgrade:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            arch: x64
+            machine: x86_64
+            old_sha: 5f8611d5c4f1c5ed284fa72c8793362b86da53bfe0bd6217d50bcf84b849a380
+            new_sha: 3cf80ec0cc401a6c18e0aaa3da1669983da32e57b99c379f58d6cf781878ea65
+          - os: ubuntu-22.04-arm
+            arch: arm64
+            machine: aarch64
+            old_sha: 46f55928d5e6bbd7652a66764573962d352e219bf03b5e2fd07fbff12aedac53
+            new_sha: e35828e60edfc893eee3063b073d6f30abfb2f0b687d7405fcc4d3cc7a958a46
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 12
+    env:
+      ARCH: ${{ matrix.arch }}
+      MACHINE: ${{ matrix.machine }}
+      OLD_SHA: ${{ matrix.old_sha }}
+      NEW_SHA: ${{ matrix.new_sha }}
+    steps:
+      - name: Upgrade the published 1.0.36 CLI and check configuration and backup
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = "$MACHINE"
+          cd "$(mktemp -d)"
+          export HOME="$PWD/profile"
+          mkdir -p "$HOME/.acecode"
+          for version in 1.0.36 1.0.37; do
+            file="acecode-$version-linux-$ARCH-update.zip"
+            curl --fail --silent --show-error --location --retry 3 -o "$file" "https://github.com/tmoonlight/acecode/releases/download/v$version/$file"
+            sum="$OLD_SHA"
+            if [[ "$version" == 1.0.37 ]]; then sum="$NEW_SHA"; fi
+            echo "$sum  $file" | sha256sum -c -
+          done
+          cat > "$HOME/.acecode/config.json" <<'JSON'
+          {"language":"en","migrations":{"disable_sandbox_once":true},"sandbox":{"enabled":true},"upgrade":{"base_url":"http://2017studio.imwork.net:82/aupdate/"}}
+          JSON
+          cp "$HOME/.acecode/config.json" config.before
+          unzip -q "acecode-1.0.36-linux-$ARCH-update.zip" -d install
+          binary="$PWD/install/acecode-linux-$ARCH/acecode"
+          test "$("$binary" --version)" = 'acecode v1.0.36'
+          "$binary" update | tee update.log
+          for name in acecode acecode-desktop; do
+            unzip -p "acecode-1.0.37-linux-$ARCH-update.zip" "acecode-linux-$ARCH/$name" | cmp - "$(dirname "$binary")/$name"
+            test -x "$(dirname "$binary")/$name"
+          done
+          test "$("$binary" --version)" = 'acecode v1.0.37'
+          backup="$(sed -nE 's/^[[:space:]]*Backup[[:space:]]*:[[:space:]]*(.*)$/\1/p' update.log | tail -1)"
+          test -n "$backup"
+          test "$("$backup/acecode" --version)" = 'acecode v1.0.36'
+          cmp "$HOME/.acecode/config.json" config.before
+          "$binary" --validate-models-registry
+          echo "Verified native $MACHINE upgrade from 1.0.36 to 1.0.37, both binaries, user settings and backup."
