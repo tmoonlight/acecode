@@ -75,7 +75,7 @@ run('等待期间发送与停止入口早退,不依赖遮罩是否已出现', ()
 
   assert.match(
     chat,
-    /if \(sessionRuntimeUnavailable\) return;\s*\/\/[^\n]*\n\s*if \(sessionStartMask\.isBlocking\(\)\) return;/,
+    /if \(sessionRuntimeUnavailable\) return fail\(\);\s*\/\/[^\n]*\n\s*if \(sessionStartMask\.isBlocking\(\)\) return fail\(\);/,
   );
   assert.match(
     between(chat, 'const stopCurrentWork = useStableCallback(', 'abort();'),
@@ -126,7 +126,9 @@ run('建 worktree 的首条消息不走默认 30 秒超时,文案保留中英文
   const api = source('lib/api.js');
 
   assert.match(api, /export const WORKTREE_CREATE_TIMEOUT_MS = 5 \* 60 \* 1000;/);
-  assert.match(api, /body\.worktree\?\.create \? \{ timeoutMs: WORKTREE_CREATE_TIMEOUT_MS \} : \{\}/);
+  assert.match(api, /const requestOptions = body\.worktree\?\.create\s*\? \{ timeoutMs: WORKTREE_CREATE_TIMEOUT_MS \}\s*: \{\};/s);
+  assert.match(api, /const requestOptions =[\s\S]*?\/messages`,/);
+  assert.doesNotMatch(api, /annotation_reconcile_only/);
   for (const catalog of [source('i18n/catalogs/zh-CN.js'), source('i18n/catalogs/en-US.js')]) {
     assert.match(catalog, /sessionCreating:/);
     assert.match(catalog, /worktreeCreating:/);

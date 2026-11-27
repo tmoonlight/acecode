@@ -138,7 +138,7 @@ run('会话只有一个内容遮罩，直接挂在会话主列而非输入区', 
   assert.equal(anchor?.value?.value, 'true', '遮罩必须以会话主列为直接父节点，不能落入输入区');
   assert.match(chat.slice(parent.start, parent.openingElement.end), /ace-session-panel[^']*relative/);
   assert.match(chat, /readOnly: readOnlyExternalSession/);
-  assert.match(chat, /if \(sessionRuntimeUnavailable\) return;/);
+  assert.match(chat, /if \(sessionRuntimeUnavailable\) return fail\(\);/);
   assert.match(chat, /if \(!targetSid \|\| busy \|\| drainRef\.current \|\| sessionRuntimeUnavailable\) return;/);
 });
 

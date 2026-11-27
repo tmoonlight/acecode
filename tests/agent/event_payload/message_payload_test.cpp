@@ -11,6 +11,8 @@
 #include "session/session_serializer.hpp"
 #include "utils/sha1.hpp"
 #include "llm/llm_provider.hpp"
+#include "llm/message_predicates.hpp"
+#include "session/request_context_record.hpp"
 
 #include <nlohmann/json.hpp>
 
@@ -135,4 +137,31 @@ TEST(MessagePayload, DirectJsonPreservesPersistedFieldsAndStableId) {
     EXPECT_EQ(chat_message_to_payload_json(message), expected);
     EXPECT_EQ(acecode::serialize_message_json(message), golden);
     EXPECT_EQ(acecode::serialize_message(message), golden.dump());
+}
+
+TEST(MessagePayload, ExecutionContextIdentitySurvivesWebPayloadRoundTrip) {
+    for (const auto* subtype : {acecode::kRequestContextSnapshot, acecode::kRequestContextUpdate}) {
+        ChatMessage context;
+        context.role = "user";
+        context.is_meta = true;
+        context.subtype = subtype;
+        context.content = "<request-context>\n<execution>\nShell sandbox: read-only\n</execution>\n</request-context>";
+        context.metadata = {{"request_context_version", 1},
+                            {"context_state", {{"execution", "Shell sandbox: read-only"}}}};
+        const auto restored = acecode::deserialize_message_json(chat_message_to_payload_json(context));
+        EXPECT_TRUE(acecode::is_request_context_record(restored));
+        EXPECT_FALSE(acecode::is_real_user_message(restored));
+
+        ChatMessage user;
+        user.role = "user";
+        user.content = context.content;
+        user.metadata = {{"client_message_id", "annotation-client-1"}};
+        const auto accepted = acecode::deserialize_message_json(chat_message_to_payload_json(user));
+        EXPECT_TRUE(acecode::is_real_user_message(accepted));
+        EXPECT_EQ(accepted.content, context.content);
+        EXPECT_EQ(accepted.metadata["client_message_id"], "annotation-client-1");
+        user.metadata = nlohmann::json::object();
+        EXPECT_TRUE(acecode::is_real_user_message(
+            acecode::deserialize_message_json(chat_message_to_payload_json(user))));
+    }
 }

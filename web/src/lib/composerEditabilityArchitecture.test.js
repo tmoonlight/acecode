@@ -122,7 +122,7 @@ run('InputBar 把 submitting 只接到提交动作上', () => {
   assert.match(inputBar, /disabled, submitting = false,/);
   assert.match(
     inputBar,
-    /getInputBarActionState\(\{ value: draftValue, disabled, busy, hasExtras, submitting, canRetryLastUserMessage, queuePaused, busySendMode \}\)/,
+    /getInputBarActionState\(\{ value: draftValue, disabled, busy, hasExtras, hasPendingAnnotations, submitting, canRetryLastUserMessage, queuePaused, busySendMode \}\)/,
   );
   // 回车提交也要挡重复提交,否则去掉 disabled 后连点两次会发两条。
   assert.match(
@@ -168,7 +168,16 @@ run('发送回执不吞掉等待窗口里写下的下一条', () => {
     chatView,
     /if \(expectedText !== null && composerValueRef\.current !== expectedText\) return false;/,
   );
-  assert.match(chatView, /const submittedComposerText = composerValueRef\.current;/);
+  // 带批注的发送先上传截图再调 submit:原文取组装前的快照(submittedDraft),
+  // 否则上传期间新打的字会被当成「提交那一刻的原文」,发送成功后被清掉。
+  assert.match(
+    chatView,
+    /const submittedComposerText = submittedDraft \? submittedDraft\.text : composerValueRef\.current;/,
+  );
+  assert.match(
+    chatView,
+    /const submittedDraft = \{ text: composerValueRef\.current, content: composerContentRef\.current \};[\s\S]{0,200}prepared = await prepareAnnotationSubmission\(/,
+  );
   assert.match(
     chatView,
     /clearCurrentSessionDraft\(\{ expectedText: submittedComposerText, expectedContent: submittedComposerContent \}\)/,

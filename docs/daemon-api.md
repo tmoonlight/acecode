@@ -1824,9 +1824,9 @@ Queues a user input turn. Body:
 ```
 
 `attachments` may contain strings or objects with an `id` field. `contexts`
-with `type:"selection"` are sanitized and expanded into model-visible context
-while preserving the user's original display text. Other context objects are
-passed as browser context content parts.
+with `type:"selection"` or `type:"page_annotations"` are sanitized and expanded
+into model-visible context while preserving the user's original display text.
+Other context objects are passed as browser context content parts.
 
 `swarm_mode` (optional) switches the session-level swarm mode before the input
 is queued: `"star"`, `"mesh"` or `"off"`; legacy clients may send `true` (=
@@ -1854,6 +1854,77 @@ such a file is the user's own material, so `/<skill> args` expands the same way
 whether a paste stayed inline or became a file. Expansion is also skipped when
 the first non-empty composer piece is an inline pasted block.
 Returns `202 {"queued":true}`.
+
+#### Page annotation context
+
+Desktop annotation sending uses this ordinary messages endpoint. The user's
+natural-language text stays in `text`; saved page annotations travel in one
+`contexts` entry:
+
+```json
+{
+  "text": "把这两页的间距调一下",
+  "client_message_id": "annotation-message-uuid",
+  "attachments": [{"id": "att-page-shot", "page_shot": true}],
+  "contexts": [{
+    "type": "page_annotations",
+    "version": 2,
+    "pages": [{
+      "page_id": "browser-page-1",
+      "url": "https://example.com/products",
+      "title": "Products",
+      "shot": "page-annotations-message-uuid-0.png",
+      "annotations": [{
+        "id": "annotation-1",
+        "number": 1,
+        "element": "div",
+        "state": "live",
+        "description": "卡片间距太小",
+        "targets": [{
+          "id": "product-card",
+          "tag": "div",
+          "locator": "div#product-card",
+          "text": "Product card text",
+          "bounds": {"x": 20, "y": 80, "width": 560, "height": 180}
+        }],
+        "region": null,
+        "differences": [{
+          "property": "gap",
+          "target_id": "product-card",
+          "old_value": "8px",
+          "new_value": "16px"
+        }]
+      }]
+    }]
+  }]
+}
+```
+
+The daemon merges all `page_annotations` contexts into at most 16 pages and 64
+annotations. It keeps only non-empty descriptions and allowlisted page,
+annotation, target, region, and difference fields. Duplicate pages are merged by
+`page_id`, or by `url` when no ID is present; duplicate annotations are removed by
+page and `number`, or by annotation `id` when no number is present. Text is
+truncated on UTF-8 boundaries: descriptions and target text to 4000 bytes, page
+URLs to 2048, titles to 512, element/property names to 64, locators to 512, target
+IDs to 128, difference values to 512, and shot names to 256. Each annotation keeps
+at most 64 targets and 32 differences; retained annotation JSON is bounded to
+131072 bytes and the expanded prompt to 40000 bytes.
+
+For model input, the daemon expands the sanitized annotations into a quoted,
+source-labelled block before `User request:`. Page URLs/titles, element names,
+user descriptions, page text, and old/new style differences are separated. The
+original request remains the display text. The canonical message persists the
+sanitized object in `metadata.contexts` and as a `page_annotations_context`
+content part, with `metadata.page_annotations_expanded=true`. The structured part
+is for transcript rendering; compaction retains the expanded text as ordinary
+user text rather than preserving the structured part.
+
+Page screenshots are ordinary uploaded image attachments referenced by ID. The
+sender marks them with `page_shot:true` and the matching page `shot` filename.
+There is no annotation batch receipt or reconciliation endpoint. Retries reuse
+the same `client_message_id`; an uncertain timeout is resolved by reading recent
+session messages for that ID before another send is attempted.
 
 ### `POST /api/sessions/:id/turn/steer`
 

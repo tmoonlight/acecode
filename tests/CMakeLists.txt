@@ -226,6 +226,7 @@ if(WIN32 AND ACECODE_BUILD_DESKTOP)
     add_executable(agent_browser_host_smoke EXCLUDE_FROM_ALL
         ${ACECODE_AGENT_BROWSER_HOST_SMOKE_SOURCES}
     )
+    target_include_directories(agent_browser_host_smoke PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
     target_link_libraries(agent_browser_host_smoke PRIVATE acecode_include_roots)
     target_link_libraries(agent_browser_host_smoke PRIVATE
         acecode_desktop_support
@@ -233,7 +234,7 @@ if(WIN32 AND ACECODE_BUILD_DESKTOP)
         webview::core
         cpr::cpr
         nlohmann_json::nlohmann_json
-        ole32 user32 ws2_32
+        ole32 user32 ws2_32 windowscodecs uuid
     )
     if(MSVC)
         set_target_properties(agent_browser_host_smoke PROPERTIES
@@ -316,6 +317,7 @@ if(APPLE)
         MACOSX_BUNDLE EXCLUDE_FROM_ALL
         ${ACECODE_AGENT_BROWSER_HOST_MAC_SMOKE_SOURCES}
     )
+    target_include_directories(agent_browser_host_mac_smoke PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
     target_link_libraries(agent_browser_host_mac_smoke PRIVATE
         acecode_desktop_support
         acecode_base_core

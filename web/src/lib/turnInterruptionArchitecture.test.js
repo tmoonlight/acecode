@@ -69,7 +69,7 @@ test('slash interjection and home session creation release only their own reques
   const homeFlow = section(
     chat,
     "const isBuiltin = !hasExtras && route.kind === 'builtin';",
-    '\n    if (composerSubmitting) return;',
+    '\n    if (composerSubmitting) return fail();',
   );
 
   assert.ok(
@@ -134,7 +134,7 @@ test('old-turn idle transition cannot restore or duplicate an accepted interject
 test('busy composer sends steer on Enter, queues on Ctrl+Enter and forks on Ctrl+Alt+Enter', () => {
   const chat = source('components/ChatView.jsx');
   const submit = section(chat, 'const submit = useStableCallback((text, { sendMode', 'const isBuiltin =');
-  assert.match(submit, /if \(sendMode === 'fork' && route\.kind === 'message'\) \{\s*sendInForkedSession\(/);
+  assert.match(submit, /if \(sendMode === 'fork' && route\.kind === 'message'\) \{[\s\S]*?sendInForkedSession\(/);
   const busyBranch = section(chat, 'if ((liveTranscript.busy || liveTranscript.abortPending) && !isBuiltin) {', 'const targetSid = sid;');
   assert.match(busyBranch, /const queuedId = enqueueInput\(payload\);/);
   // 设置 > 常规 > 输入框「后续消息处理方式」选排队时 Enter 与 Ctrl+Enter 对调,统一由 busySendAction 判定。

@@ -530,8 +530,16 @@ export function createApi(base = null) {
       const body = payload && typeof payload === 'object' && !Array.isArray(payload)
         ? payload
         : { text: payload };
-      return request('POST', `/api/sessions/${encodeURIComponent(id)}/messages`, body, base,
-        body.worktree?.create ? { timeoutMs: WORKTREE_CREATE_TIMEOUT_MS } : {});
+      const requestOptions = body.worktree?.create
+        ? { timeoutMs: WORKTREE_CREATE_TIMEOUT_MS }
+        : {};
+      return request(
+        'POST',
+        `/api/sessions/${encodeURIComponent(id)}/messages`,
+        body,
+        base,
+        requestOptions,
+      );
     },
     retryLastUserMessage: (id, expectedUserMessageId) => request(
       'POST',
@@ -1056,6 +1064,7 @@ export function createApi(base = null) {
     enumerable: false,
     value: () => connectionScopeForBase(base),
   });
+  client.snapshotConnection = () => createApi({ origin: baseOrigin(base), token: baseToken(base) });
   return client;
 }
 
