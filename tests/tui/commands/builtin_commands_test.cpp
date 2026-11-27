@@ -1082,7 +1082,8 @@ TEST(BuiltinCommands, ModeWithoutArgumentsOpensPickerAtCurrentMode) {
 
     std::lock_guard<std::mutex> lk(h.state_.mu);
     ASSERT_TRUE(h.state_.mode_picker_open);
-    ASSERT_EQ(h.state_.mode_picker_options.size(), 4u);
+    // 五项:default / auto / auto-review / plan / yolo。
+    ASSERT_EQ(h.state_.mode_picker_options.size(), 5u);
     EXPECT_EQ(h.state_.mode_picker_selected, 1);
     EXPECT_EQ(h.state_.mode_picker_options[1].mode,
               acecode::PermissionMode::Auto);
@@ -1131,6 +1132,23 @@ TEST(BuiltinCommands, ClosingModePickerWithoutSelectionHasNoSideEffects) {
 
     EXPECT_EQ(h.perms_.mode(), acecode::PermissionMode::Auto);
     EXPECT_EQ(h.config_.default_permission_mode, before_default);
+}
+
+// 场景:TUI 里直接 `/mode auto-review` 切到自动模式（试验）(openspec add-auto-review-mode)。
+// 期望:当前会话的权限模式与会话 meta 都变成 auto-review,不打开选择器;
+// 确认消息里带模式名,方便用户确认切对了。
+TEST(BuiltinCommands, ModeCommandSwitchesToAutoReview) {
+    ResumeCommandHarness h("mode_direct_auto_review");
+
+    ASSERT_TRUE(h.dispatch("/mode auto-review"));
+
+    EXPECT_EQ(h.perms_.mode(), acecode::PermissionMode::AutoReview);
+    EXPECT_EQ(h.sm_.current_permission_mode(), "auto-review");
+    std::lock_guard<std::mutex> lk(h.state_.mu);
+    EXPECT_FALSE(h.state_.mode_picker_open);
+    ASSERT_FALSE(h.state_.conversation.empty());
+    EXPECT_NE(h.state_.conversation.back().content.find("Permission mode: auto-review"),
+              std::string::npos);
 }
 
 TEST(BuiltinCommands, ModeDirectArgumentStillSwitchesWithoutPicker) {

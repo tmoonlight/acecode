@@ -1744,6 +1744,118 @@ TEST(SessionRegistry, SetPermissionModeClearsSessionAllows) {
     fx.registry.destroy(id);
 }
 
+// 场景:配置里指定了自动模式（试验）的裁决模型,daemon 新建一个会话
+// (openspec add-auto-review-mode,规格「裁决模型的选择」)。
+// 期望:
+//   - 该会话的 AgentLoop 拿到的裁决 provider 就是配置的那个模型(不是会话模型);
+//   - 把配置改成一个已不存在的名字,或清空,取得的结果变为空 —— 审批门据此改用
+//     会话当前模型;修改立即生效,不需要重建会话。
+// 这里用的是真实的 provider 工厂:只构造对象,不发任何网络请求。
+TEST(SessionRegistry, SessionsResolveTheConfiguredReviewerModel) {
+    acecode::AppConfig config;
+    for (const auto* name : {"main", "reviewer"}) {
+        acecode::ModelProfile profile;
+        profile.name = name;
+        profile.provider = "openai";
+        profile.model = std::string(name) + "-model";
+        profile.base_url = "http://127.0.0.1:9/v1";
+        profile.api_key = "fixture-secret";
+        config.saved_models.push_back(profile);
+    }
+    config.auto_review.model_name = "reviewer";
+
+    ToolExecutor tools;
+    PermissionManager permissions;
+    SessionRegistryDeps deps;
+    deps.provider_accessor = [] { return std::shared_ptr<acecode::LlmProvider>{}; };
+    deps.tools = &tools;
+    deps.cwd = "/tmp/test_registry_reviewer";
+    deps.config = &config;
+    deps.template_permissions = &permissions;
+    SessionRegistry registry(std::move(deps));
+
+    const auto choice = registry.auto_review_model_snapshot();
+    EXPECT_EQ(choice.configured_name, "reviewer");
+    ASSERT_TRUE(choice.profile.has_value());
+    EXPECT_EQ(choice.profile->model, "reviewer-model");
+
+    const auto id = registry.create(SessionOptions{});
+    auto* entry = registry.lookup(id);
+    ASSERT_NE(entry, nullptr);
+    const auto reviewer = entry->loop->review_provider_snapshot();
+    ASSERT_NE(reviewer, nullptr);
+    EXPECT_EQ(reviewer->model(), "reviewer-model");
+    // 配置没变时复用同一个实例。
+    EXPECT_EQ(entry->loop->review_provider_snapshot(), reviewer);
+
+    config.auto_review.model_name = "deleted";
+    EXPECT_EQ(entry->loop->review_provider_snapshot(), nullptr);
+    config.auto_review.model_name.clear();
+    EXPECT_EQ(entry->loop->review_provider_snapshot(), nullptr);
+    config.auto_review.model_name = "main";
+    const auto switched = entry->loop->review_provider_snapshot();
+    ASSERT_NE(switched, nullptr);
+    EXPECT_EQ(switched->model(), "main-model");
+
+    registry.destroy(id);
+}
+
+// 场景:会话里有一条挂起的权限确认,用户把模式切到自动模式（试验）
+// (openspec add-auto-review-mode「模式切换时的状态」)。
+// 期望:模式变为 auto-review 并写进会话 meta;挂起的确认仍在等用户作答,
+// 不会像切到 yolo 那样被自动放行。随后用户拒绝,等待方拿到 Deny。
+// 回归意义:如果切到新模式也 resolve_all,用户还没看的危险操作会被静默批准。
+TEST(SessionRegistry, SwitchingToAutoReviewKeepsPendingConfirmation) {
+    TestFixture fx;
+    LocalSessionClient client(fx.registry);
+    auto id = client.create_session(SessionOptions{});
+    SessionEntry* entry = fx.registry.lookup(id);
+    ASSERT_NE(entry, nullptr);
+    ASSERT_NE(entry->prompter, nullptr);
+
+    std::string captured_id;
+    std::mutex mu;
+    std::condition_variable cv;
+    bool got = false;
+    auto sub = client.subscribe(id, [&](const SessionEvent& e) {
+        if (e.kind != SessionEventKind::PermissionRequest) return;
+        std::lock_guard<std::mutex> lk(mu);
+        captured_id = e.payload.value("request_id", std::string{});
+        got = true;
+        cv.notify_all();
+    });
+
+    std::atomic<bool> finished{false};
+    std::atomic<acecode::PermissionResult> result{acecode::PermissionResult::Allow};
+    std::thread worker([&] {
+        result = entry->prompter->prompt("bash", "{}", nullptr);
+        finished = true;
+    });
+    {
+        std::unique_lock<std::mutex> lk(mu);
+        cv.wait_for(lk, 2s, [&] { return got; });
+    }
+    ASSERT_FALSE(captured_id.empty());
+
+    ASSERT_TRUE(fx.registry.set_permission_mode(id, PermissionMode::AutoReview));
+    EXPECT_EQ(*fx.registry.permission_mode(id), PermissionMode::AutoReview);
+    ASSERT_NE(entry->sm, nullptr);
+    EXPECT_EQ(entry->sm->current_permission_mode(), "auto-review");
+    // 300ms 远大于 resolve_all 把等待方唤醒所需的时间;这段时间内仍未结束,
+    // 说明确认没有被模式切换顺手处理掉。
+    std::this_thread::sleep_for(300ms);
+    EXPECT_FALSE(finished.load());
+
+    PermissionDecision dec;
+    dec.request_id = captured_id;
+    dec.choice = PermissionDecisionChoice::Deny;
+    client.respond_permission(id, dec);
+    worker.join();
+    EXPECT_EQ(result.load(), acecode::PermissionResult::Deny);
+
+    fx.registry.destroy(id);
+}
+
 TEST(SessionRegistry, SandboxBuiltinChangesOnlyThisSessionsGate) {
     TestFixture fx;
     const auto id = fx.registry.create(SessionOptions{});

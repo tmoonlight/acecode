@@ -150,6 +150,28 @@ std::string SessionExecSecurity::sandbox_prompt_description(SessionManager* sess
     return result;
 }
 
+void SessionExecSecurity::set_review_provider(ReviewProviderAccessor accessor) {
+    std::lock_guard<std::mutex> lock(state_mu_);
+    review_provider_ = std::move(accessor);
+}
+
+std::shared_ptr<LlmProvider> SessionExecSecurity::review_provider() const {
+    ReviewProviderAccessor accessor;
+    { std::lock_guard<std::mutex> lock(state_mu_); accessor = review_provider_; }
+    // 取得函数会读宿主配置、可能新建连接,不在叶子锁内调用。
+    return accessor ? accessor() : std::shared_ptr<LlmProvider>{};
+}
+
+ReviewTimeouts SessionExecSecurity::review_timeouts() const {
+    std::lock_guard<std::mutex> lock(state_mu_);
+    return review_timeouts_;
+}
+
+void SessionExecSecurity::set_review_timeouts_for_tests(ReviewTimeouts timeouts) {
+    std::lock_guard<std::mutex> lock(state_mu_);
+    review_timeouts_ = timeouts;
+}
+
 std::string SessionExecSecurity::sandbox_command(SessionManager* session, const std::string& args) {
     if (args == "off" || args == "on") {
         session_disabled_.store(args == "off");

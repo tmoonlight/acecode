@@ -79,6 +79,8 @@ import {
   createAppearancePersistenceController,
   initialAppearancePreferences,
 } from './lib/appearancePreferences.js';
+import { toggledCodeTheme } from './lib/codeTheme.js';
+import { useCodeThemeToggle } from './lib/useCodeThemeToggle.js';
 import {
   DEFAULT_RECENT_EXPERT_IDS,
   RECENT_EXPERTS_STORAGE_KEY,
@@ -272,6 +274,10 @@ export function App() {
     setThemeVariant,
     setThemeEffects,
     setThemeSounds,
+    codeTheme,
+    codeThemePreference,
+    naturalCodeTheme,
+    setCodeTheme,
   } = useTheme();
   const initialAppearance = useMemo(() => initialAppearancePreferences(), []);
   const bootstrapAppearance = useMemo(() => appearanceBootstrapPreferences(), []);
@@ -337,8 +343,9 @@ export function App() {
   // 摘要面板的齿轮 → 让侧栏打开与工作区右键「编辑」同一个编辑框。
   const [workspaceEditRequest, setWorkspaceEditRequest] = useState(null);
   const {
-    updateStatus, updateJob, updateStarting, updateChecking, updateDialogOpen, updateFailed,
-    setUpdateJob, setUpdateDialogOpen, openUpdateDialog, checkForUpdates, startUpdate,
+    updateStatus, updateJob, updateStarting, updateStartingRollback, updateChecking, updateDialogOpen,
+    updateFailed, setUpdateJob, setUpdateDialogOpen, openUpdateDialog, checkForUpdates, startUpdate,
+    startRollback,
   } = useAppUpdates(authState);
   const [updateCancelling, setUpdateCancelling] = useState(false);
   const [updateRestarting, setUpdateRestarting] = useState(false);
@@ -448,7 +455,8 @@ export function App() {
     setSubagentAvatarStyle(next.subagentAvatarStyle);
     setFollowUpPrompts(next.followUpPrompts);
     setBusySendMode(next.busySendMode);
-  }, [setColorTheme, setTheme, setThemeEffects, setThemeSounds, setThemeVariant, setUiPrefs]);
+    setCodeTheme(next.codeTheme);
+  }, [setCodeTheme, setColorTheme, setTheme, setThemeEffects, setThemeSounds, setThemeVariant, setUiPrefs]);
   // The persistence controller outlives individual renders. Keep its callback
   // current so a later appearance choice is compared against the latest UI
   // preferences rather than the values from the controller's first render.
@@ -469,6 +477,7 @@ export function App() {
         subagentAvatarStyle,
         followUpPrompts,
         busySendMode,
+        codeTheme: bootstrapAppearance?.codeTheme ?? codeThemePreference,
       },
       apply: (next) => applyAppearanceRef.current(next),
       save: (payload) => api.setUiPreferences(payload),
@@ -483,6 +492,10 @@ export function App() {
   const changeAppearance = useCallback((patch, options) => (
     appearanceControllerRef.current.change(patch, options)
   ), []);
+  // 代码块 / 文件预览右上角的明暗按钮:全局生效并存进 daemon 外观偏好。
+  useCodeThemeToggle(() => changeAppearance({
+    codeTheme: toggledCodeTheme({ effective: codeTheme, natural: naturalCodeTheme }),
+  }));
   const themeDownloads = useThemeDownloads({
     enabled: authState === 'ok' && showSettings,
     prepare: prepareTheme,
@@ -2506,12 +2519,14 @@ export function App() {
         updateStatus={updateStatus}
         job={updateJob}
         starting={updateStarting}
+        startingRollback={updateStartingRollback}
         cancelling={updateCancelling}
         restarting={updateRestarting}
         restartAvailable={desktopUpdateRestartAvailable()}
         onConfirm={startUpdate}
         onCancel={cancelUpdate}
         onRetry={startUpdate}
+        onRollback={startRollback}
         onRestart={restartAfterUpdate}
         onClose={() => setUpdateDialogOpen(false)}
       />

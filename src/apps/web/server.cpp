@@ -157,6 +157,7 @@ void WebServer::Impl::register_routes() {
     register_computer_use();
     register_ios_simulator();
     register_summary_generation();
+    register_auto_review();
     register_home_intent_prompts();
     register_tool_rewrites();
     register_agent_browser();

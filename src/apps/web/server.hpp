@@ -139,10 +139,12 @@ struct WebServerDeps {
     // Daemon-owned reverse proxy lifecycle. Null means proxy-backed remote Web
     // mode is unavailable (primarily legacy/test embeddings).
     RemoteWebProxyController* remote_web_proxy = nullptr;
+    // 最后一个参数是回滚目标版本(清单里的原文),普通升级为空。
     std::function<int(const AppConfig&,
                       acecode::upgrade::UpgradeProgressCallback,
                       acecode::upgrade::UpgradeCancelCheck,
-                      std::string*)> run_update_command;
+                      std::string*,
+                      const std::string&)> run_update_command;
     // Optional importer for embedders/tests. It runs on an owned background
     // task and must own its captures, never borrow the WebServer.
     using OpencodeImportRunner = std::function<OpencodeImportJobStatus(

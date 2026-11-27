@@ -1,5 +1,6 @@
 #pragma once
 
+#include "auto_review_config.hpp"
 #include "desktop_close_behavior.hpp"
 #include "saved_models.hpp"
 #include "config/vocab/pointer_appearance.hpp"
@@ -237,6 +238,9 @@ struct WebUiPreferencesConfig {
     // What Enter does while a turn is running: `steer` inserts the message into
     // the running turn, `queue` sends it after the turn. Ctrl+Enter does the other.
     std::string busy_send_mode = "steer";   // steer | queue
+    // Code blocks and source previews: `auto` follows the light/dark theme; `light` /
+    // `dark` is the user's manual switch, cleared by the WebUI when the theme changes.
+    std::string code_theme = "auto";   // auto | light | dark
 };
 
 struct ModelsDevConfig {
@@ -663,7 +667,7 @@ struct AppConfig {
     // Zero disables automatic continuation suggestions.
     int task_suggestion_compact_threshold = 3;
     // Default permission mode for newly-created daemon/Web/Desktop sessions.
-    // Canonical values: default | auto | plan | yolo (accept-edits is read as auto).
+    // Canonical values: default | auto | auto-review | plan | yolo (accept-edits is read as auto).
     std::string default_permission_mode = "default";
     SandboxConfig sandbox;                       // bash 沙盒(openspec add-auto-mode-sandbox)
     // Fixed one-time startup migration; keep separate from editable sandbox settings.
@@ -703,6 +707,7 @@ struct AppConfig {
     ToolchainsConfig toolchains;                 // Agent 工具链目录(进程 PATH 前缀)
     SessionTitleConfig session_title;            // hidden auto session title generation
     SummaryGenerationConfig summary_generation; // optional background title model
+    AutoReviewConfig auto_review;                // 自动模式（试验）的裁决模型
 
     // --- model profiles (openspec/changes/model-profiles) ---
     // 用户维护的命名模型列表。
@@ -734,6 +739,9 @@ bool is_valid_web_ui_font_size(const std::string& font_size);
 bool is_valid_web_ui_subagent_avatar_style(const std::string& style);
 inline bool is_valid_web_ui_busy_send_mode(const std::string& mode) {
     return mode == "steer" || mode == "queue";
+}
+inline bool is_valid_web_ui_code_theme(const std::string& value) {
+    return value == "auto" || value == "light" || value == "dark";
 }
 // Empty, or 1-24 chars of lowercase ASCII words joined by single hyphens.
 bool is_valid_web_ui_theme_variant(const std::string& variant);

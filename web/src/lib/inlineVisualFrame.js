@@ -289,7 +289,13 @@ export function buildInlineVisualSrcdoc({ theme, labels = {} } = {}) {
     + '</body></html>';
 }
 
-const INBOUND_TYPES = new Set(['ready', 'size', 'send', 'link', 'error', 'library']);
+const INBOUND_TYPES = new Set(['ready', 'size', 'rendered', 'send', 'link', 'error', 'library']);
+
+// 定稿内容交给框后,这么久还没收到 rendered(外链脚本卡住、运行时异常)就照样撤掉加载动画,
+// 露出已经画出来的部分。外链脚本自己的超时是 15 秒,这里不等那么久。
+export const INLINE_VISUAL_REVEAL_FALLBACK_MS = 8000;
+// 加载动画淡出的时长,与 globals.css 里 .ace-inline-visual-loading 的过渡一致。
+export const INLINE_VISUAL_REVEAL_FADE_MS = 450;
 
 // 框内发来的消息:带协议标记、类型已知才处理。来源校验(event.source)由组件做。
 export function inlineVisualMessage(data) {

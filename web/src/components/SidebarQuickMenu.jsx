@@ -13,6 +13,7 @@ import { openSessionSharing } from '../lib/sharingEvents.js';
 
 export function SidebarQuickMenu({
   sidebarWidth,
+  versionLabel = '',
   updateChecking = false,
   onBeforeOpen,
   onNewSession,
@@ -36,6 +37,7 @@ export function SidebarQuickMenu({
       onNewSession, onOpenLoop, onOpenSearch, onSettings, onAppearance,
       onToggleOffice: () => office?.setEnabled(!office.enabled),
       onAbout, onCheckUpdates, onExit,
+      onOpenSharingLinks: () => openSessionSharing({}),
     });
   };
 
@@ -73,6 +75,7 @@ export function SidebarQuickMenu({
             const checkingUpdates = action.id === 'check-updates' && updateChecking;
             const officeAction = action.id === 'virtual-office';
             const shortcutLabel = androidApp ? '' : topBarQuickActionShortcutLabel(action);
+            const aboutVersion = action.id === 'about' ? versionLabel : '';
             return (
               <Fragment key={action.id}>
                 {topBarQuickActionNeedsSeparator(index, actions) && (
@@ -98,14 +101,15 @@ export function SidebarQuickMenu({
                       {shortcutLabel}
                     </kbd>
                   )}
+                  {aboutVersion && (
+                    <span className="shrink-0 text-[11px] leading-none text-fg-mute tabular-nums">
+                      {aboutVersion}
+                    </span>
+                  )}
                 </button>
               </Fragment>
             );
           })}
-          <button type="button" role="menuitem" onClick={() => { setOpen(false); openSessionSharing({}); }}
-            className="w-full h-8 px-2 rounded-md flex items-center gap-2 text-[13px] text-fg-2 hover:bg-surface-hi hover:text-fg text-left">
-            <span className="w-5 shrink-0 flex items-center justify-center"><VsIcon name="link" size={18} /></span>已存在的链接
-          </button>
         </AnchoredMenu>
       )}
     </>

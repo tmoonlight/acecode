@@ -286,6 +286,8 @@ if(WIN32 AND ACECODE_BUILD_DESKTOP)
 endif()
 
 if(APPLE)
+    set_source_files_properties(desktop/titlebar_buttons_mac_test.cpp PROPERTIES
+        LANGUAGE OBJCXX COMPILE_OPTIONS "-fobjc-arc")
     add_executable(computer_use_native_mac_smoke MACOSX_BUNDLE EXCLUDE_FROM_ALL
         ${ACECODE_COMPUTER_USE_NATIVE_MAC_SMOKE_SOURCES})
     target_link_libraries(computer_use_native_mac_smoke PRIVATE acecode_include_roots)

@@ -199,6 +199,17 @@ md.linkify.add('thread:', {
   },
 });
 
+// 代码明暗切换按钮(太阳 = 切到浅色,月亮 = 切到深色;显示哪个由 globals.css 按
+// <html data-code-theme> 决定,所以缓存下来的 HTML 不用随状态重渲染)。点击由
+// lib/useCodeThemeToggle.js 在 document 上统一接住。
+export function codeThemeToggleHtml() {
+  const label = '切换代码深浅色';
+  const icon = (variant, file) => `<span class="ace-icon ace-code-theme-icon-${variant}" style="width:14px;height:14px;--ace-icon-url:url('/vs-icons/${file}.svg')" data-monochrome="true" aria-hidden="true"></span>`;
+  return `<button type="button" class="ace-code-action-btn ace-code-theme-btn" data-code-theme-toggle="true" aria-label="${label}">`
+    + icon('light', 'Brightness') + icon('dark', 'DarkTheme')
+    + '</button>';
+}
+
 md.renderer.rules.fence = (tokens, idx, _options, env) => {
   const token = tokens[idx];
   const lang = fenceLang(token);
@@ -221,7 +232,10 @@ md.renderer.rules.fence = (tokens, idx, _options, env) => {
   const codeClass = highlighted.lang ? ` class="hljs language-${escapeHtml(highlighted.lang)}"` : '';
   const langAttr = highlighted.lang ? ` data-code-lang="${escapeHtml(highlighted.lang)}"` : '';
   return `<div class="ace-copyable-code" data-code-copy-frame="true"${langAttr}>`
+    + '<div class="ace-code-actions" data-code-actions="true">'
+    + codeThemeToggleHtml()
     + `<button type="button" class="ace-code-copy-btn" data-code-copy-button="true" title="复制代码" aria-label="复制代码"><span class="ace-icon" style="width:14px;height:14px;--ace-icon-url:url('/vs-icons/Copy.svg')" data-monochrome="true" aria-hidden="true"></span></button>`
+    + '</div>'
     + `<pre${preClass}><code${codeClass} data-code-copy-source="true">${highlighted.html}</code></pre>`
     + `</div>\n`;
 };

@@ -15,6 +15,7 @@ import { clsx, relativeTime } from '../lib/format.js';
 import { presentSystemNotice } from '../lib/systemNotice.js';
 import { assistantChromeState } from '../lib/assistantAvatarDisplay.js';
 import { CopyableCodeFrame } from './CopyableCodeFrame.jsx';
+import { CodeThemeToggleButton } from './CodeThemeToggleButton.jsx';
 import { InlineVisualBlock } from './InlineVisualBlock.jsx';
 import { ActivityLine } from './ActivityLine.jsx';
 import { VsIcon, CommandGlyph, FileTypeIcon } from './Icon.jsx';
@@ -428,14 +429,17 @@ function StreamingCodeBlock({ lang, text }) {
   return (
     <div className="ace-md-block">
       <div className="ace-copyable-code" data-code-copy-frame="true" data-code-lang={lang || undefined}>
-        <button type="button" className="ace-code-copy-btn" data-code-copy-button="true" title="复制代码" aria-label="复制代码">
-          <span
-            className="ace-icon"
-            style={{ width: 14, height: 14, '--ace-icon-url': "url('/vs-icons/Copy.svg')" }}
-            data-monochrome="true"
-            aria-hidden="true"
-          />
-        </button>
+        <div className="ace-code-actions" data-code-actions="true">
+          <CodeThemeToggleButton />
+          <button type="button" className="ace-code-copy-btn" data-code-copy-button="true" title="复制代码" aria-label="复制代码">
+            <span
+              className="ace-icon"
+              style={{ width: 14, height: 14, '--ace-icon-url': "url('/vs-icons/Copy.svg')" }}
+              data-monochrome="true"
+              aria-hidden="true"
+            />
+          </button>
+        </div>
         <pre className={lang ? 'hljs' : undefined}>
           <code className={lang ? `hljs language-${lang}` : undefined} data-code-copy-source="true">{text}</code>
         </pre>

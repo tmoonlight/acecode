@@ -171,7 +171,7 @@ spellings behave the same.
 | `/swarm` (`/sw`) `[star\|mesh\|off]` | Show or switch swarm mode |
 | `/skills` (`/sk`) `[keyword\|page]` | Paged list of skills and project commands; send `/<name>` to use one |
 | `/model` (`/m`) `[name]` | List saved models, or switch the bound session's model from the next turn |
-| `/mode` (`/pm`) `[default\|auto\|yolo]` | Show or change the bound session's permission mode: default, automatic, or full access (`accept-edits` is an alias for `auto`) |
+| `/mode` (`/pm`) `[default\|auto\|auto-review\|yolo]` | Show or change the bound session's permission mode: default, automatic, automatic with model review (experimental), or full access (`accept-edits` is an alias for `auto`) |
 | `/yolo` (`/y`) | Switch directly to full access, skipping tool permission prompts and allowing pending permission requests |
 | `/effort` (`/e`) `[level\|default]` | Show current reasoning effort and supported levels, set a supported level, or restore the model preset with `default` |
 | `/sandbox` (`/sb`) `[on\|off]` | Same as Desktop `/sandbox` |

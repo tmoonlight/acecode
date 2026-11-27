@@ -207,8 +207,7 @@ void WebServer::Impl::register_loops() {
         acecode::loop::StoreError error;
         auto run = deps.loop_scheduler->run_now(id, &error);
         if (!run) {
-            const int status = error.code == "NOT_FOUND" ? 404 :
-                (error.code == "LOOP_BUSY" || error.code == "WORKSPACE_BUSY") ? 409 : 503;
+            const int status = error.code == "NOT_FOUND" ? 404 : 503;
             return json_response(req, status, store_error_json(error));
         }
         return json_response(req, 202, acecode::loop::run_to_json(*run));

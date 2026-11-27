@@ -8,6 +8,7 @@ import {
   FONT_SIZE_VALUES,
 } from './uiPrefs.js';
 import { DEFAULT_BUSY_SEND_MODE, normalizeBusySendMode } from './inputBarState.js';
+import { DEFAULT_CODE_THEME, normalizeCodeTheme } from './codeTheme.js';
 
 export const APPEARANCE_THEME_VALUES = Object.freeze(['system', 'light', 'dark']);
 // 设置 > 外观 > 子代理头像:花瓣(geometric,默认)/ 像素小人(pixel)。
@@ -26,6 +27,8 @@ export const DEFAULT_APPEARANCE_PREFERENCES = Object.freeze({
   // 桌面版启动注入不带这两项,启动后由 GET 补上。
   followUpPrompts: true,
   busySendMode: DEFAULT_BUSY_SEND_MODE,
+  // 代码块 / 文件预览的明暗:auto 跟随界面,light / dark 是手动切换的结果(lib/codeTheme.js)。
+  codeTheme: DEFAULT_CODE_THEME,
 });
 
 const FONT_SIZE_SET = new Set(FONT_SIZE_VALUES);
@@ -99,6 +102,23 @@ function inputBusySendMode(value) {
   return normalizeBusySendMode(value?.busy_send_mode ?? value?.busySendMode);
 }
 
+// 旧 daemon 不返回这个键、或值不认识时按 auto,不拖垮整份外观偏好。
+function inputCodeTheme(value) {
+  return normalizeCodeTheme(value?.code_theme ?? value?.codeTheme);
+}
+
+// 换了主题(明暗设置、配色主题、主题变体任一项)而这次没有指定代码明暗时,
+// 之前手动切换的代码明暗作废,回到跟随主题。
+function codeThemeAfterPatch(current, patch) {
+  const explicit = patch?.codeTheme ?? patch?.code_theme;
+  if (explicit !== undefined) return explicit;
+  const changed = (next, previous) => next !== undefined && next !== previous;
+  const themeChanged = changed(patch?.theme, current?.theme)
+    || changed(patch?.colorTheme ?? patch?.color_theme, current?.colorTheme)
+    || changed(patch?.themeVariant ?? patch?.theme_variant, current?.themeVariant);
+  return themeChanged ? DEFAULT_CODE_THEME : current?.codeTheme;
+}
+
 export function effectiveAppearanceTheme(value, scope = globalThis) {
   return value === 'light' || value === 'dark'
     ? value
@@ -127,6 +147,7 @@ export function normalizeAppearancePreferences(value, scope = globalThis) {
     subagentAvatarStyle: inputSubagentAvatarStyle(value),
     followUpPrompts: inputFollowUpPrompts(value),
     busySendMode: inputBusySendMode(value),
+    codeTheme: inputCodeTheme(value),
   };
 }
 
@@ -151,6 +172,7 @@ export function parseAppearancePreferences(value, scope = globalThis) {
     subagentAvatarStyle: inputSubagentAvatarStyle(value),
     followUpPrompts: inputFollowUpPrompts(value),
     busySendMode: inputBusySendMode(value),
+    codeTheme: inputCodeTheme(value),
   };
 }
 
@@ -192,6 +214,7 @@ export function mergeAppearancePreferences(current, patch, scope = globalThis) {
     busySendMode: patch?.busySendMode
       ?? patch?.busy_send_mode
       ?? current?.busySendMode,
+    codeTheme: codeThemeAfterPatch(current, patch),
   }, scope);
 }
 
@@ -210,6 +233,7 @@ export function appearancePreferencesToApi(value, scope = globalThis) {
     subagent_avatar_style: normalized.subagentAvatarStyle,
     follow_up_prompts: normalized.followUpPrompts,
     busy_send_mode: normalized.busySendMode,
+    code_theme: normalized.codeTheme,
   };
 }
 

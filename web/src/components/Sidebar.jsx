@@ -25,7 +25,6 @@ import { beginSessionOpen } from '../lib/sessionOpenDiagnostics.js';
 import { SidebarQuickMenu } from './SidebarQuickMenu.jsx';
 import { SidebarExtensions } from './SidebarExtensions.jsx';
 import { Modal } from './Modal.jsx';
-import BrandLogo from './BrandLogo.jsx';
 import { api } from '../lib/api.js';
 import { sessionWorktreeFromSources } from '../lib/sessionJump.js';
 import { connection } from '../lib/connection.js';
@@ -4298,15 +4297,6 @@ export function Sidebar({
         style={collapsed ? undefined : { width, minWidth: width }}
       >
       <div className="ace-sidebar-content flex-1 flex flex-col min-h-0">
-        <div data-sidebar-brand="true" className="flex shrink-0 items-center gap-[7px] pl-[13px] pr-[18px] py-3 select-none">
-          <BrandLogo width="20" height="20" className="ace-brand-logo block shrink-0" />
-          <span className="text-[15px] font-bold tracking-tight">ACECode</span>
-          {appVersionLabel && (
-            <span className="truncate text-[11px] font-medium text-fg-mute opacity-75 tabular-nums">
-              {appVersionLabel}
-            </span>
-          )}
-        </div>
         <div className="ace-sidebar-main flex-1 flex flex-col min-h-0">
           <div ref={sidebarFixedNavRef} className="ace-sidebar-fixed-nav shrink-0 overflow-y-auto pb-2">
             {SIDEBAR_NAV_ITEMS.map((item) => (
@@ -4533,6 +4523,7 @@ export function Sidebar({
             <SidebarQuickMenu
               data-tour-target="sidebar-settings"
               sidebarWidth={width}
+              versionLabel={appVersionLabel}
               updateChecking={updateChecking}
               onBeforeOpen={cancelSessionSelection}
               onNewSession={onNewTask}

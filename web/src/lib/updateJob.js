@@ -21,12 +21,24 @@ export function updateJobIsActive(job) {
   return ACTIVE_STATES.has(job?.state);
 }
 
+// 回滚任务由 daemon 标 rollback: true(target_version 比当前低)。
+export function updateJobIsRollback(job) {
+  return job?.rollback === true;
+}
+
 export function updateJobPhaseLabel(job) {
-  if (job?.state === 'cancelled') return '升级已取消';
-  if (job?.cancel_requested) return '正在取消升级';
-  if (job?.state === 'failed') return '升级失败';
-  if (job?.state === 'succeeded') return '升级安装完成';
-  return PHASE_LABELS[job?.phase] || '正在准备升级';
+  const rollback = updateJobIsRollback(job);
+  if (job?.state === 'cancelled') return rollback ? '回滚已取消' : '升级已取消';
+  if (job?.cancel_requested) return rollback ? '正在取消回滚' : '正在取消升级';
+  if (job?.state === 'failed') return rollback ? '回滚失败' : '升级失败';
+  if (job?.state === 'succeeded') return rollback ? '回滚完成' : '升级安装完成';
+  return PHASE_LABELS[job?.phase] || (rollback ? '正在准备回滚' : '正在准备升级');
+}
+
+// 版本更新记录里的「回滚到此版本」只在没有任务在跑、也没有等待重启的安装时出现。
+export function updateDialogAllowsRollback(mode, { starting = false, restarting = false } = {}) {
+  return !starting && !restarting
+    && ['confirm', 'up_to_date', 'failure', 'cancelled'].includes(mode);
 }
 
 export function updateJobCanCancel(job) {
@@ -57,6 +69,7 @@ export function nondecreasingUpdateProgress(previous, next) {
 
 export function updateRestartMessage(job) {
   if (job?.state !== 'succeeded' || !job?.restart_required) return '';
+  if (updateJobIsRollback(job)) return '回滚已安装。请完全退出并重新启动 ACECode。';
   return '升级已安装。请完全退出并重新启动 ACECode；当前窗口仍在运行旧版本。';
 }
 
@@ -74,6 +87,7 @@ export function normalizeUpdateReleases(releases) {
         ? release.published_at.trim()
         : '',
       notes,
+      rollback_available: release.rollback_available === true,
     });
   }
   return normalized;

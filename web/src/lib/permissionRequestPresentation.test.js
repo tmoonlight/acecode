@@ -144,3 +144,33 @@ run('opaque commands offer neither scoped nor remember options', () => {
   assert.equal(view.rememberPrefix, '');
   assert.equal(view.hideAllowSession, true);
 });
+
+// 场景:自动模式（试验）因拦截次数达到上限而退回弹窗,daemon 把裁决的理由放在
+// permission.auto_review 里。期望:确认框多出一句说明并带上理由;裁决没有结果时
+// 是另一句固定说明;普通确认没有这句话。非 bash 工具同样适用。
+run('auto review fallback explains why the user is being asked', () => {
+  const limit = planPermissionPresentation({
+    tool: 'bash',
+    args: { command: 'git push --force',
+      permission: { reason: 'dangerous_command', sandbox: 'full-access',
+        auto_review: { why: 'denial_limit', reason: 'B2: force-push rewrites history' } } },
+  });
+  assert.equal(limit.reviewNote, '自动检查拦下了这个操作:B2: force-push rewrites history');
+  assert.equal(limit.title, '模型要执行一条危险命令');
+
+  const silent = planPermissionPresentation({
+    tool: 'bash',
+    args: { permission: { reason: 'dangerous_command', auto_review: { why: 'denial_limit', reason: '  ' } } },
+  });
+  assert.equal(silent.reviewNote, '自动检查拦下了这个操作');
+
+  const unavailable = planPermissionPresentation({
+    tool: 'mcp__docs__publish',
+    args: { title: 'x', permission: { auto_review: { why: 'no_verdict', reason: 'HTTP 429' } } },
+  });
+  assert.equal(unavailable.reviewNote, '自动检查没有结果,需要你来确认');
+  assert.equal(unavailable.title, '权限请求');
+
+  assert.equal(planPermissionPresentation({ tool: 'bash', args: { permission: { reason: 'dangerous_command' } } }).reviewNote, '');
+  assert.equal(planPermissionPresentation({ tool: 'file_write', args: { path: 'a.txt' } }).reviewNote, '');
+});

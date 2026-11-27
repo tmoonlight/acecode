@@ -289,11 +289,16 @@ static UpdateCheckResult check_for_update_impl(const AppConfig& config,
         return result;
     }
     result.releases.reserve(parsed_manifest->releases.size());
+    const std::string package_target = manifest_target_for_platform(result.target);
     for (const auto& release : parsed_manifest->releases) {
+        const auto rollback_package =
+            rollback_package_for_release(release, current_version, package_target);
         result.releases.push_back(UpdateReleaseSummary{
             release.version,
             release.published_at,
             release.notes,
+            rollback_package.has_value(),
+            rollback_package ? rollback_package->size : std::nullopt,
         });
     }
     result.latest_version = parsed_manifest->latest;
@@ -354,7 +359,9 @@ static int run_upgrade_command_impl(const AppConfig& config,
                         bool force,
                         UpgradeProgressCallback progress_callback,
                         UpgradeCancelCheck cancel_check,
-                        DiagnosticLog& diagnostics) {
+                        DiagnosticLog& diagnostics,
+                        const std::string& rollback_version) {
+    const bool rollback = !rollback_version.empty();
     UpgradeProgress progress_state;
     progress_state.current_version = current_version;
     progress_state.log_path = diagnostics.path();
@@ -385,7 +392,8 @@ static int run_upgrade_command_impl(const AppConfig& config,
     };
     diagnostics.phase("checking", {{"current_version", current_version},
                                    {"target", current_target()},
-                                   {"base_url", config.upgrade.base_url}, {"force", force}});
+                                   {"base_url", config.upgrade.base_url}, {"force", force},
+                                   {"rollback_version", rollback_version}});
     if (cancellation_requested()) return cancelled();
 
     std::string cfg_error;
@@ -433,7 +441,10 @@ static int run_upgrade_command_impl(const AppConfig& config,
         << "  Current : v" << current_version << "\n"
         << "  Platform: " << target << "\n"
         << "  Manifest: " << manifest << "\n";
-    if (force) {
+    if (rollback) {
+        out << "  Mode    : " << styled(out, ConsoleStyle::Yellow, "rollback")
+            << " to v" << rollback_version << "\n";
+    } else if (force) {
         out << "  Mode    : " << styled(out, ConsoleStyle::Yellow, "force") << "\n";
     }
     if (is_plain_http(base_url)) {
@@ -475,11 +486,17 @@ static int run_upgrade_command_impl(const AppConfig& config,
         return 1;
     }
 
-    SelectionResult selection = select_update_package(
-        *parsed_manifest, current_version,
-        manifest_target_for_platform(target), force);
+    SelectionResult selection = rollback
+        ? select_rollback_package(*parsed_manifest, current_version, rollback_version,
+                                  manifest_target_for_platform(target))
+        : select_update_package(*parsed_manifest, current_version,
+                                manifest_target_for_platform(target), force);
     if (selection.status == SelectionStatus::InvalidManifest) {
         err << "acecode upgrade: invalid update manifest: " << selection.error << "\n";
+        return 1;
+    }
+    if (rollback && selection.status != SelectionStatus::UpdateAvailable) {
+        err << "acecode upgrade: " << selection.error << "\n";
         return 1;
     }
     if (selection.status == SelectionStatus::NoCompatiblePackage) {
@@ -504,14 +521,16 @@ static int run_upgrade_command_impl(const AppConfig& config,
     progress_state.target_version = selected.version;
     const std::string package_url = resolve_package_url(base_url, selected.package.file);
     diagnostics.record("package_selected", {{"target_version", selected.version},
+        {"rollback", rollback},
         {"package_url", package_url}, {"expected_sha256", selected.package.sha256},
         {"expected_bytes", selected.package.size ? nlohmann::json(*selected.package.size) : nlohmann::json(nullptr)}});
     out << "\n"
         << styled(out, ConsoleStyle::Cyan,
-                  std::string("[2/4] ") + (force ? "Package selected" : "Update available"))
+                  std::string("[2/4] ") + (rollback ? "Rollback package selected"
+                                           : force ? "Package selected" : "Update available"))
         << "\n"
         << "  Current : v" << current_version << "\n"
-        << (force ? "  Target  : v" : "  Latest  : v") << selected.version << "\n"
+        << (force || rollback ? "  Target  : v" : "  Latest  : v") << selected.version << "\n"
         << "  Package : " << selected.package.file << "\n";
     if (force) {
         out << "  Force   : " << styled(out, ConsoleStyle::Yellow, "enabled") << "\n";
@@ -702,7 +721,8 @@ int run_upgrade_command(const AppConfig& config,
                         bool force,
                         UpgradeProgressCallback progress_callback,
                         UpgradeCancelCheck cancel_check,
-                        DiagnosticLog* diagnostics) {
+                        DiagnosticLog* diagnostics,
+                        const std::string& rollback_version) {
     if (has_windows_package_identity()) {
         err << "ACECode is installed as a Windows package. "
                "Get updates from Microsoft Store > Library. "
@@ -716,7 +736,7 @@ int run_upgrade_command(const AppConfig& config,
     int code = 1;
     try {
         code = run_upgrade_command_impl(config, argv0, current_version, out, errors,
-            force, std::move(progress_callback), std::move(cancel_check), log);
+            force, std::move(progress_callback), std::move(cancel_check), log, rollback_version);
     } catch (const std::exception& e) {
         errors << "acecode upgrade: exception: " << ensure_utf8(e.what()) << "\n";
     } catch (...) {

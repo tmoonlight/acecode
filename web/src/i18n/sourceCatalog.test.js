@@ -144,7 +144,7 @@ await applyLocalePreference('zh-CN', { cache: false });
 const moduleScopeFixtures = [
   {
     file: 'lib/topBarQuickActions.js',
-    copy: ['新对话', '定时任务', '查找内容', '设置', '外观', '关于 ACECode', '检查更新', '退出 ACECode'],
+    copy: ['新对话', '定时任务', '查找内容', '设置', '外观', '关于 ACECode', '检查更新', '已存在的链接', '退出 ACECode'],
   },
   {
     file: 'lib/sidebarNavigation.js',
@@ -152,7 +152,7 @@ const moduleScopeFixtures = [
   },
   {
     file: 'lib/permissionMode.js',
-    copy: ['默认权限', '写/执行操作前确认', '自动模式', '自动编辑和运行沙盒内命令,危险操作与越界请求需确认', '完全访问权限', '跳过所有工具权限确认'],
+    copy: ['默认权限', '写/执行操作前确认', '自动模式', '自动编辑和运行沙盒内命令,危险操作与越界请求需确认', '自动模式（试验）', '需要确认的操作交给模型判断,拦下时说明理由', '完全访问权限', '跳过所有工具权限确认'],
   },
   {
     file: 'lib/settingsNavigation.js',

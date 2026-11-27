@@ -10,6 +10,7 @@
 #include <mutex>
 #include <optional>
 #include <algorithm>
+#include <cstdint>
 #include <cstring>
 #include <atomic>
 
@@ -66,9 +67,17 @@ public:
             has_pre_plan_mode_.store(false, std::memory_order_relaxed);
         }
         mode_.store(mode, std::memory_order_relaxed);
-        if (current != mode) clear_session_allows();
+        if (current != mode) {
+            mode_generation_.fetch_add(1, std::memory_order_relaxed);
+            clear_session_allows();
+        }
     }
     PermissionMode mode() const { return mode_.load(std::memory_order_relaxed); }
+    // 模式每真正变化一次加一(同模式重设不算)。按「连续处于某个模式」累积的会话
+    // 状态(自动模式（试验）的拦截计数)据此判断是否该清零,切出再切回也能发现。
+    std::uint64_t mode_generation() const {
+        return mode_generation_.load(std::memory_order_relaxed);
+    }
 
     PermissionMode pre_plan_mode() const {
         if (!has_pre_plan_mode_.load(std::memory_order_relaxed)) {
@@ -86,6 +95,9 @@ public:
 
     PermissionMode restore_pre_plan_mode() {
         PermissionMode restored = pre_plan_mode();
+        if (mode_.load(std::memory_order_relaxed) != restored) {
+            mode_generation_.fetch_add(1, std::memory_order_relaxed);
+        }
         mode_.store(restored, std::memory_order_relaxed);
         has_pre_plan_mode_.store(false, std::memory_order_relaxed);
         clear_session_allows();
@@ -222,7 +234,8 @@ public:
         // Auto mode: auto-allow file tools (apply_patch is the GPT-family
         // spelling of file_edit). bash is decided by the exec policy in
         // AgentLoop (src/sandbox/exec_decision), never here.
-        if (mode_.load(std::memory_order_relaxed) == PermissionMode::Auto) {
+        // AutoReview(自动模式（试验）)沿用同一张放行表。
+        if (permission_mode_uses_auto_policy(mode_.load(std::memory_order_relaxed))) {
             if (tool_name == "file_write" || tool_name == "file_edit" ||
                 tool_name == "apply_patch") {
                 return true;
@@ -288,10 +301,11 @@ public:
     PermissionMode cycle_mode() {
         PermissionMode next = PermissionMode::Default;
         switch (mode_.load(std::memory_order_relaxed)) {
-            case PermissionMode::Default: next = PermissionMode::Auto; break;
-            case PermissionMode::Auto:    next = PermissionMode::Yolo; break;
-            case PermissionMode::Yolo:    next = PermissionMode::Plan; break;
-            case PermissionMode::Plan:    next = PermissionMode::Default; break;
+            case PermissionMode::Default:    next = PermissionMode::Auto; break;
+            case PermissionMode::Auto:       next = PermissionMode::AutoReview; break;
+            case PermissionMode::AutoReview: next = PermissionMode::Yolo; break;
+            case PermissionMode::Yolo:       next = PermissionMode::Plan; break;
+            case PermissionMode::Plan:       next = PermissionMode::Default; break;
         }
         set_mode(next);
         clear_session_allows();
@@ -314,6 +328,8 @@ public:
             case PermissionMode::Auto:    return "Auto-run edits and sandboxed commands; ask when leaving the workspace";
             case PermissionMode::Yolo:    return "Auto-allow every tool without prompting (no sandbox)";
             case PermissionMode::Plan:    return "Plan first, approve before coding";
+            case PermissionMode::AutoReview:
+                return "Experimental: a reviewer model decides actions that would otherwise ask you";
         }
         return "";
     }
@@ -400,6 +416,7 @@ private:
     std::atomic<PermissionMode> mode_{PermissionMode::Default};
     std::atomic<PermissionMode> pre_plan_mode_{PermissionMode::Default};
     std::atomic<bool> has_pre_plan_mode_{false};
+    std::atomic<std::uint64_t> mode_generation_{0};
     std::atomic<bool> dangerous_mode_{false};
     mutable std::mutex mu_;
     std::set<std::string> session_allowed_;

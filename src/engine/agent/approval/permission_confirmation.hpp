@@ -27,7 +27,8 @@ public:
     std::optional<ToolResult> confirm(const ToolCall& call, const std::string& command,
         std::size_t index, const ProgressEmitter& progress,
         std::optional<sandbox::ExecPermission>& exec, ToolContext& context,
-        PermissionAuditScope& audit, PermissionHookSession& hooks);
+        PermissionAuditScope& audit, PermissionHookSession& hooks,
+        const nlohmann::json& review_note = nullptr);
 private:
     PermissionManager& permissions_;
     SessionExecSecurity& security_;

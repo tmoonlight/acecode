@@ -1,6 +1,6 @@
 # 对话内可视化与画图说明
 
-模型在回复正文里写 ```` ```visual ```` 代码块（一段 SVG / HTML 片段），Web / Desktop 把它画在对话中的隔离框里：边写边长出来，代码块闭合后才执行其中的脚本。系统提示里常驻一段「画图说明」，告诉模型界面能画什么、什么时候画、什么时候不画；mermaid 长期不触发也是同一个原因（模型不知道界面能渲染它），一起由这段说明解决。设计取舍见 `openspec/changes/add-inline-visuals/design.md`。
+模型在回复正文里写 ```` ```visual ```` 代码块（一段 SVG / HTML 片段），Web / Desktop 把它画在对话中的隔离框里：框内边写边长，期间用户看到的是一层渐变加载动画，代码块闭合、脚本执行完才揭开。系统提示里常驻一段「画图说明」，告诉模型界面能画什么、什么时候画、什么时候不画；mermaid 长期不触发也是同一个原因（模型不知道界面能渲染它），一起由这段说明解决。设计取舍见 `openspec/changes/add-inline-visuals/design.md`。
 
 ## 各处怎么显示
 
@@ -19,7 +19,7 @@
 
 | 会话 | mermaid 部分 | visual 部分 |
 |---|---|---|
-| Web / Desktop（daemon worker 设 `DiagramSurface::Web`） | 有 | 「可视化图表」开关打开时有 |
+| Web / Desktop（daemon worker 设 `DiagramSurface::Web`） | 有 | 「可视化图表」开关打开时有，且整段换成 visual 优先的写法 |
 | TUI（`TuiApp::prompt_config_snapshot` 设 `Terminal`） | 有（写明终端里是文字图） | 无 |
 | headless `-p`（不设，`None`） | 无 | 无 |
 | spawn_subagent 子会话、网状子 agent（有父会话 id） | 无 | 无 |
@@ -27,7 +27,8 @@
 
 - 显示面经 `SessionPromptConfig` 进入请求；子会话与群聊代答由 `RequestContextFactory::options` 降为 `None`。
 - **字节稳定**：文本只由显示面、开关、画图规范技能是否可用、`skill_view` 的模型侧名字决定，不含时间、路径或会话信息。只有切换开关、技能被停用 / 恢复、「工具重写」改了 `skill_view` 的名字时才变化。`RequestContextSource` 每回合捕获一次，所以同一回合里的多次请求一定相同。
-- **mermaid 部分**只列 Web（`mermaidRenderer.js` 的 `inspectMermaidSource`）与 TUI（`mermaid_renderer.cpp`）都能渲染的五种类型，并写明会让图退回源码的写法。改这两个渲染器的白名单或拒绝规则时同步改这段文字。
+- **mermaid 部分**只列 Web（`mermaidRenderer.js` 的 `inspectMermaidSource`）与 TUI（`mermaid_renderer.cpp`）都能渲染的五种类型，并写明会让图退回源码的写法。改这两个渲染器的白名单或拒绝规则时同步改这段文字。TUI 与开关关闭的网页会话只有这一部分，文字与 2026-11-26 改版前逐字节相同。
+- **开关打开时 visual 优先**（用户 2026-11-26 拍板）：最前面是选择规则——默认画 visual；只有整张图就是单纯的流程、依赖或时序图（只有方框、箭头和简短标签，状态转换算流程，类 / 实体关系算依赖）才用 mermaid；复合式图形（结构之外还带数据或图表、标注、高亮或图例、多个面板、对比、交互）一律 visual，即使其中一部分是流程。随后是 visual 细则，最后是 mermaid 的类型与写法限制。「画 / 图表 / 示意」类请求的触发语指向 figure，不挂在 mermaid 段落里。改版前的说法（先讲 mermaid、visual 只用于「mermaid 表达不了的内容」、「方框箭头留给 mermaid」、「mermaid 能画就别画 visual」）让模型几乎总选 mermaid，**不要改回去**。
 - **visual 部分**写核心约束（顶层、片段、主题变量、脚本在闭合后执行、四个 CDN、`ace.send`）。画图规范技能可用（本会话技能快照里有 `inline-visuals`，且工具策略允许 `skill_view`）时，要求第一次画之前用 `model_tool_name_for_native("skill_view")` 的名字加载它；不可用时只给核心约束。
 - 测试：[diagram_guidance_test.cpp](../tests/prompt/diagram_guidance_test.cpp)（文本取舍）、[diagram_guidance_request_test.cpp](../tests/agent/request/diagram_guidance_request_test.cpp)（请求组装、子会话降级、技能索引隐藏）。
 
@@ -63,6 +64,7 @@
 | 外层 → 框内 | `theme` | `mode`、`vars`（框内短变量）、`palette`。只换变量与 `data-mode`，不重建内容、不重跑脚本，回调 `ace.onThemeChange` |
 | 框内 → 外层 | `ready` | 运行时启动完成。外层此时补发当前主题与最新一次 `render`（也是重载后的恢复路径） |
 | 框内 → 外层 | `size` | `height`。外层夹到 40–4000px，并按代码内容记住高度，重新挂载时先用 |
+| 框内 → 外层 | `rendered` | 定稿内容已对齐、脚本全部跑完（含补发 `load` 之后的最后一次 `size`）。外层据此撤掉加载动画，每个运行时只发一次 |
 | 框内 → 外层 | `send` | `text`，见上面的追问规则。会话空闲时与「下一步」框按钮同一路径发出，忙时追加进输入框 |
 | 框内 → 外层 | `link` | `url` |
 | 框内 → 外层 | `error` | `message`，只写到控制台 |
@@ -70,6 +72,8 @@
 | 外层 → 框内 | `library` | `request`、`code`。`code` 为空时框内照原地址去 CDN 加载 |
 
 `ready` 之前外层不发消息，只记住最新一次 `render`；消息监听在提交阶段（`useLayoutEffect`）挂上，首次 load 时若还没收到 `ready` 也补一次握手。定稿后内容若又变化（重新生成等），组件换一个新 iframe 按新内容重画。
+
+**加载动画**（用户 2026-11-26 要求，仿 Gemini 生图时的抽象渐变）：每个隔离框从开始生成起盖一层 `.ace-inline-visual-loading`，几团柔和色块缓慢漂移，收到 `rendered` 后淡出（`INLINE_VISUAL_REVEAL_FADE_MS`）再卸掉。定稿内容交给就绪的框后开始兜底计时（`INLINE_VISUAL_REVEAL_FALLBACK_MS`，8 秒），`rendered` 不来也照样揭开，露出已画出的部分；源码模式（框被导航走后显示源码）没有加载层。本页已经画过的同一段代码重新挂载（滚回历史、切回会话，按代码内容记得住高度）时不盖加载层，否则每次滚回去都闪一下灰块，矮于 180px 的图还会先撑高再缩回。流式期间框照常边收边画，只是被盖住，所以揭开时不用再等排版。加载中框至少 180px 高，跟着上报的高度长，揭开时 `min-height` 过渡回 0。颜色全取主题变量，浅色是浅灰底配深一点的灰团，深色是抬亮的灰底配接近页面底色的暗团（`[data-theme="dark"]` 一套）；漂移只改 `transform`；外层 `.ace-inline-visual-stage` 用 `isolation: isolate` 把加载层关在自己的层叠上下文里，盖不住复制按钮。动画暂时不跟随「减少动态效果」（实现时的取舍，用户尚未拍板）：远程桌面常把它报成开启，静止的色块看起来像卡住了。`inlineVisualArchitecture.test.js` 守着这几条。
 
 隔离框能从流式用到定稿，前提是它所在的对话行不被卸载：`Message.jsx` 按块序号做 key，对话行按条目 id 做 key。回合结束后的对话记录自愈（`transcriptSelfHeal.js`）替换最新一轮时，按位置对得上的行沿用原 id（`withStableIds`）；如果整轮换新 id，每个隔离框都会重新加载、脚本重跑。
 

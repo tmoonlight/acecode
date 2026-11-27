@@ -269,6 +269,13 @@ public:
     // 的分支调一次。默认落到进程级 security::audit_log();单测注入 lambda 收集。
     // 只应在会话未运行时设置。
     void set_audit_sink(security::AuditSink sink);
+    // 自动模式（试验）:宿主配置的裁决模型对应的 provider;没配置时为空(用会话当前模型)。
+    std::shared_ptr<LlmProvider> review_provider_snapshot() const;
+    // 替换裁决模型的取得方式(构造时由 AgentLoopServices::review_provider 给出)。
+    void set_review_provider(ProviderAccessor accessor);
+    // 单测:缩短裁决各阶段的时限。
+    void set_review_timeouts_for_tests(std::chrono::milliseconds quick,
+                                       std::chrono::milliseconds full);
 
     // Set only before work; clock/release callbacks are captured for a whole turn.
     using SteadyClockFn = std::function<std::chrono::steady_clock::time_point()>;

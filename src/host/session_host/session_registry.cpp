@@ -1031,6 +1031,14 @@ SessionRegistry::make_entry_locked(const std::string& id,
         ref.with([&](SessionRegistry& registry) { snapshot = registry.prompt_config_snapshot(); });
         return snapshot;
     };
+    // 自动模式（试验）的裁决模型:每次裁决时读当前配置,同一份连接配置复用同一个
+    // provider(缓存归这个会话的 AgentLoop 所有)。没配置时返回空,用会话当前模型。
+    loop_services.review_provider =
+        [cache = std::make_shared<AutoReviewProviderCache>(), ref = lifetime_.ref(*this)] {
+            AutoReviewModelChoice choice;
+            ref.with([&](SessionRegistry& registry) { choice = registry.auto_review_model_snapshot(); });
+            return cache->resolve(choice);
+        };
     const auto* skills = entry->skill_registry ? entry->skill_registry.get() : deps_.skill_registry;
     if (skills) loop_services.skills = skills->snapshot();
     if (entry->expert) loop_services.expert = std::make_shared<const ExpertDefinition>(*entry->expert);

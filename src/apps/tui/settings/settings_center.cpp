@@ -12,6 +12,7 @@
 #include "workspace/workspace_registry.hpp"
 #include "network/proxy_resolver.hpp"
 #include "provider/auth/github_auth.hpp"
+#include "session/archived_session_index.hpp"
 #include "session/session_storage.hpp"
 #include "session/session_tree_purge.hpp"
 #include "session/session_usage_ledger.hpp"
@@ -244,13 +245,14 @@ std::string headers_to_json(
 }
 
 std::string permission_description(int index) {
-    static const std::array<const char*, 4> descriptions = {
+    static const std::array<const char*, 5> descriptions = {
         "Ask before tools that can change files or run commands.",
         "Approve file edits while keeping command permissions interactive.",
         "Restrict the next session to planning and read-only exploration.",
         "Allow all tools without confirmation. Use only in trusted workspaces.",
+        "Experimental. A reviewer model decides actions that would otherwise ask you.",
     };
-    index = std::clamp(index, 0, 3);
+    index = std::clamp(index, 0, 4);
     return descriptions[static_cast<std::size_t>(index)];
 }
 
@@ -520,6 +522,7 @@ struct SettingsCenter::Impl {
         "Accept edits - approve file changes",
         "Plan - planning and read-only exploration",
         "Yolo - run without confirmations",
+        "Auto review (experimental) - a model reviews risky actions",
     };
     bool notifications_enabled = true;
 
@@ -685,7 +688,8 @@ struct SettingsCenter::Impl {
         permission_index =
             permission == "auto" ? 1 :
             permission == "plan" ? 2 :
-            permission == "yolo" ? 3 : 0;
+            permission == "yolo" ? 3 :
+            permission == "auto-review" ? 4 : 0;
         notifications_enabled = deps.config->desktop.notifications.enabled;
         theme_index =
             deps.config->tui.theme == "dark" ? 1 :
@@ -697,12 +701,12 @@ struct SettingsCenter::Impl {
     }
 
     void persist_permission() {
-        static const std::array<const char*, 4> values = {
-            "default", "auto", "plan", "yolo",
+        static const std::array<const char*, 5> values = {
+            "default", "auto", "plan", "yolo", "auto-review",
         };
         const auto result = set_default_permission_mode(
             values[static_cast<std::size_t>(
-                std::clamp(permission_index, 0, 3))],
+                std::clamp(permission_index, 0, 4))],
             mutation_options());
         if (!result.ok) {
             sync_from_config();
@@ -1258,13 +1262,9 @@ struct SettingsCenter::Impl {
                 try {
                     for (const auto& scope :
                          discover_workspace_scopes(cwd, acecode_dir)) {
-                        for (const auto& meta :
-                             SessionStorage::list_sessions(
+                        for (const auto& meta : list_archived_session_metadata(
                                  scope.project_dir)) {
-                            if (!meta.archived ||
-                                !meta.parent_session_id.empty()) {
-                                continue;
-                            }
+                            if (!meta.parent_session_id.empty()) continue;
                             loaded.push_back({
                                 scope.project_dir,
                                 scope.name,

@@ -832,6 +832,9 @@ export function createApi(base = null) {
     refreshHomeIntentPrompts: (force = false, opts = {}) => request('POST', '/api/home/intent-prompts', { force }, base, { timeoutMs: 110000, ...opts }),
     getSummaryGeneration: ()         => request('GET', '/api/config/summary-generation', undefined, base),
     setSummaryGeneration: (config)   => request('PUT', '/api/config/summary-generation', config, base, { keepalive: true }),
+    // 自动模式（试验）的裁决模型:{model_name},空串 = 跟随会话当前模型。
+    getAutoReview: ()                => request('GET', '/api/config/auto-review', undefined, base),
+    setAutoReview: (config)          => request('PUT', '/api/config/auto-review', config, base, { keepalive: true }),
     setImageGeneration: (config)     => request('PUT', '/api/config/image-generation', config, base, { keepalive: true }),
     testImageGeneration: (config)    => request('POST', '/api/config/image-generation/test',
       { config, confirm_cost: true }, base, { timeoutMs: 615000 }),

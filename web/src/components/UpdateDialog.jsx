@@ -1,16 +1,20 @@
-import { useRef } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { api } from '../lib/api.js';
 import { formatBytes } from '../lib/format.js';
 import {
   formatUpdatePublishedDate,
   nondecreasingUpdateProgress,
   normalizeUpdateReleases,
+  updateDialogAllowsRollback,
   updateDialogMode,
   updateJobCanCancel,
   updateJobIsActive,
+  updateJobIsRollback,
   updateJobPhaseLabel,
   updateJobProgress,
   updateRestartMessage,
 } from '../lib/updateJob.js';
+import { upgradeSettingsStore } from '../lib/upgradeSettings.js';
 import { Modal } from './Modal.jsx';
 
 function UpdateProgressBar({ phaseLabel, progress }) {
@@ -51,23 +55,98 @@ function versionText(value) {
   return text.startsWith('v') ? text : `v${text}`;
 }
 
-export function UpdateDialog({
-  open,
+function rollbackRunningNote(job) {
+  if (job?.cancel_requested) return '正在安全停止回滚，请稍候。';
+  if (job?.can_cancel === false) return '已开始替换程序文件，为保证安装完整，此阶段不能取消。';
+  return '可取消本次回滚；关闭窗口只会让任务转到后台继续。';
+}
+
+// 「自动升级」与设置页的「自动更新」是同一个配置项(upgrade.auto_update),共用同一个 store。
+function UpdateAutoSwitch({ settings, store }) {
+  const enabled = settings.draft?.auto_update === true;
+  return (
+    <div className="mr-auto flex min-w-0 items-center gap-2">
+      <button
+        id="update-dialog-auto-update"
+        type="button"
+        role="switch"
+        aria-checked={enabled}
+        disabled={!settings.draft || settings.loading}
+        onClick={() => { store.update('auto_update', !enabled); void store.save(); }}
+        className={`relative h-5 w-9 shrink-0 rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-50 ${enabled ? 'bg-accent' : 'bg-border'}`}
+      >
+        <span className={`absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white transition-transform ${enabled ? 'translate-x-4' : ''}`} />
+      </button>
+      <label htmlFor="update-dialog-auto-update" className="shrink-0 text-[12px] text-fg-2">
+        自动升级
+      </label>
+      {settings.error && (
+        <span role="alert" title={settings.error} className="min-w-0 truncate text-[11px] text-danger">
+          {settings.error}
+        </span>
+      )}
+    </div>
+  );
+}
+
+function RollbackConfirmDialog({ version, autoUpdateEnabled, onCancel, onConfirm }) {
+  return (
+    <Modal onClose={onCancel} width={460}>
+      <div className="px-5 py-5 text-[13px] leading-6 text-fg">
+        {autoUpdateEnabled
+          ? `您确定您要回退到 ${versionText(version)} 版本吗？自动更新功能将被关闭。`
+          : `您确定您要回退到 ${versionText(version)} 版本吗？`}
+      </div>
+      <div className="flex items-center justify-end gap-2 border-t border-border bg-surface-alt px-5 py-3">
+        <button
+          type="button"
+          onClick={onCancel}
+          className="rounded-md px-3 py-1.5 text-[12px] text-fg-mute hover:bg-surface-hi hover:text-fg"
+        >
+          取消
+        </button>
+        <button
+          type="button"
+          data-ace-dialog-primary="true"
+          onClick={onConfirm}
+          className="rounded-md bg-accent px-4 py-1.5 text-[12px] font-medium text-white hover:opacity-90"
+        >
+          回退
+        </button>
+      </div>
+    </Modal>
+  );
+}
+
+export function UpdateDialog({ open, ...props }) {
+  if (!open) return null;
+  return <UpdateDialogContent {...props} />;
+}
+
+function UpdateDialogContent({
   updateStatus,
   job,
   starting = false,
+  startingRollback = '',
   cancelling = false,
   restarting = false,
   restartAvailable = false,
   onConfirm,
   onCancel,
   onRetry,
+  onRollback,
   onRestart,
   onClose,
 }) {
-  if (!open) return null;
+  const settingsStore = upgradeSettingsStore(api);
+  const settings = useSyncExternalStore(settingsStore.subscribe, settingsStore.getSnapshot);
+  useEffect(() => { void settingsStore.load(); }, [settingsStore]);
+  const [rollbackTarget, setRollbackTarget] = useState('');
 
-  const mode = updateDialogMode(job, updateStatus);
+  // 回滚请求已发出、任务还没回来:按回滚任务的进行中状态显示。
+  const rollbackStarting = starting && !job && Boolean(startingRollback);
+  const mode = rollbackStarting ? 'running' : updateDialogMode(job, updateStatus);
+  const rollback = rollbackStarting || updateJobIsRollback(job);
   const storeManaged = mode === 'store_managed';
   const active = !storeManaged && (updateJobIsActive(job) || starting || restarting);
   const canCancel = updateJobCanCancel(job);
@@ -76,24 +155,38 @@ export function UpdateDialog({
     : job?.current_version || updateStatus?.current_version;
   const targetVersion = mode === 'up_to_date'
     ? currentVersion
-    : job?.target_version || updateStatus?.latest_version;
-  const packageSize = job?.bytes_total ?? updateStatus?.package_size;
+    : job?.target_version || (rollbackStarting ? startingRollback : updateStatus?.latest_version);
+  const packageSize = rollback
+    ? job?.bytes_total
+    : job?.bytes_total ?? updateStatus?.package_size;
+  const canRollback = !storeManaged && typeof onRollback === 'function'
+    && updateDialogAllowsRollback(mode, { starting, restarting });
+  const retry = rollback && job?.target_version
+    ? () => onRollback?.(job.target_version)
+    : onRetry;
+  const confirmRollback = () => {
+    const version = rollbackTarget;
+    setRollbackTarget('');
+    if (version) onRollback?.(version);
+  };
   const releaseHistory = normalizeUpdateReleases(updateStatus?.releases);
   const visibleReleaseHistory = releaseHistory.slice(0, Math.ceil(releaseHistory.length / 2));
   const progress = updateJobProgress(job);
-  const phaseLabel = starting && !job ? '正在启动升级任务' : updateJobPhaseLabel(job);
+  const phaseLabel = starting && !job
+    ? (rollbackStarting ? '正在启动回滚任务' : '正在启动升级任务')
+    : updateJobPhaseLabel(job);
   const restartMessage = updateRestartMessage(job);
   const title = storeManaged
     ? '由 Microsoft Store 管理更新'
     : mode === 'success'
-    ? '升级安装完成'
+    ? (rollback ? '回滚完成' : '升级安装完成')
     : mode === 'cancelled'
-      ? '升级已取消'
+      ? (rollback ? '回滚已取消' : '升级已取消')
     : mode === 'failure'
-      ? '升级失败'
+      ? (rollback ? '回滚失败' : '升级失败')
       : mode === 'up_to_date'
         ? '已是最新版本'
-        : 'ACECode 升级';
+        : rollback ? 'ACECode 回滚' : 'ACECode 升级';
   const subtitle = storeManaged
     ? '请在 Microsoft Store 的“库”中获取 ACECode 更新。'
     : '';
@@ -145,7 +238,7 @@ export function UpdateDialog({
                   <article
                     key={`${release.version}-${index}`}
                     className={[
-                      'px-3.5 py-3',
+                      'group px-3.5 py-3',
                       index > 0 ? 'border-t border-border' : '',
                     ].join(' ')}
                   >
@@ -157,6 +250,15 @@ export function UpdateDialog({
                         <span className="rounded bg-accent-bg px-1.5 py-0.5 text-[10px] font-medium text-accent">
                           最新
                         </span>
+                      )}
+                      {canRollback && release.rollback_available && (
+                        <button
+                          type="button"
+                          onClick={() => setRollbackTarget(release.version)}
+                          className="rounded px-1.5 py-0.5 text-[11px] font-medium text-accent opacity-0 transition-opacity hover:bg-accent-bg focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent group-hover:opacity-100 [@media(hover:none)]:opacity-100"
+                        >
+                          回滚到此版本
+                        </button>
                       )}
                       {publishedDate && (
                         <span className="ml-auto text-[10px] text-fg-mute tabular-nums">
@@ -187,7 +289,7 @@ export function UpdateDialog({
               </div>
             )}
             <div className="mt-3 text-[11px] leading-5 text-fg-mute">
-              {job?.cancel_requested
+              {rollback ? rollbackRunningNote(job) : job?.cancel_requested
                 ? '正在安全停止升级，请稍候。'
                 : job?.can_cancel === false
                   ? '已开始替换程序文件，为保证安装完整，此阶段不能取消。'
@@ -198,7 +300,9 @@ export function UpdateDialog({
 
         {mode === 'success' && (
           <div className="mt-5 rounded-lg border border-ok bg-surface-alt px-4 py-3 text-[12px] leading-5 text-fg">
-            {restartAvailable
+            {rollback && restartAvailable
+              ? '回滚已安装，是否立即重启 ACECode 以使用该版本？'
+              : restartAvailable
               ? '升级已安装，是否立即重启 ACECode 以使用新版本？'
               : (restartMessage || '升级已安装，请重新启动 ACECode。')}
           </div>
@@ -206,7 +310,9 @@ export function UpdateDialog({
 
         {mode === 'failure' && (
           <div className="mt-5 rounded-lg border border-danger bg-surface-alt px-4 py-3">
-            <div className="text-[12px] font-medium text-danger">升级没有完成</div>
+            <div className="text-[12px] font-medium text-danger">
+              {rollback ? '回滚没有完成' : '升级没有完成'}
+            </div>
             <div className="mt-1 break-words text-[11px] leading-5 text-fg-mute">
               {job?.error || '未知升级错误'}
             </div>
@@ -215,12 +321,15 @@ export function UpdateDialog({
 
         {mode === 'cancelled' && (
           <div className="mt-5 rounded-lg border border-border bg-surface-alt px-4 py-3 text-[12px] leading-5 text-fg">
-            升级任务已安全停止，ACECode 仍保持当前版本。
+            {rollback
+              ? '回滚任务已安全停止，ACECode 仍保持当前版本。'
+              : '升级任务已安全停止，ACECode 仍保持当前版本。'}
           </div>
         )}
       </div>
 
       <div className="flex items-center justify-end gap-2 border-t border-border bg-surface-alt px-5 py-3">
+        {!storeManaged && <UpdateAutoSwitch settings={settings} store={settingsStore} />}
         {mode === 'confirm' && (
           <>
             <button
@@ -260,7 +369,7 @@ export function UpdateDialog({
               disabled={!canCancel || cancelling}
               className="rounded-md px-3 py-1.5 text-[12px] text-danger hover:bg-surface-hi disabled:cursor-not-allowed disabled:opacity-45"
             >
-              {cancelling || job?.cancel_requested ? '正在取消…' : '取消升级'}
+              {cancelling || job?.cancel_requested ? '正在取消…' : rollback ? '取消回滚' : '取消升级'}
             </button>
             <button
               type="button"
@@ -315,7 +424,7 @@ export function UpdateDialog({
             <button
               type="button"
               data-ace-dialog-primary="true"
-              onClick={onRetry}
+              onClick={retry}
               disabled={starting}
               className="rounded-md bg-accent px-4 py-1.5 text-[12px] font-medium text-white hover:opacity-90 disabled:opacity-60"
             >
@@ -335,15 +444,23 @@ export function UpdateDialog({
             <button
               type="button"
               data-ace-dialog-primary="true"
-              onClick={onRetry}
+              onClick={retry}
               disabled={starting}
               className="rounded-md bg-accent px-4 py-1.5 text-[12px] font-medium text-white hover:opacity-90 disabled:opacity-60"
             >
-              {starting ? '正在重试…' : '重新升级'}
+              {starting ? '正在重试…' : rollback ? '重新回滚' : '重新升级'}
             </button>
           </>
         )}
       </div>
+      {rollbackTarget && (
+        <RollbackConfirmDialog
+          version={rollbackTarget}
+          autoUpdateEnabled={settings.draft?.auto_update !== false}
+          onCancel={() => setRollbackTarget('')}
+          onConfirm={confirmRollback}
+        />
+      )}
     </Modal>
   );
 }

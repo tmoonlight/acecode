@@ -240,3 +240,39 @@ TEST(ExecPermission, LegacyModeNamesAndRuleDirectoryProtection) {
     EXPECT_EQ(permissions.matched_rule("file_write", ".acecode/rules/default.rules"), RuleAction::Deny);
     EXPECT_TRUE(is_exec_rules_path("C:\\project\\.acecode\\rules\\default.rules"));
 }
+
+// 场景:自动模式（试验）与 auto 共用整张 exec 决策表(openspec add-auto-review-mode D2)。
+// 触发:把同一组输入分别按 Auto 与 AutoReview 求值,覆盖命令分类、规则结论、
+// 沙盒是否可用、越权 / 额外权限申请、无人值守、会话记忆的全部组合。
+// 期望:verdict、执行沙盒、原因三项逐一相同。
+// 回归意义:mode_sandbox 的兜底是完整访问,新模式漏分支时沙盒可用也不进沙盒,
+// 这条用例会在 sandbox 一项上立刻失败。
+TEST(ExecDecision, AutoReviewMatchesAutoForEveryInput) {
+    for (const auto kind : {CommandKind::KnownSafe, CommandKind::Unknown, CommandKind::Dangerous}) {
+        for (const auto rule : {RuleDecision::NoMatch, RuleDecision::Allow, RuleDecision::AllowSandboxed,
+                                RuleDecision::Prompt, RuleDecision::Forbidden}) {
+            for (const auto session : {SessionAllowKind::None, SessionAllowKind::Sandboxed,
+                                       SessionAllowKind::Bypass}) {
+                for (int bits = 0; bits < 16; ++bits) {
+                    ExecDecisionInput input;
+                    input.kind = kind;
+                    input.rule = rule;
+                    input.session_allow = session;
+                    input.sandbox_available = (bits & 1) != 0;
+                    input.escalation_requested = (bits & 2) != 0;
+                    input.additional_requested = (bits & 4) != 0;
+                    input.unattended = (bits & 8) != 0;
+                    input.mode = PermissionMode::Auto;
+                    const auto expected = decide_exec(input);
+                    input.mode = PermissionMode::AutoReview;
+                    const auto actual = decide_exec(input);
+                    EXPECT_EQ(actual.verdict, expected.verdict) << expected.reason;
+                    EXPECT_EQ(actual.sandbox, expected.sandbox) << expected.reason;
+                    EXPECT_EQ(actual.reason, expected.reason);
+                }
+            }
+        }
+    }
+    EXPECT_EQ(mode_sandbox(PermissionMode::AutoReview, true), SandboxMode::WorkspaceWrite);
+    EXPECT_EQ(mode_sandbox(PermissionMode::AutoReview, false), SandboxMode::FullAccess);
+}

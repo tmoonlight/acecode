@@ -270,6 +270,33 @@ run('内置库换成外层递来的本地代码并保持脚本顺序', () => {
   assert.equal(elementChildren(root)[1].text, 'window.d3 = {}');
 });
 
+// 触发场景:外层在定稿前一直盖着加载动画,要等框内说「画好了」才淡出。
+// 期望行为:流式期间(哪怕内容已经很完整)不发 rendered;定稿时没有脚本立刻发一次;
+// 有内置库要等外层递来代码、所有脚本按顺序跑完之后才发,并且排在最后一次 size 之后;
+// 定稿后再来的 render 不重复发。
+// 回归:如果 rendered 在脚本跑完之前发出,图表 canvas 还是空的就被揭开。
+run('定稿内容与脚本就位后才通知外层 rendered', () => {
+  const plain = harness();
+  plain.runtime.render('<div class="card">a</div>', false);
+  plain.runtime.render('<div class="card">ab</div>', false);
+  assert.equal(plain.posted.some((message) => message.type === 'rendered'), false);
+  plain.runtime.render('<div class="card">ab</div>', true);
+  assert.deepEqual(plain.posted.filter((message) => message.type === 'rendered'), [{ type: 'rendered', ace_visual: 1 }]);
+  plain.runtime.render('<div class="card">late</div>', true);
+  assert.equal(plain.posted.filter((message) => message.type === 'rendered').length, 1);
+
+  const scripted = harness();
+  scripted.runtime.render(
+    '<div id="chart"></div><script src="https://cdn.jsdelivr.net/npm/d3@7"></script><script>draw()</script>',
+    true,
+  );
+  assert.equal(scripted.posted.some((message) => message.type === 'rendered'), false);
+  scripted.runtime.handleMessage({ ace_visual: 1, type: 'library', request: 1, code: 'window.d3 = {}' });
+  const types = scripted.posted.map((message) => message.type);
+  assert.equal(types.filter((type) => type === 'rendered').length, 1);
+  assert.equal(types[types.length - 1], 'rendered');
+});
+
 // 触发场景:外层给不了本地代码(chunk 加载失败),或脚本是 type=module、引用的是旧版本。
 // 期望行为:照原地址加载外链脚本(保留 src);模块脚本与旧版本根本不向外层要代码。
 run('取不到本地代码或不适用时照原地址加载', () => {

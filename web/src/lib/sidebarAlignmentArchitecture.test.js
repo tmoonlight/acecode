@@ -41,7 +41,12 @@ assert.match(sidebar, /mt-px mb-\[10px\]/);
 assert.match(sidebar, /my-1/);
 assert.doesNotMatch(sidebar, /-mt-1/);
 assert.match(sidebar, /ace-sidebar-workspace-row[\s\S]*?grid-cols-\[24px_minmax\(0,1fr\)_auto\][\s\S]*?gap-x-\[7px\] mx-1\.5 pl-\[3px\] pr-\[14px\] py-\[3px\]/);
-assert.match(sidebar, /data-sidebar-brand="true"[^\n]*gap-\[7px\] pl-\[13px\]/);
+// 侧栏顶部不再放 logo + 名称 + 版本号;版本号改显示在底部菜单「关于 ACECode」右侧。
+assert.doesNotMatch(sidebar, /data-sidebar-brand/);
+assert.doesNotMatch(sidebar, /<BrandLogo/);
+assert.match(sidebar, /versionLabel=\{appVersionLabel\}/);
+assert.match(sidebarQuickMenu, /action\.id === 'about' \? versionLabel : ''/);
+assert.match(sidebarQuickMenu, /text-\[11px\] leading-none text-fg-mute tabular-nums/);
 assert.match(sidebar, /ace-sidebar-footer shrink-0 pl-\[9px\]/);
 assert.match(sidebarQuickMenu, /w-6 h-8 shrink-0 flex items-center justify-center/);
 assert.doesNotMatch(sidebarQuickMenu, /w-6 h-8 shrink-0 flex items-center justify-start/);

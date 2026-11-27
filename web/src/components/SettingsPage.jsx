@@ -67,6 +67,7 @@ import { SpeechRecognitionSettings } from './SpeechRecognitionSettings.jsx';
 import { ComputerUseSettings } from './ComputerUseSettings.jsx';
 import { IosSimulatorSettings } from './IosSimulatorSettings.jsx';
 import { SummaryGenerationSettings } from './SummaryGenerationSettings.jsx';
+import { AutoReviewSettings } from './AutoReviewSettings.jsx';
 import { ToolRewriteSettings } from './ToolRewriteSettings.jsx';
 import { SecurityCenterSettings } from './SecurityCenterSettings.jsx';
 import { ChannelsSettings } from './ChannelsSettings.jsx';
@@ -2809,6 +2810,7 @@ function SectionTools({ onCheckUpdates, onModelProfileUpdated }) {
       {desktopOnlyToolsVisible && <ComputerUseSettings onCheckUpdates={onCheckUpdates} />}
       {desktopOnlyToolsVisible && <IosSimulatorSettings />}
       <SummaryGenerationSettings onCheckUpdates={onCheckUpdates} onModelProfileUpdated={onModelProfileUpdated} />
+      <AutoReviewSettings onCheckUpdates={onCheckUpdates} />
 
       <ToolRewriteSettings onCheckUpdates={onCheckUpdates} />
     </>
@@ -3032,7 +3034,7 @@ function HookListItem({ hook, busyId, onTrust, onDisable, onEnable }) {
               <summary className="w-fit cursor-pointer select-none text-[11px] text-fg-2 hover:text-fg focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent">
                 钩子代码
               </summary>
-              <pre tabIndex={0} className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap break-all rounded-md border border-border bg-black px-3 py-2 font-mono text-[11px] leading-relaxed text-code-fg focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent">
+              <pre tabIndex={0} className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap break-all rounded-md border border-border bg-code-bg px-3 py-2 font-mono text-[11px] leading-relaxed text-code-fg focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent">
                 <code>{commandText}</code>
               </pre>
             </details>

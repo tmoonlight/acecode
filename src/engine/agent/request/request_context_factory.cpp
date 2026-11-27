@@ -6,6 +6,7 @@
 #include "agent/hook_bridge/agent_hook_bridge.hpp"
 #include "agent/model_step/active_model_view.hpp"
 #include "agent/transcript/conversation_history.hpp"
+#include "permissions/auto_review_prompt.hpp"
 #include "permissions/permissions.hpp"
 #include "prompt/prompt_environment.hpp"
 #include "memory/memory_service.hpp"
@@ -73,6 +74,11 @@ RequestContextOptions RequestContextFactory::options(
         options.plan_context = detail::build_plan_mode_context_prompt(
             session_manager_, tools_.is_allowed("AskUserQuestion", &source_.tool_policy),
             tools_.is_allowed("ExitPlanMode", &source_.tool_policy), source_.runtime.mtime_tracker());
+    }
+    // 自动模式（试验）的说明只在该模式打开时给;切走后这个分节变空,请求构造器
+    // 追加一条「不再生效」把它收回。静态 system prompt 不受影响。
+    if (permissions_.mode() == PermissionMode::AutoReview) {
+        options.auto_review_context = auto_review::main_model_guidance();
     }
     if (session_manager_) options.todos = session_manager_->current_todos();
     return options;

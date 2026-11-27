@@ -12,6 +12,7 @@ const FALLBACK_PHASE_LABELS = Object.freeze({
   reasoning: '正在分析',
   tool_planning: '正在准备工具调用',
   tool_running: '正在执行工具',
+  permission_reviewing: '正在进行安全检查',
 });
 
 function requestIsUnresolved(entry) {

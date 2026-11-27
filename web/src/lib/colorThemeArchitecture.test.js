@@ -58,7 +58,7 @@ run('ThemeProvider preserves the ordinary mode independently of installed themes
   // themes and the theme sound switch are appended after them.
   assert.match(
     theme,
-    /value=\{\{\s*theme, themeMode, colorTheme, appearance, toggle, set, setColorTheme, prepareTheme, forgetTheme,\s*themeVariant, themeEffects, setThemeVariant, setThemeEffects, themeChrome,\s*themeVariantOptions: variantOptions, activeThemeVariant,\s*themeSounds, setThemeSounds, themeSoundStyle: soundStyle,\s*\}\}/,
+    /value=\{\{\s*theme, themeMode, colorTheme, appearance, toggle, set, setColorTheme, prepareTheme, forgetTheme,\s*themeVariant, themeEffects, setThemeVariant, setThemeEffects, themeChrome,\s*themeVariantOptions: variantOptions, activeThemeVariant,\s*themeSounds, setThemeSounds, themeSoundStyle: soundStyle,\s*codeThemePreference, codeTheme, naturalCodeTheme: codeThemeNatural, setCodeTheme,\s*\}\}/,
   );
 });
 

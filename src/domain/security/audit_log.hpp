@@ -49,6 +49,8 @@ constexpr const char* kAuditSourceHook = "hook";
 constexpr const char* kAuditSourceHeadless = "headless";
 constexpr const char* kAuditSourceGoal = "goal";
 constexpr const char* kAuditSourceSandbox = "sandbox";
+// 自动模式（试验）的裁决模型(openspec add-auto-review-mode)。
+constexpr const char* kAuditSourceClassifier = "classifier";
 constexpr const char* kAuditSourceNone = "none";
 
 struct AuditEntry {

@@ -27,6 +27,9 @@ struct AgentLoopServices {
     std::shared_ptr<const SkillRegistry> skills;
     std::shared_ptr<const ExpertDefinition> expert;
     security::AuditSink audit_sink;
+    // 自动模式（试验）的裁决模型:返回配置的那个模型的 provider;没配置、名字已
+    // 不存在或建不起连接时返回空,审批门改用会话当前的 provider。可不设。
+    AgentProviderAccessor review_provider;
     AgentRuntimeEnv runtime;
     PromptConfigProvider prompt_config;
 };

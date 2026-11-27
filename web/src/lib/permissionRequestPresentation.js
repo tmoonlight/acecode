@@ -53,7 +53,20 @@ export function planPermissionPresentation(request) {
   const allowSessionLabel = isAdditional
     ? '本次会话保留这些权限'
     : prefix ? `本次会话允许: ${prefix}` : '本次会话允许';
+  // 自动模式（试验）退回弹窗时,daemon 在 permission.auto_review 里说明原因:
+  // denial_limit = 裁决连续拦截达到上限,这一次改为问人(reason 是裁决的理由);
+  // no_verdict = 裁决没有结果。任何工具的确认都可能带,不限 bash。
+  const anyPermission = request?.args?.permission && typeof request.args.permission === 'object'
+    ? request.args.permission : null;
+  const review = anyPermission?.auto_review && typeof anyPermission.auto_review === 'object'
+    ? anyPermission.auto_review : null;
+  const reviewReason = typeof review?.reason === 'string' ? review.reason.trim() : '';
+  const reviewNote = !review ? ''
+    : review.why === 'denial_limit'
+      ? (reviewReason ? `自动检查拦下了这个操作:${reviewReason}` : '自动检查拦下了这个操作')
+      : '自动检查没有结果,需要你来确认';
   return {
+    reviewNote,
     isPlanEnter,
     isPlanApproval,
     planText,

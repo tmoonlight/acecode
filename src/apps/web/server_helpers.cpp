@@ -5,6 +5,7 @@
 
 #include "server_impl.hpp"
 #include "session/session_load_metrics.hpp"
+#include "session/archived_session_index.hpp"
 #include "computer_use/runtime.hpp"
 #include "remote_control_session_event.hpp"
 #include "web/handlers/channels_handler.hpp"
@@ -131,6 +132,7 @@ json ui_preferences_to_json(const WebUiPreferencesConfig& cfg) {
         {"subagent_avatar_style", cfg.subagent_avatar_style},
         {"follow_up_prompts", cfg.follow_up_prompts},
         {"busy_send_mode", cfg.busy_send_mode},
+        {"code_theme", cfg.code_theme},
     };
 }
 
@@ -154,6 +156,7 @@ json update_check_to_json(const acecode::upgrade::UpdateCheckResult& result) {
             {"version", release.version},
             {"published_at", release.published_at},
             {"notes", release.notes},
+            {"rollback_available", release.rollback_available},
         });
     }
     if (!result.package_file.empty()) out["package_file"] = result.package_file;
@@ -1639,7 +1642,21 @@ json WebServer::Impl::sessions_for_workspace(const acecode::desktop::WorkspaceMe
     };
 
     SessionStorage::MetadataPage disk_page;
-    if (include_no_workspace) {
+    if (archived_only && parent_filter.empty()) {
+        // 归档列表只读归档索引登记的那几条(archived_session_index.hpp)。原来整目录
+        // 读一遍再挑:5000 个会话的目录冷读要二十多秒,里面一条归档都没有。
+        auto metas = no_workspace_only ? std::vector<SessionMeta>{}
+                                       : list_archived_session_metadata(disk_dir);
+        if (include_no_workspace) {
+            for (auto& m : archived_no_workspace_disk_sessions()) metas.push_back(std::move(m));
+        }
+        disk_page.candidate_files = metas.size();
+        for (auto& m : metas) {
+            if (!accept_disk(m)) continue;
+            disk_page.sessions.push_back(std::move(m));
+            ++disk_page.accepted;
+        }
+    } else if (include_no_workspace) {
         auto metas = no_workspace_only ? std::vector<SessionMeta>{}
                                        : SessionStorage::list_session_metadata(disk_dir);
         auto no_workspace_disk = no_workspace_disk_sessions();
@@ -1712,6 +1729,18 @@ std::vector<SessionMeta> WebServer::Impl::no_workspace_disk_sessions() const {
         }
     }
     return out;
+}
+
+std::vector<SessionMeta> WebServer::Impl::archived_no_workspace_disk_sessions() const {
+    // 目录清单只在索引还没补建时才需要;无工作区会话每个一个目录,列一遍不便宜。
+    return list_archived_no_workspace_session_metadata(
+        projects_dir(), [cache_root = no_workspace_cache_root()] {
+            std::vector<std::string> dirs;
+            for (const auto& cwd : list_no_workspace_session_cwds(cache_root)) {
+                dirs.push_back(SessionStorage::get_project_dir(cwd));
+            }
+            return dirs;
+        });
 }
 
 // 旧实现对每个工作区各调一次 sessions_for_workspace(include_no_workspace=true):

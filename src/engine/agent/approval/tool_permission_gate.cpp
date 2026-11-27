@@ -12,6 +12,7 @@
 #include "hooks/hook_manager.hpp"
 #include "hooks/hook_runtime.hpp"
 #include "llm/tool_protocol_names.hpp"
+#include "permissions/auto_review_prompt.hpp"
 #include "permissions/interaction_mode.hpp"
 #include "permissions/shell_write_guard.hpp"
 #include "prompt/prompt_environment.hpp"
@@ -132,11 +133,19 @@ PermissionVerdict ToolPermissionGate::decide(
                         return session->is_plan_file_path(target);
                     });
     bool auto_allow = true;
+    // 自动模式（试验）(openspec add-auto-review-mode D3):命中配置 Deny 规则、bash 的
+    // prompt 规则、危险路径写入、进出计划模式,这几类只能由用户本人确认,不交给
+    // 裁决模型。其它模式不读这个标记。
+    bool human_only = false;
     for (const auto& rule_path : rule_paths) {
         if (!permissions_.should_auto_allow(
                 effective_tc.function_name,
                 tools_.is_read_only(effective_tc.function_name), rule_path, ctx_command)) {
             auto_allow = false;
+            if (permissions_.matched_rule(effective_tc.function_name, rule_path, ctx_command) ==
+                RuleAction::Deny) {
+                human_only = true;
+            }
         }
     }
     if (permissions_.mode() == PermissionMode::Plan) {
@@ -148,6 +157,10 @@ PermissionVerdict ToolPermissionGate::decide(
         auto_allow = true;
     }
     if (exec_permission) auto_allow = exec_permission->decision.verdict == sandbox::ExecVerdict::Allow;
+    if (exec_permission && exec_permission->decision.reason == "rule_prompt") human_only = true;
+    if (effective_tc.function_name == "ExitPlanMode" || effective_tc.function_name == "EnterPlanMode") {
+        human_only = true;
+    }
 
     // In Yolo, should_auto_allow() can only be false when an
     // explicit Deny rule matched. Preserve that safety rule as a
@@ -198,11 +211,15 @@ PermissionVerdict ToolPermissionGate::decide(
                 return ToolResult{"[Error] " + path_error, false};
             }
             if (!targets_active_plan_file &&
-                boundary_.is_dangerous_path(target) && auto_allow &&
+                boundary_.is_dangerous_path(target) &&
                 !permissions_.is_dangerous() &&
                 permissions_.mode() != PermissionMode::Yolo) {
-                LOG_INFO("Dangerous path detected, forcing confirmation: " + target);
-                auto_allow = false;
+                // 危险路径是写死的安全检查:即便本来就要确认,也标成只能问人。
+                human_only = true;
+                if (auto_allow) {
+                    LOG_INFO("Dangerous path detected, forcing confirmation: " + target);
+                    auto_allow = false;
+                }
             }
         }
     }
@@ -236,7 +253,10 @@ PermissionVerdict ToolPermissionGate::decide(
                        : std::string("mode_") + PermissionManager::mode_name(permissions_.mode()));
         }
     }
-    if (!auto_allow && goal_.unattended_active(session_manager_)) {
+    // 自动模式（试验）下 goal 回合也由裁决把关(D5),不走这条无条件放行;
+    // 那里同样保证不弹确认。
+    const bool review_mode = permissions_.mode() == PermissionMode::AutoReview;
+    if (!auto_allow && !review_mode && goal_.unattended_active(session_manager_)) {
         auto_allow = true;
         audit.record(security::kAuditDecisionAllow, security::kAuditSourceGoal, "unattended_goal");
         LOG_INFO("[goal] unattended auto-approve: " +
@@ -267,6 +287,19 @@ PermissionVerdict ToolPermissionGate::decide(
             auto_allow = true;
             permission_session.resolve("allow", "hook");
             audit.record(security::kAuditDecisionAllow, security::kAuditSourceHook, "hook_allowed");
+        }
+    }
+
+    // 自动模式（试验）:走到这里 = 规则与 hook 都没有结论。先交给裁决模型;它放行就
+    // 等同用户点了「允许一次」,拦下或无人可问时在这里直接结束。只有「有人值守且
+    // 需要人来定」才继续往下走到弹窗,review_note 是给确认框的说明。
+    nlohmann::json review_note;
+    bool review_limit_fallback = false;
+    if (!auto_allow && review_mode) {
+        if (auto finished = review_pending_call(
+                effective_tc, tool_index, emit_progress, exec_permission, human_only, audit,
+                permission_session, auto_allow, review_note, review_limit_fallback)) {
+            return *finished;
         }
     }
 
@@ -302,11 +335,12 @@ PermissionVerdict ToolPermissionGate::decide(
     }
 
     if (!auto_allow && confirmation_.available()) {
-        if (auto denied = confirmation_.confirm(
-                effective_tc, ctx_command, tool_index, emit_progress,
-                exec_permission, execution_context, audit, permission_session)) {
-            return *denied;
-        }
+        auto denied = confirmation_.confirm(
+            effective_tc, ctx_command, tool_index, emit_progress,
+            exec_permission, execution_context, audit, permission_session, review_note);
+        // 因拦截次数退回的弹窗,用户作了答(允许或拒绝)就重新计数。
+        if (review_limit_fallback) security_.review_denials().record_human_answer();
+        if (denied) return *denied;
         auto_allow = true;
     }
 

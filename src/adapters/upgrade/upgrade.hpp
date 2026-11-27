@@ -53,6 +53,8 @@ int run_upgrade_command(const AppConfig& config,
                         bool force = false,
                         UpgradeProgressCallback progress = {},
                         UpgradeCancelCheck cancel_check = {},
-                        DiagnosticLog* diagnostics = nullptr);
+                        DiagnosticLog* diagnostics = nullptr,
+                        // 非空时不找最新版,而是按 select_rollback_package 回滚到这个版本。
+                        const std::string& rollback_version = {});
 
 } // namespace acecode::upgrade

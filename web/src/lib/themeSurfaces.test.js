@@ -381,7 +381,7 @@ await run('home title and titlebar CSS scope overrides while preserving native c
   assert.match(styles, /\.ace-home-title\s*\{[^}]*color: var\(--ace-home-title-color, var\(--ace-fg\)\)/);
   assert.match(chat, /\? '我们该做什么？'\s*:\s*`我们该在 \$\{homeProjectName\} 中做什么？`/);
   assert.match(chat, /<h1 className="ace-home-title">\{homeProjectTitle\}<\/h1>/);
-  assert.match(sidebar, /<BrandLogo width="20" height="20" className="ace-brand-logo block shrink-0"/);
+  assert.doesNotMatch(sidebar, /<BrandLogo/);
   assert.match(provider, /return clearInstalledTheme;/);
   assert.match(styles, /:root\[data-color-theme="eva-01"\]:not\(\[data-theme-logo-color="custom"\]\) \.ace-brand-logo/);
   assert.match(styles, /\[data-theme-extend-to-titlebar="false"\] \.ace-app-shell\[data-home-wallpaper="true"\]::before \{ top: var\(--ace-topbar-height\); \}/);

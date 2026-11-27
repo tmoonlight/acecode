@@ -534,6 +534,13 @@ struct WebServerFixture {
     std::filesystem::path state_file_path;
     std::string cwd;
     std::string project_dir;
+    struct UpdateRollbackTargets {
+        std::mutex mu;
+        std::vector<std::string> versions;
+    };
+    // 每次升级任务调用替身时传入的回滚目标版本(普通升级记空串)。
+    std::shared_ptr<UpdateRollbackTargets> update_rollback_targets =
+        std::make_shared<UpdateRollbackTargets>();
 
     explicit WebServerFixture(
         bool register_default_workspace = true,
@@ -680,7 +687,22 @@ struct WebServerFixture {
         remote_web_proxy =
             std::make_unique<FakeRemoteWebProxyController>();
         wdeps.remote_web_proxy = remote_web_proxy.get();
-        wdeps.run_update_command = std::move(run_update_command);
+        if (run_update_command) {
+            // 测试里的升级替身沿用四参数写法;回滚目标版本记进 update_rollback_targets。
+            wdeps.run_update_command =
+                [runner = std::move(run_update_command), targets = update_rollback_targets](
+                    const acecode::AppConfig& config,
+                    acecode::upgrade::UpgradeProgressCallback publish,
+                    acecode::upgrade::UpgradeCancelCheck cancel_check,
+                    std::string* error,
+                    const std::string& rollback_version) {
+                    {
+                        std::lock_guard<std::mutex> lock(targets->mu);
+                        targets->versions.push_back(rollback_version);
+                    }
+                    return runner(config, std::move(publish), std::move(cancel_check), error);
+                };
+        }
         wdeps.run_opencode_import = std::move(run_opencode_import);
         wdeps.skill_registry = attach_skill_registry ? &skill_registry : nullptr;
         wdeps.dangerous = dangerous;
@@ -1812,14 +1834,12 @@ TEST(WebServerHttp, LoopManualRunRequiresAuthAndUsesScheduler) {
     EXPECT_EQ(cpr::Post(cpr::Url{fx.url("/api/loops/missing/run")}).status_code, 404);
     auto active = fx.loop_store->claim_now(created->id, now, "test-owner");
     ASSERT_TRUE(active.run);
-    auto busy = cpr::Post(cpr::Url{fx.url(route)});
-    EXPECT_EQ(busy.status_code, 409);
-    EXPECT_EQ(json::parse(busy.text)["error"], "LOOP_BUSY");
-    ASSERT_TRUE(fx.loop_store->interrupt_owner_runs("test-owner", now));
     auto accepted = cpr::Post(cpr::Url{fx.url(route)});
     ASSERT_EQ(accepted.status_code, 202) << accepted.text;
     EXPECT_EQ(json::parse(accepted.text)["loop_id"], created->id);
     const auto run_id = json::parse(accepted.text)["id"].get<std::string>();
+    EXPECT_NE(run_id, active.run->id);
+    ASSERT_TRUE(fx.loop_store->interrupt_owner_runs("test-owner", now));
     bool model_failed = false;
     for (int i = 0; i < 100 && !model_failed; ++i) {
         for (const auto& run : fx.loop_store->list_runs(created->id)) {
@@ -9688,6 +9708,34 @@ TEST(WebServerHttp, UiPreferencesSubagentAvatarStyleRoundTrips) {
     EXPECT_EQ(fx.cfg.web_ui.subagent_avatar_style, "geometric");
 }
 
+// 场景:在代码块或文件预览右上角切换代码明暗,前端把结果经外观偏好接口存进 daemon。
+// 期望:GET 默认返回 auto;单字段 PUT dark 只改这一项并落盘,之后改别的外观设置不会把它冲回;
+// 不认识的值或非字符串整笔 400,内存配置保持原值;还能改回 auto。
+TEST(WebServerHttp, UiPreferencesCodeThemeRoundTrips) {
+    WebServerFixture fx;
+    const auto url = cpr::Url{fx.url("/api/config/ui-preferences")};
+    const cpr::Header headers{{"Content-Type", "application/json"}};
+    EXPECT_EQ(json::parse(cpr::Get(url).text)["code_theme"], "auto");
+    auto dark = cpr::Put(url, headers, cpr::Body{R"({"code_theme":"dark"})"});
+    ASSERT_EQ(dark.status_code, 200) << dark.text;
+    EXPECT_EQ(json::parse(dark.text)["code_theme"], "dark");
+    EXPECT_EQ(fx.cfg.web_ui.code_theme, "dark");
+    auto other = cpr::Put(url, headers, cpr::Body{R"({"font_size":"large"})"});
+    ASSERT_EQ(other.status_code, 200) << other.text;
+    EXPECT_EQ(json::parse(other.text)["code_theme"], "dark");
+    EXPECT_EQ(acecode::load_config_from_path((fx.tmp_dir / "config.json").u8string()).web_ui.code_theme, "dark");
+    for (const char* body : {R"({"code_theme":"sepia"})", R"({"code_theme":false})",
+                             R"({"code_theme":"Light","font_size":"small"})"}) {
+        auto rejected = cpr::Put(url, headers, cpr::Body{body});
+        EXPECT_EQ(rejected.status_code, 400) << body << " " << rejected.text;
+    }
+    EXPECT_EQ(fx.cfg.web_ui.code_theme, "dark");
+    EXPECT_EQ(fx.cfg.web_ui.font_size, "large");
+    auto automatic = cpr::Put(url, headers, cpr::Body{R"({"code_theme":"auto"})"});
+    ASSERT_EQ(automatic.status_code, 200) << automatic.text;
+    EXPECT_EQ(fx.cfg.web_ui.code_theme, "auto");
+}
+
 // 场景:设置 > 常规 > 输入框 里关掉「显示预测消息」、把「后续消息处理方式」改成排队。
 // 期望:GET 默认返回预测开 + steer;单字段 PUT 只改那一项并落盘,之后改别的设置不会把它冲回默认;
 // 类型不对或不认识的值整笔 400,内存配置保持原值。
@@ -11990,6 +12038,103 @@ TEST(WebServerHttp, AutomaticUpdateConfigAndConsecutiveFailures) {
     ASSERT_EQ(repeated.status_code, 202);
     EXPECT_EQ(json::parse(repeated.text)["started"], false);
     EXPECT_EQ(calls->load(), 4);
+}
+
+// 场景:用户在升级弹窗的版本更新记录里点「回滚到此版本」。
+// 触发:清单里有最新版 999.0.0、2026-11-05 发布的 0.0.3、2026-10-30 发布的 0.0.2,
+//      自动更新开着;依次请求回滚到 0.0.2、带 automatic 的回滚、回滚到 v0.0.3。
+// 期望:/api/update/status 只给 0.0.3 标 rollback_available(0.0.2 早于 2026-11-01,
+//      999.0.0 比当前版本新);0.0.2 返回 409 ROLLBACK_UNAVAILABLE 且自动更新保持开启;
+//      automatic + rollback_version 是 400;回滚到 v0.0.3 先把自动更新关掉并落盘,
+//      任务带 rollback=true、target_version 取清单原文 0.0.3,升级替身收到回滚目标 0.0.3。
+TEST(WebServerHttp, PostUpdateStartRollsBackAndTurnsOffAutomaticUpdates) {
+    const std::string package_target = acecode::upgrade::manifest_target_for_platform(
+        acecode::upgrade::current_target());
+    const std::string sha(64, 'a');
+    const std::string manifest = R"({
+      "schema_version": 1,
+      "latest": "999.0.0",
+      "releases": [
+        {"version": "999.0.0", "published_at": "2026-11-20T08:00:00Z", "notes": "Newest.",
+         "packages": [{"target": ")" + package_target + R"(", "file": "new.zip", "sha256": ")" + sha + R"("}]},
+        {"version": "0.0.3", "published_at": "2026-11-05T08:00:00Z", "notes": "Eligible.",
+         "packages": [{"target": ")" + package_target + R"(", "file": "old3.zip", "sha256": ")" + sha + R"(", "size": 123}]},
+        {"version": "0.0.2", "published_at": "2026-10-30T08:00:00Z", "notes": "Too old.",
+         "packages": [{"target": ")" + package_target + R"(", "file": "old2.zip", "sha256": ")" + sha + R"("}]}
+      ]
+    })";
+    LocalUpdateServer update_server([manifest](httplib::Server& s) {
+        s.Get("/aceupdate.json", [manifest](const httplib::Request&, httplib::Response& res) {
+            res.set_content(manifest, "application/json");
+        });
+    });
+    auto calls = std::make_shared<std::atomic<int>>(0);
+    WebServerFixture fx(true, false, {}, true,
+        [calls](const acecode::AppConfig&, acecode::upgrade::UpgradeProgressCallback,
+                acecode::upgrade::UpgradeCancelCheck, std::string*) {
+            ++*calls;
+            return 0;
+        });
+    fx.cfg.upgrade.base_url = update_server.base_url();
+    fx.cfg.upgrade.auto_update = true;
+    auto start = [&](const std::string& body) {
+        return cpr::Post(cpr::Url{fx.url("/api/update/start")},
+                         cpr::Header{{"Content-Type", "application/json"}},
+                         cpr::Body{body});
+    };
+
+    const auto status_response = cpr::Get(cpr::Url{fx.url("/api/update/status")});
+    ASSERT_EQ(status_response.status_code, 200) << status_response.text;
+    std::map<std::string, bool> rollback_flags;
+    const auto status_body = json::parse(status_response.text);
+    for (const auto& release : status_body["releases"]) {
+        rollback_flags[release["version"].get<std::string>()] =
+            release["rollback_available"].get<bool>();
+    }
+    EXPECT_FALSE(rollback_flags["999.0.0"]);
+    EXPECT_TRUE(rollback_flags["0.0.3"]);
+    EXPECT_FALSE(rollback_flags["0.0.2"]);
+
+    const auto too_old = start(R"({"rollback_version":"0.0.2"})");
+    ASSERT_EQ(too_old.status_code, 409) << too_old.text;
+    EXPECT_EQ(json::parse(too_old.text)["error"], "ROLLBACK_UNAVAILABLE");
+    EXPECT_TRUE(fx.cfg.upgrade.auto_update);
+
+    const auto automatic = start(R"({"rollback_version":"0.0.3","automatic":true})");
+    EXPECT_EQ(automatic.status_code, 400) << automatic.text;
+    // automatic 不是布尔值时也是 400,不能在校验前取值抛异常变成 500。
+    const auto malformed = start(R"({"rollback_version":"0.0.3","automatic":"yes"})");
+    EXPECT_EQ(malformed.status_code, 400) << malformed.text;
+    EXPECT_EQ(calls->load(), 0);
+
+    const auto rollback = start(R"({"rollback_version":"v0.0.3"})");
+    ASSERT_EQ(rollback.status_code, 202) << rollback.text;
+    const auto started = json::parse(rollback.text);
+    EXPECT_EQ(started["rollback"], true);
+    EXPECT_EQ(started["target_version"], "0.0.3");
+    EXPECT_EQ(started["bytes_total"], 123);
+    EXPECT_FALSE(fx.cfg.upgrade.auto_update);
+    EXPECT_FALSE(json::parse(cpr::Get(cpr::Url{fx.url("/api/config/upgrade")}).text)
+                     ["auto_update"].get<bool>());
+    {
+        std::ifstream ifs(fx.tmp_dir / "config.json");
+        ASSERT_TRUE(ifs.is_open());
+        const auto saved = json::parse(ifs);
+        EXPECT_FALSE(saved.contains("upgrade") && saved["upgrade"].value("auto_update", false));
+    }
+
+    json job;
+    for (int i = 0; i < 200; ++i) {
+        job = json::parse(cpr::Get(cpr::Url{fx.url("/api/update/job")}).text);
+        if (job["state"] == "succeeded" || job["state"] == "failed") break;
+        std::this_thread::sleep_for(5ms);
+    }
+    EXPECT_EQ(job["state"], "succeeded");
+    EXPECT_EQ(job["rollback"], true);
+    EXPECT_EQ(calls->load(), 1);
+    std::lock_guard<std::mutex> lock(fx.update_rollback_targets->mu);
+    EXPECT_EQ(fx.update_rollback_targets->versions,
+              std::vector<std::string>{"0.0.3"});
 }
 
 TEST(WebServerHttp, UpdatePrecheckFailureIncludesReasonAndPersistentLog) {

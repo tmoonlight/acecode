@@ -50,6 +50,8 @@ struct RequestContextOptions {
     SkillUsageStore* skill_usage = nullptr; // nullable, borrowed for this call
     int skill_idle_days = 30;
     std::string plan_context;
+    // 自动模式（试验）打开期间给主模型的说明;其它模式为空(openspec add-auto-review-mode D10)。
+    std::string auto_review_context;
     std::vector<TodoItem> todos;
 };
 
@@ -72,6 +74,7 @@ struct RequestBuildInputs {
     std::string swarm_context;
     std::string hook_context;
     std::string plan_context;
+    std::string auto_review_context;
     std::string execution_context;
     std::vector<TodoItem> todos;
 };

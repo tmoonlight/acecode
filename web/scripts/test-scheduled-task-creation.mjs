@@ -25,17 +25,22 @@ import {api} from '/src/lib/api.js';
 import '/src/styles/globals.css';
 const tasks=[];
 window.mutations=[];window.submissions=0;
-window.runCalls=0;const runs=[];
+window.runRequests=[];window.runHistoryReads=0;window.openedRunSessions=[];
+const runs=[];
+window.recordRun=(index,status)=>{
+ const request=window.runRequests[index];
+ const run={id:'manual-'+index,loop_id:request.id,status,scheduled_at_ms:Date.now(),session_id:'run-session-'+index};
+ tasks.find(t=>t.id===request.id).latest_run=run;
+ runs.unshift(run);
+ request.run=run;
+};
 Object.assign(api,{
  listLoops:async()=>({loops:[...tasks]}),listWorkspaces:async()=>[],
  listModels:async()=>({models:[{name:'test-model'}]}),getDefaultModel:async()=>({name:'test-model'}),
  createLoop:async(body)=>{window.mutations.push(body);const task={...body,id:'created',next_run_at_ms:Date.now()+3600000};tasks.push(task);return task;},
- listLoopRuns:async()=>({runs}),
+ listLoopRuns:async()=>{window.runHistoryReads++;return {runs:[...runs]};},
  setLoopEnabled:async(id,enabled)=>{const task=tasks.find(t=>t.id===id);task.enabled=enabled;return {...task};},
- runLoopNow:async(id)=>{window.runCalls++;return new Promise((resolve,reject)=>{
-  window.failRun=()=>reject({body:{error:'WORKSPACE_BUSY'}});
-  window.acceptRun=()=>{const run={id:'manual-1',loop_id:id,status:'running',scheduled_at_ms:Date.now(),session_id:'run-session'};tasks.find(t=>t.id===id).latest_run=run;runs.unshift(run);resolve(run);};
- });},
+ runLoopNow:async(id)=>new Promise((resolve,reject)=>window.runRequests.push({id,resolve,reject})),
 });
 const commands=commandsWithFallback({skills:[{name:'scheduled-task',description:'创建定时任务'}]});
 function Fixture(){
@@ -51,7 +56,7 @@ function Fixture(){
     <RichComposer value={text} onChange={setText} commands={commands} aria-label="任务内容" className="min-h-[96px] text-[14px]" onSubmit={()=>window.submissions++}/>
     <MarkdownWysiwygEditor value={markdown} onChange={setMarkdown}/>
    </div>
-  </section>:<LoopPage onSmartAdd={smart} onOpenSession={()=>{}}/>}
+  </section>:<LoopPage onSmartAdd={smart} onOpenSession={run=>window.openedRunSessions.push(run.session_id)}/>}
  <Toaster/></main>;
 }
 createRoot(document.getElementById('root')).render(<Fixture/>);
@@ -112,18 +117,36 @@ try {
   const play = page.getByRole('button', { name: '立即运行：Browser reminder', exact: true });
   const scheduleBefore = await page.locator('article').innerText();
   await play.click();
-  assert.equal(await play.isDisabled(), true);
-  await play.evaluate(el => el.click());
-  assert.equal(await page.evaluate(() => window.runCalls), 1);
-  await page.evaluate(() => window.failRun());
-  await page.getByText('该工作空间已有定时任务正在运行', { exact: true }).waitFor();
-  await page.waitForFunction(() => !document.querySelector('button[title="立即运行"]').disabled);
   await play.click();
-  await page.evaluate(() => window.acceptRun());
-  await page.getByText('执行中', { exact: true }).first().waitFor();
-  assert.equal(await play.isDisabled(), true);
+  assert.equal(await page.evaluate(() => window.runRequests.length), 2);
+  await page.evaluate(() => {
+    window.recordRun(0, 'running');
+    window.recordRun(1, 'waiting_user');
+    window.runRequests[1].resolve(window.runRequests[1].run);
+  });
+  const recentRun = page.getByText('最近运行：', { exact: true }).locator('..');
+  await recentRun.getByText('等待用户', { exact: true }).waitFor();
+  await play.click();
+  const reads = await page.evaluate(() => {
+    window.runRequests[0].resolve(window.runRequests[0].run);
+    return window.runHistoryReads;
+  });
+  await page.waitForFunction(previous => window.runHistoryReads > previous, reads);
+  assert.match(await recentRun.innerText(), /等待用户/);
+  await page.getByRole('button', { name: /执行中/ }).click();
+  await page.getByRole('button', { name: /等待用户/ }).click();
+  assert.deepEqual(await page.evaluate(() => window.openedRunSessions), ['run-session-0', 'run-session-1']);
+  await page.evaluate(() => {
+    window.recordRun(2, 'running');
+    window.runRequests[2].resolve(window.runRequests[2].run);
+  });
+  await recentRun.getByText('执行中', { exact: true }).waitFor();
+  await play.click();
+  assert.equal(await page.evaluate(() => window.runRequests.length), 4);
+  await page.evaluate(() => window.runRequests[3].reject(new Error('后台暂不可用')));
+  await page.getByText('立即运行失败：后台暂不可用', { exact: true }).waitFor();
+  assert.equal(await play.isDisabled(), false);
   assert.equal(await page.getByRole('button', { name: '启用', exact: true }).count(), 1);
-  assert.equal(await page.evaluate(() => window.runCalls), 2);
   assert.match(scheduleBefore, /下次运行：—/);
   for (const [width,theme] of [[1280,'light'],[390,'dark']]) {
     await page.setViewportSize({width,height:800});
@@ -157,7 +180,7 @@ try {
   assert.match(await markdown.innerText(), /Original changed/);
   await page.screenshot({ path: path.join(output, 'smart-draft.png'), animations: 'disabled' });
   assert.deepEqual(errors, []);
-  console.log(JSON.stringify({ result: 'passed', output, checks: ['button order and SVG', 'light/dark at 1280/390', 'manual form and save', 'run now pending guard, busy error and retry', 'disabled schedule preserved and run history expanded', 'responsive task actions', 'Markdown custom undo/redo', 'keyboard smart entry', 'skill chip', 'exact editable unsent draft'], errors }));
+  console.log(JSON.stringify({ result: 'passed', output, checks: ['button order and SVG', 'light/dark at 1280/390', 'manual form and save', 'independent run requests, out-of-order responses and errors', 'disabled schedule preserved and run history expanded', 'responsive task actions', 'Markdown custom undo/redo', 'keyboard smart entry', 'skill chip', 'exact editable unsent draft'], errors }));
 } finally {
   if (errors.length) console.error(JSON.stringify({ errors }));
   await browser?.close();

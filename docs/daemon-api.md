@@ -444,6 +444,8 @@ download when nothing changed.
 | POST | `/api/config/computer-use/permissions` | explicitly request one macOS system permission |
 | GET | `/api/config/summary-generation` | read summary-model override and available models |
 | PUT | `/api/config/summary-generation` | save summary-model override for automatic session titles |
+| GET | `/api/config/auto-review` | read the reviewer model for Auto (experimental) mode |
+| PUT | `/api/config/auto-review` | save the reviewer model for Auto (experimental) mode |
 | PUT | `/api/config/image-generation` | save image generation settings and refresh the tool |
 | POST | `/api/config/image-generation/test` | explicitly generate one standard-quality test image |
 | GET | `/api/config/memory` | read memory settings (use memory, memory summarization, summary model) |
@@ -817,7 +819,10 @@ started.
 
 Returns `SessionSummary[]` for a workspace. Without `archived=1`, active and
 unarchived disk sessions are returned. With `archived=1`, only archived disk
-sessions are returned.
+sessions are returned; they come from the archived-session index
+(`<data_dir>/archived-sessions.json`, see
+[archived-session-index.md](archived-session-index.md)), so only the indexed
+metadata files are opened after the first listing of each directory.
 
 Listing reads session metadata only; it does not open JSONL transcripts to
 backfill legacy summary or count fields.
@@ -2539,7 +2544,9 @@ Body:
 {"mode":"yolo"}
 ```
 
-Canonical modes are `default`, `auto`, `plan`, and `yolo`. Legacy inputs
+Canonical modes are `default`, `auto`, `auto-review`, `plan`, and `yolo`
+(`auto-review` is the experimental mode in which a reviewer model decides calls
+that would otherwise prompt; see [auto-review-mode.md](auto-review-mode.md)). Legacy inputs
 `accept-edits` and `acceptEdits` normalize to `auto` in configuration, persisted
 session metadata, and responses. Switching to
 `yolo` also resolves any open permission prompt with allow. Returns the same
@@ -4178,7 +4185,8 @@ Returns:
   "theme_sounds": true,
   "subagent_avatar_style": "geometric",
   "follow_up_prompts": true,
-  "busy_send_mode": "steer"
+  "busy_send_mode": "steer",
+  "code_theme": "auto"
 }
 ```
 
@@ -4217,6 +4225,15 @@ send button) does while a turn is running: `steer` inserts the message into the
 running turn, `queue` sends it after the turn; Ctrl+Enter always does the other.
 Both are persisted and rejected with `400` when malformed; they are not part of
 the Desktop appearance bootstrap, so the client applies them after this GET.
+
+`code_theme` is the light/dark palette of code blocks and source file previews:
+`auto` (default) follows the interface's light/dark mode, `light` / `dark` is
+the switch in the corner of every code block and next to the file preview's
+`⋯` menu. The client clears it back to `auto` in the same write that changes
+`theme`, `color_theme`, or `theme_variant`; installed theme packages keep their
+own code colors and ignore it. It is persisted, included in the Desktop
+appearance bootstrap, and any other value is rejected with `400`; a config
+file without the key or holding an unknown value loads as `auto`.
 
 ### `PUT /api/config/ui-preferences`
 
@@ -4661,6 +4678,26 @@ summaries (which retain their own preferred-model setting).
 Disabling retains `model_name` and restores
 the previous title-resolution behavior, including the legacy override. This
 setting does not change the conversation model or disable automatic titles.
+
+### Auto (experimental) reviewer settings
+
+`GET /api/config/auto-review` returns `model_name` (a saved model name, or an
+empty string meaning "use the session's current model"), `configured` (whether
+that saved model still exists) and `models` (available `{name, provider, model}`
+records). No model credentials are included. Reads and writes require the normal
+API authentication and return `Cache-Control: no-store`.
+
+`PUT /api/config/auto-review` accepts an object containing only `model_name`
+(string). An empty string restores "use the session's current model". A newly
+submitted name that is not a saved model, and any other field or type, returns
+`400 BAD_REQUEST`; malformed JSON returns `400 BAD_JSON`; persistence failures
+return `500 PERSIST_FAILED` and leave the live configuration unchanged. A name
+saved earlier that has since been deleted can be written back unchanged.
+
+The value is read at every review, so a change applies to the next reviewed call
+in every session without a restart. With `configured: false` the reviewer falls
+back to the session's current model; there is no fallback chain to other saved
+models.
 
 ### Computer use settings
 
@@ -5201,6 +5238,13 @@ lists, hashes, and URLs are not duplicated into each entry. Legacy entries with
 missing notes are returned with `notes: ""`. `http_status` and `error` are
 included when present.
 
+Each release also carries `rollback_available`. It is `true` only when the
+release was published on or after 2026-11-01 (UTC date of `published_at`;
+entries without a date never qualify), its semantic version is strictly older
+than the running version, and the manifest publishes a package for this
+client's updater target with a safe file name and a lowercase 64-hex
+`sha256`. The WebUI shows 「回滚到此版本」 only on those rows.
+
 `status` can also be `up_to_date`, `no_compatible_package`, `invalid_config`,
 `unsupported_target`, `manifest_unavailable`, or `manifest_invalid`.
 `no_compatible_package` means the manifest contains a newer semantic version but
@@ -5250,6 +5294,23 @@ behavior. Jobs return `automatic` and `automatic_failures` (0–3). The latter
 counts consecutive automatic installation failures for the same target in the
 current daemon lifetime; successful installation or a new target resets it.
 Precheck and progress-query failures are not installation failures.
+
+The body `{"rollback_version":"1.0.33"}` (a leading `v` is accepted) starts a
+rollback job instead of an upgrade. The version is only matched against the
+manifest; the package URL, size, and checksum always come from the manifest
+entry. The request is rejected with `400 BAD_REQUEST` when the value is not a
+non-empty string or is combined with `"automatic":true`, and with
+`409 ROLLBACK_UNAVAILABLE` (top-level `log_path` plus the detailed `status`
+object) when the manifest cannot be read or that release does not have
+`rollback_available: true`. A rejected rollback leaves settings unchanged.
+Otherwise, before registering the job and under the same exclusive config lock,
+the daemon persists `upgrade.auto_update = false` so the old version is not
+upgraded again automatically; if that write fails it returns
+`500 PERSIST_FAILED` and starts nothing. The in-progress and pending-restart
+rules below apply unchanged. Rollback jobs report `rollback: true`, with
+`target_version` set to the manifest's version string; all jobs include the
+`rollback` field. Installation uses the same download, checksum, staging,
+version probe, backup and file-replacement path as an upgrade.
 
 The GUI keeps the startup check and then checks every independently randomized
 10–120 minutes regardless of this setting. Automatic check failures are silent
@@ -6103,8 +6164,25 @@ Optional fields only appear when the corresponding choice is available:
   sandbox, `default.sandboxed.rules` otherwise). It is absent for interpreters,
   `rm`, `sudo`, and other banned prefixes.
 
+- `auto_review` (`{why, reason}`) appears when Auto (experimental) mode falls
+  back to a prompt. `why` is `denial_limit` (the reviewer blocked this call after
+  the block limit was reached; `reason` is the reviewer's sentence) or
+  `no_verdict` (the review request failed, timed out or could not be read;
+  `reason` is a short cause such as `HTTP 429` or `timeout`). It can accompany a
+  request for any tool, not only `bash`; for other tools the `permission` object
+  holds this key alone.
+
 Clients that send `allow_scoped` or `allow_remember` for a request that did not
 offer them are treated as `allow` and `allow_session` respectively.
+
+In Auto (experimental) mode a call the reviewer blocks is not prompted. Its tool
+result fails with `metadata.auto_review`: `{blocked: true, reason, stage}` for a
+block (`stage` is `review_stage1` or `review_stage2`, `locked: true` is added when
+the block limit was reached with nobody to ask), `{locked: true}` for a call
+refused while locked, `{no_verdict: true, reason}` when no verdict was available
+and nobody could be asked, and `{needs_user: true}` for a call only the user may
+approve. While a review runs the session emits an `agent_progress` event with
+`phase: "permission_reviewing"`.
 
 Denied sandboxed runs return `metadata.sandbox_violation`
 (`{reason, path?, snippet}`) alongside `metadata.sandbox_denied`; `reason` is
@@ -6332,10 +6410,10 @@ Routes (all use the normal daemon auth and CORS rules):
 
 `POST /api/loops/:id/run` requires authentication and accepts an empty JSON object.
 It preserves the schedule, next scheduled time and enabled state, including for disabled
-or expired tasks. The scheduler owns execution and records it in the usual run history.
-An active execution of the same task returns `409 LOOP_BUSY`; another active scheduled
-task in the same workspace returns `409 WORKSPACE_BUSY`. Missing tasks return `404`,
-an unavailable scheduler returns `503` (or `501` when unsupported by the server).
+or expired tasks. Each accepted request records a separate run and starts a new
+execution session, including when the task or workspace has an active run or
+multiple requests arrive in the same millisecond. Missing tasks return `404`.
+An unavailable scheduler returns `503` (or `501` when unsupported by the server).
 
 Each item returned by `GET /api/loops` includes a nullable `latest_run` field.
 When present, it is the newest run-history object for that LOOP, including its

@@ -280,6 +280,25 @@
   --ace-shadow-lg:    0 4px 12px rgba(0, 0, 0, .44);
 }
 
+/* 代码明暗(theme.jsx 写 <html data-code-theme>,规则见 lib/codeTheme.js):上面各主题块里的
+ * --ace-code-* 是深色代码配色,浅色时换成 VS Code 默认浅色主题的编辑器配色。
+ * 放在所有主题块之后:与橙色深色块同优先级,靠先后顺序胜出。已安装的主题包把代码
+ * 配色写在根元素内联样式上,不受这里影响(这类主题也不显示切换按钮)。 */
+:root[data-code-theme="light"]:not([data-installed-theme]) {
+  --ace-code-bg:      #ffffff;
+  --ace-code-bg-rgb:  255, 255, 255;
+  --ace-code-fg:      #3b3b3b;
+  --ace-code-fg-rgb:  59, 59, 59;
+  --ace-code-line:    #6e7681;
+}
+/* 手动切换代码明暗那一下不走全局颜色过渡,直接换。 */
+:root[data-code-theme-switching],
+:root[data-code-theme-switching] *,
+:root[data-code-theme-switching] *::before,
+:root[data-code-theme-switching] *::after {
+  transition: none !important;
+}
+
 .ace-theme-preview-blue {
   --ace-theme-preview-bg: #f5f5f2;
   --ace-theme-preview-surface: #ffffff;
@@ -3596,6 +3615,86 @@ body {
 [data-theme="dark"] .ace-inline-visual-frame {
   color-scheme: dark;
 }
+/* 加载动画:生成到定稿脚本跑完之前盖在框上,几团柔和的色块缓慢漂移;颜色取当前主题,
+   浅色是浅灰底配深一点的灰,深色是抬亮的灰底配接近页面底色的暗团。只动 transform。
+   暂时不跟随「减少动态效果」:远程桌面常把它报成开启,静止的色块看起来像卡住了。 */
+.ace-inline-visual-stage {
+  position: relative;
+  isolation: isolate;
+  min-height: 0;
+  transition: min-height 0.45s ease;
+}
+.ace-inline-visual-stage[data-loading="loading"] {
+  min-height: 180px;
+}
+.ace-inline-visual-loading {
+  --ace-inline-visual-loading-base:
+    linear-gradient(rgba(var(--ace-fg-rgb), 0.05), rgba(var(--ace-fg-rgb), 0.05)) var(--ace-surface-hi);
+  --ace-inline-visual-loading-shade: rgba(var(--ace-fg-rgb), 0.2);
+  --ace-inline-visual-loading-light: rgba(var(--ace-surface-rgb), 0.85);
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  overflow: hidden;
+  border-radius: 14px;
+  background: var(--ace-inline-visual-loading-base);
+  box-shadow: inset 0 0 18px 0 var(--ace-inline-visual-loading-light);
+  pointer-events: none;
+  transition: opacity 0.45s ease;
+}
+[data-theme="dark"] .ace-inline-visual-loading {
+  --ace-inline-visual-loading-base:
+    linear-gradient(rgba(var(--ace-fg-rgb), 0.13), rgba(var(--ace-fg-rgb), 0.13)) var(--ace-surface-hi);
+  --ace-inline-visual-loading-shade: rgba(var(--ace-bg-rgb), 0.82);
+  --ace-inline-visual-loading-light: rgba(var(--ace-fg-rgb), 0.1);
+}
+.ace-inline-visual-stage[data-loading="revealing"] .ace-inline-visual-loading {
+  opacity: 0;
+}
+.ace-inline-visual-loading > span {
+  position: absolute;
+  width: 62%;
+  height: 120%;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, var(--ace-inline-visual-loading-shade), transparent);
+  will-change: transform;
+  animation: ace-inline-visual-drift-a 7s ease-in-out infinite alternate;
+}
+.ace-inline-visual-loading > span:nth-child(1) {
+  left: -14%;
+  top: 10%;
+}
+.ace-inline-visual-loading > span:nth-child(2) {
+  right: -16%;
+  top: -42%;
+  animation-name: ace-inline-visual-drift-b;
+  animation-duration: 9s;
+  animation-delay: -3s;
+}
+.ace-inline-visual-loading > span:nth-child(3) {
+  left: 24%;
+  bottom: -58%;
+  width: 56%;
+  background: radial-gradient(closest-side, var(--ace-inline-visual-loading-light), transparent);
+  animation-name: ace-inline-visual-drift-c;
+  animation-duration: 11s;
+  animation-delay: -5s;
+}
+@keyframes ace-inline-visual-drift-a {
+  0% { transform: translate(0, 0) scale(1); }
+  50% { transform: translate(38%, -14%) scale(1.18); }
+  100% { transform: translate(14%, 18%) scale(0.92); }
+}
+@keyframes ace-inline-visual-drift-b {
+  0% { transform: translate(0, 0) scale(1.05); }
+  50% { transform: translate(-34%, 26%) scale(0.9); }
+  100% { transform: translate(-10%, 40%) scale(1.15); }
+}
+@keyframes ace-inline-visual-drift-c {
+  0% { transform: translate(0, 0) scale(1); }
+  50% { transform: translate(-30%, -30%) scale(1.2); }
+  100% { transform: translate(26%, -44%) scale(0.95); }
+}
 .ace-inline-visual .ace-inline-visual-copy {
   opacity: 0;
 }
@@ -3647,6 +3746,12 @@ body {
   top: auto;
   right: auto;
   z-index: auto;
+}
+/* 复制按钮左边再放一个按钮时,右上角让出两个按钮的宽度。 */
+.ace-copyable-code[data-code-action-count="2"] > [data-tool-detail-metadata="true"],
+.ace-copyable-code[data-code-action-count="2"] > .ace-skill-document-md,
+.ace-copyable-code[data-code-action-count="2"] > pre {
+  padding-right: 76px;
 }
 .ace-code-copy-btn,
 .ace-code-action-btn {
@@ -3708,6 +3813,23 @@ body {
   background: rgba(var(--ace-surface-hi-rgb), 0.86);
   border-color: rgba(var(--ace-border-rgb), 0.82);
   color: var(--ace-fg);
+}
+/* 代码明暗切换按钮:图标是切换后的样子(深色代码显示太阳,浅色代码显示月亮)。
+   主题包自带代码配色,不提供切换。 */
+:root[data-code-theme="dark"] .ace-code-theme-icon-dark,
+:root:not([data-code-theme="dark"]) .ace-code-theme-icon-light,
+:root[data-installed-theme] .ace-code-theme-btn {
+  display: none;
+}
+.ace-copyable-code:has(> .ace-code-actions > .ace-code-theme-btn) > pre {
+  padding-right: 72px;
+}
+:root[data-installed-theme] .ace-copyable-code:has(> .ace-code-actions > .ace-code-theme-btn) > pre {
+  padding-right: 46px;
+}
+/* 浅色代码块落在白色界面上时用一圈细线收住边界(inset 阴影不占布局,切换明暗不跳版)。 */
+:root[data-code-theme="light"]:not([data-installed-theme]) :is(.ace-md pre, .ace-inline-visual-source) {
+  box-shadow: inset 0 0 0 1px var(--ace-border);
 }
 .ace-md code {
   background: var(--ace-surface-hi);
@@ -3777,15 +3899,18 @@ a.ace-thread-link:focus-visible {
   min-width: 0;
 }
 .ace-completion-summary-md > :first-child,
-.ace-task-complete-md > :first-child {
+.ace-task-complete-md > :first-child,
+.ace-skill-document-md > :first-child {
   margin-top: 0;
 }
 .ace-completion-summary-md > :last-child,
-.ace-task-complete-md > :last-child {
+.ace-task-complete-md > :last-child,
+.ace-skill-document-md > :last-child {
   margin-bottom: 0;
 }
 .ace-completion-summary-md pre,
-.ace-task-complete-md pre {
+.ace-task-complete-md pre,
+.ace-skill-document-md pre {
   font-size: 12px;
 }
 
@@ -3794,9 +3919,9 @@ a.ace-thread-link:focus-visible {
   transition: background-color .25s ease, border-color .25s ease, color .2s ease;
 }
 
-/* highlight.js 主题:代码块背景在 light/dark 两种模式下都是深色(--ace-code-bg),
- * 所以统一选用 github-dark 的 token 配色;暗色模式由下面 [data-theme="dark"] 的
- * dracula override 接管。 */
+/* highlight.js 主题:深色代码在浅色界面里用 github-dark 的 token 配色(全局引入),
+ * 深色界面由下面 [data-theme="dark"] 的 dracula override 接管;浅色代码
+ * ([data-code-theme="light"])用再下面的 VS Code 浅色配色。 */
 @import 'highlight.js/styles/github-dark.css';
 
 [data-theme="dark"] .hljs {
@@ -3824,6 +3949,57 @@ a.ace-thread-link:focus-visible {
 [data-theme="dark"] .hljs-meta         { color: #ff79c6; }
 [data-theme="dark"] .hljs-deletion     { color: #ff5555; background: rgba(255,85,85,.1); }
 [data-theme="dark"] .hljs-addition     { color: #50fa7b; background: rgba(80,250,123,.1); }
+
+/* 浅色代码:取 VS Code 默认浅色主题(Light+ / Light Modern)的 token 配色。github-dark.css
+ * 和上面 dracula 段给过颜色的每个 class 这里都要覆盖,漏一个就是白底浅字
+ * (codeThemeArchitecture.test.js 守着)。写文件工具卡片(.ace-tool-created-code)
+ * 画在界面底色上,跟界面明暗走,不受代码明暗影响。 */
+:root[data-code-theme="light"] .hljs:not(.ace-tool-created-code *) {
+  background: var(--ace-code-bg) !important;
+  color: var(--ace-code-fg) !important;
+}
+:root[data-theme="dark"][data-code-theme="light"] .ace-tool-created-code .hljs {
+  color: var(--ace-fg) !important;
+}
+:root[data-code-theme="light"] :is(.hljs-comment, .hljs-quote, .hljs-code, .hljs-formula):not(.ace-tool-created-code *) {
+  color: #008000;
+  font-style: normal;
+}
+:root[data-code-theme="light"] :is(.hljs-keyword, .hljs-doctag, .hljs-template-tag, .hljs-literal, .hljs-meta, .hljs-variable.language_):not(.ace-tool-created-code *) {
+  color: #0000ff;
+}
+:root[data-code-theme="light"] :is(.hljs-title, .hljs-title.function_, .hljs-built_in):not(.ace-tool-created-code *) {
+  color: #795e26;
+}
+:root[data-code-theme="light"] :is(.hljs-type, .hljs-title.class_, .hljs-title.class_.inherited__):not(.ace-tool-created-code *) {
+  color: #267f99;
+}
+:root[data-code-theme="light"] :is(.hljs-string, .hljs-meta .hljs-string):not(.ace-tool-created-code *) {
+  color: #a31515;
+}
+:root[data-code-theme="light"] .hljs-regexp:not(.ace-tool-created-code *) { color: #811f3f; }
+:root[data-code-theme="light"] .hljs-number:not(.ace-tool-created-code *) { color: #098658; }
+:root[data-code-theme="light"] .hljs-char.escape_:not(.ace-tool-created-code *) { color: #ee0000; }
+:root[data-code-theme="light"] :is(.hljs-variable, .hljs-template-variable, .hljs-property, .hljs-params):not(.ace-tool-created-code *) {
+  color: #001080;
+}
+/* JSON / YAML 的键;HTML 标签里的属性名单独在下面改回红色。 */
+:root[data-code-theme="light"] :is(.hljs-attr, .hljs-symbol, .hljs-bullet, .hljs-link):not(.ace-tool-created-code *) {
+  color: #0451a5;
+}
+:root[data-code-theme="light"] :is(.hljs-attribute, .hljs-tag .hljs-attr, .hljs-selector-attr):not(.ace-tool-created-code *) {
+  color: #e50000;
+}
+:root[data-code-theme="light"] :is(.hljs-tag, .hljs-name, .hljs-section, .hljs-selector-tag, .hljs-selector-id, .hljs-selector-class, .hljs-selector-pseudo):not(.ace-tool-created-code *) {
+  color: #800000;
+}
+:root[data-code-theme="light"] .hljs-tag .hljs-string:not(.ace-tool-created-code *) { color: #0000ff; }
+:root[data-code-theme="light"] :is(.hljs-operator, .hljs-punctuation, .hljs-subst, .hljs-emphasis, .hljs-strong):not(.ace-tool-created-code *) {
+  color: var(--ace-code-fg);
+}
+:root[data-code-theme="light"] .hljs-section:not(.ace-tool-created-code *) { font-weight: bold; }
+:root[data-code-theme="light"] .hljs-addition:not(.ace-tool-created-code *) { color: #098658; background: #e6ffec; }
+:root[data-code-theme="light"] .hljs-deletion:not(.ace-tool-created-code *) { color: #a31515; background: #ffebe9; }
 
 /* hljs 的 background 在 ace-md pre 已经控制,统一覆盖避免双背景闪烁 */
 .ace-md pre.hljs,
@@ -7948,6 +8124,13 @@ a.ace-thread-link:focus-visible {
   vertical-align: top;
   white-space: nowrap;
   border-right: 1px solid rgba(var(--ace-fg-mute-rgb), 0.12);
+}
+/* 浅色代码的行号用 VS Code 浅色主题的行号色,不再借界面的弱化字色(深色界面里会太淡)。 */
+:root[data-code-theme="light"]:not([data-installed-theme]) tr:not(.ace-line-focus) > .ace-line-no {
+  color: var(--ace-code-line);
+}
+:root[data-code-theme="light"]:not([data-installed-theme]) .ace-line-no {
+  border-right-color: rgba(var(--ace-code-fg-rgb), 0.12);
 }
 .ace-line-code {
   padding: 0 12px 0 10px;

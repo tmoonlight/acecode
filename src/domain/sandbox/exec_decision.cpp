@@ -15,6 +15,9 @@ SandboxMode mode_sandbox(PermissionMode mode, bool sandbox_available) {
     if (!sandbox_available) return SandboxMode::FullAccess;
     switch (mode) {
         case PermissionMode::Auto:    return SandboxMode::WorkspaceWrite;
+        // 自动模式（试验）与 Auto 同表。必须显式列出:下面的兜底是完整访问,
+        // 漏掉这一行会让新模式在沙盒可用时也不进沙盒。
+        case PermissionMode::AutoReview: return SandboxMode::WorkspaceWrite;
         case PermissionMode::Default: return SandboxMode::ReadOnly;
         case PermissionMode::Plan:    return SandboxMode::ReadOnly;
         case PermissionMode::Yolo:    return SandboxMode::FullAccess;
@@ -48,7 +51,11 @@ ExecDecision make(ExecVerdict v, SandboxMode s, const char* reason) {
 
 } // namespace
 
-ExecDecision decide_exec(const ExecDecisionInput& in) {
+ExecDecision decide_exec(const ExecDecisionInput& input) {
+    // 自动模式（试验）沿用 Auto 的整张决策表(openspec add-auto-review-mode D2)。
+    // 在入口归一一次,下面所有 `in.mode == Auto` 的分支与辅助函数不必各自改。
+    ExecDecisionInput in = input;
+    if (in.mode == PermissionMode::AutoReview) in.mode = PermissionMode::Auto;
     const bool additional_pending = in.additional_requested && !in.additional_covered;
     // 1. forbidden 规则对任何模式都生效,包括 --dangerous。
     if (in.rule == RuleDecision::Forbidden) {

@@ -495,23 +495,20 @@ std::vector<std::string> validate_config(const AppConfig& cfg) {
     if (cfg.web.bind.empty()) {
         errors.push_back("web.bind is empty; expected an IP address (e.g. 127.0.0.1)");
     }
-    if (!is_valid_web_ui_theme(cfg.web_ui.theme)) {
+    if (!is_valid_web_ui_theme(cfg.web_ui.theme))
         errors.push_back("web_ui.theme must be one of: system, light, dark");
-    }
-    if (!is_valid_web_ui_color_theme(cfg.web_ui.color_theme)) {
+    if (!is_valid_web_ui_color_theme(cfg.web_ui.color_theme))
         errors.push_back("web_ui.color_theme must be blue, orange, eva-01, national-day-2026, or a valid ai- theme ID");
-    }
-    if (!is_valid_web_ui_font_size(cfg.web_ui.font_size)) {
+    if (!is_valid_web_ui_font_size(cfg.web_ui.font_size))
         errors.push_back("web_ui.font_size must be one of: small, medium, large");
-    }
-    if (!is_valid_web_ui_subagent_avatar_style(cfg.web_ui.subagent_avatar_style)) {
+    if (!is_valid_web_ui_subagent_avatar_style(cfg.web_ui.subagent_avatar_style))
         errors.push_back("web_ui.subagent_avatar_style must be one of: geometric, pixel");
-    }
     if (!is_valid_web_ui_busy_send_mode(cfg.web_ui.busy_send_mode))
         errors.push_back("web_ui.busy_send_mode must be one of: steer, queue");
-    if (!is_valid_web_ui_theme_variant(cfg.web_ui.theme_variant)) {
+    if (!is_valid_web_ui_code_theme(cfg.web_ui.code_theme))
+        errors.push_back("web_ui.code_theme must be one of: auto, light, dark");
+    if (!is_valid_web_ui_theme_variant(cfg.web_ui.theme_variant))
         errors.push_back("web_ui.theme_variant must be empty or a lowercase variant ID");
-    }
     if (cfg.web.remote_port < 0 || cfg.web.remote_port > 65535) {
         errors.push_back(
             "web.remote_port out of range (0-65535): " +
@@ -1138,6 +1135,9 @@ static AppConfig load_config_from_path_once(
                     if (uij.contains("busy_send_mode") && uij["busy_send_mode"].is_string() &&
                         is_valid_web_ui_busy_send_mode(uij["busy_send_mode"].get<std::string>()))
                         cfg.web_ui.busy_send_mode = uij["busy_send_mode"].get<std::string>();
+                    if (uij.contains("code_theme") && uij["code_theme"].is_string() &&
+                        is_valid_web_ui_code_theme(uij["code_theme"].get<std::string>()))
+                        cfg.web_ui.code_theme = uij["code_theme"].get<std::string>();
                 }
             }
             if (j.contains("models_dev") && j["models_dev"].is_object()) {
@@ -1753,7 +1753,7 @@ static AppConfig load_config_from_path_once(
                 cfg.summary_generation.enabled = summary.value("enabled", false);
                 cfg.summary_generation.model_name = summary.value("model_name", std::string{});
             }
-
+            read_auto_review_config(j, cfg.auto_review);
             if (j.contains("session_title")) {
                 if (!j["session_title"].is_object()) {
                     LOG_WARN("[config] 'session_title' must be an object, ignoring");
@@ -2411,6 +2411,7 @@ nlohmann::json build_config_json(const AppConfig& cfg) {
             web_uij["follow_up_prompts"] = cfg.web_ui.follow_up_prompts;
         if (cfg.web_ui.busy_send_mode != web_ui_d.busy_send_mode)
             web_uij["busy_send_mode"] = cfg.web_ui.busy_send_mode;
+        if (cfg.web_ui.code_theme != web_ui_d.code_theme) web_uij["code_theme"] = cfg.web_ui.code_theme;
         if (!web_uij.empty()) j["web_ui"] = std::move(web_uij);
 
         if (auto memj = memory_config_to_json(cfg.memory); !memj.empty()) j["memory"] = std::move(memj);
@@ -2585,7 +2586,7 @@ nlohmann::json build_config_json(const AppConfig& cfg) {
         if (cfg.summary_generation.enabled) summary["enabled"] = true;
         if (!cfg.summary_generation.model_name.empty()) summary["model_name"] = cfg.summary_generation.model_name;
         if (!summary.empty()) j["summary_generation"] = std::move(summary);
-
+        write_auto_review_config(j, cfg.auto_review);
         SessionTitleConfig st_d;
         nlohmann::json stj = nlohmann::json::object();
         if (cfg.session_title.enabled != st_d.enabled)

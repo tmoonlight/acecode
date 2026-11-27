@@ -17,8 +17,10 @@ PermissionAuditScope::PermissionAuditScope(
                     : std::string{}) {}
 
 void PermissionAuditScope::record(
-    const std::string& decision, const std::string& source, const std::string& reason) {
+    const std::string& decision, const std::string& source, const std::string& reason,
+    const nlohmann::json& extra) {
     nlohmann::json detail = nlohmann::json::object();
+    if (extra.is_object()) detail.update(extra);
     detail["mode"] = PermissionManager::mode_name(permissions_.mode());
     if (targets_.size() > 1) detail["paths"] = targets_;
     if (exec_) {

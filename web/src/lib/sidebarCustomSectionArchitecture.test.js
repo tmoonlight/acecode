@@ -66,16 +66,16 @@ test('extension customizer uses the shared modal with checkable, draggable rows'
   assert.match(extensions, /<VsIcon name="GripVertical"/);
 });
 
-test('brand and settings live outside the scrolling task list, with extensions in primary navigation', () => {
+test('settings live outside the scrolling task list, with extensions in primary navigation and no brand header', () => {
   const sidebar = source('components/Sidebar.jsx');
   const topbar = source('components/TopBar.jsx');
   const tour = source('lib/desktopGuidedTour.js');
-  const brand = sidebar.indexOf('data-sidebar-brand="true"');
   const nav = sidebar.indexOf('className="ace-sidebar-fixed-nav');
   const extensions = sidebar.indexOf('<SidebarExtensions', nav);
   const taskList = sidebar.indexOf('className="ace-sidebar-scroll', nav);
   const settings = sidebar.indexOf('data-tour-target="sidebar-settings"');
-  assert.ok(brand > 0 && brand < nav && nav < extensions && extensions < taskList);
+  assert.ok(nav > 0 && nav < extensions && extensions < taskList);
+  assert.equal(sidebar.indexOf('data-sidebar-brand'), -1);
   assert.ok(settings > taskList);
   assert.match(tour, /settings: '\[data-tour-target="sidebar-settings"\]'/);
   assert.doesNotMatch(topbar, /acecode-logo\.png|topbar-settings/);

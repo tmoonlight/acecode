@@ -102,7 +102,7 @@ void validate(Command& command) {
                 auto mode = parse_permission_mode_name(argument);
                 if (!mode) mode = parse_permission_mode_name(lower(argument));
                 if (!mode || *mode == PermissionMode::Plan)
-                    command.error = "用法:/mode [default|auto|yolo](简写 /pm)。分别为默认权限、自动模式、完全访问权限。";
+                    command.error = "用法:/mode [default|auto|auto-review|yolo](简写 /pm)。分别为默认权限、自动模式、自动模式（试验）、完全访问权限。";
                 else
                     command.argument = permission_mode_name(*mode);
             }
@@ -232,7 +232,7 @@ std::string help(bool owner) {
         "/skills(/sk) [关键词|页码] 列出可用技能,发送 /技能名 使用\n"
         "【设置】\n"
         "/model(/m) [名称] 查看或切换模型\n"
-        "/mode(/pm) [default|auto|yolo] 查看或切换权限模式\n"
+        "/mode(/pm) [default|auto|auto-review|yolo] 查看或切换权限模式\n"
         "/yolo(/y) 切换到完全访问权限\n"
         "/effort(/e) [档位|default] 查看或切换思考深度\n"
         "/sandbox(/sb) [on|off] 查看或开关命令沙盒\n"

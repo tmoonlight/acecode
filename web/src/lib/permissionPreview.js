@@ -57,13 +57,23 @@ export function formatPermissionArgsPreview(args) {
   return truncatePermissionText(text);
 }
 
+// 自动模式（试验）退回弹窗的说明(permission.auto_review)由确认框单独显示,
+// 不是工具参数,不进参数预览。
+function withoutReviewNote(args) {
+  const permission = args && typeof args === 'object' && !Array.isArray(args) ? args.permission : null;
+  if (!permission || typeof permission !== 'object' || !('auto_review' in permission)) return args;
+  const { auto_review: _note, ...rest } = permission;
+  const { permission: _permission, ...others } = args;
+  return Object.keys(rest).length ? { ...others, permission: rest } : others;
+}
+
 export function buildPermissionPreview(request) {
   const tool = buildPermissionToolPreview(request?.tool, request?.args);
   if (tool.kind === 'command') {
     return { tool, ...truncatePermissionText(tool.command) };
   }
   if (tool.kind === 'json') {
-    return { tool, ...formatPermissionArgsPreview(request?.args) };
+    return { tool, ...formatPermissionArgsPreview(withoutReviewNote(request?.args)) };
   }
   return { tool, text: '', truncated: 0 };
 }
