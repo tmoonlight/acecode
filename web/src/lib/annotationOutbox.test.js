@@ -368,6 +368,18 @@ assert.match(chatView,
   /if \(annotationSubmitInFlightRef\.current\) return \{ ok: false, error: '批注正在发送' \};\s*annotationSubmitInFlightRef\.current = true;\s*try \{/,
   'a second trigger while an annotation send is in flight must not assemble another one');
 assert.match(chatView, /\} finally \{\s*annotationSubmitInFlightRef\.current = false;\s*\}/);
+
+// 触发场景：还有待发批注时输入 /compact、/model、/btw …，或按 Ctrl+Alt+Enter 分叉发送。
+// 期望行为：命令（或分叉）照常执行，不带批注，批注留在待发列表。
+// 回归表现：先上传整屏图，再提示「批注未发出，仍在待发列表里，可重试」，命令没有
+// 执行，重试也不会成功，用户必须先把批注发掉或删光才能用命令。
+assert.match(chatView,
+  /const annotationRoute = inputRouteForPayload\(\{\s*text: submissionText, composer_content: composerContentRef\.current,\s*\}\);\s*if \(sendMode === 'fork' \|\| annotationRoute\.kind !== 'message'\) \{\s*return \(await submit\(value, \{ sendMode \}\)\)/,
+  'commands and fork sends must run without assembling the pending annotations');
+assert.ok(
+  chatView.indexOf("annotationRoute.kind !== 'message'")
+    < chatView.indexOf('prepared = await prepareAnnotationSubmission('),
+  'the route check must come before any screenshot upload');
 assert.match(chatView,
   /annotationRetryRef\.current = \{ cacheKey: prepared\.cacheKey, prepared \};[\s\S]{0,200}if \(sidRef\.current !== targetSid\) \{/,
   'annotations prepared for one session must not be submitted into another');

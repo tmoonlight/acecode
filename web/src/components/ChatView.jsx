@@ -4183,10 +4183,19 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
       return (await submit(value, { sendMode })) || { ok: false, error: '发送失败' };
     }
     if (!targetSid) return { ok: false, error: '请先打开一个对话再发送批注' };
+    const submissionText = composerContentSubmissionText(composerContentRef.current) || value;
+    // 内置命令（/compact、/model、/btw 等）和分叉发送带不了批注。这类输入照常
+    // 执行，批注留在待发列表；否则会先上传整屏图、再报「批注未发出」，命令
+    // 本身也没执行，用户得先把批注发掉或删光才能用命令。
+    const annotationRoute = inputRouteForPayload({
+      text: submissionText, composer_content: composerContentRef.current,
+    });
+    if (sendMode === 'fork' || annotationRoute.kind !== 'message') {
+      return (await submit(value, { sendMode })) || { ok: false, error: '发送失败' };
+    }
     if (annotationSubmitInFlightRef.current) return { ok: false, error: '批注正在发送' };
     annotationSubmitInFlightRef.current = true;
     try {
-      const submissionText = composerContentSubmissionText(composerContentRef.current) || value;
       // 组装前输入框里的原文。上传期间用户接着打的字不属于这次发送,
       // 发送成功后的清理拿这份快照比对,不会把新打的字一起清掉。
       const submittedDraft = { text: composerValueRef.current, content: composerContentRef.current };
