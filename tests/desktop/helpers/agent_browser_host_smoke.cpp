@@ -11,6 +11,7 @@
 #endif
 #include <windows.h>
 #include <objbase.h>
+#include "test_support/desktop/agent_browser_capture_probe.hpp"
 
 #include <chrono>
 #include <cstdint>
@@ -521,6 +522,11 @@ int main() {
                             ? "CDP screenshot was not a valid PNG"
                             : agent_error));
                     } else {
+                        if (!acecode::desktop::capture_probe::run(client, agent_error)) {
+                            agent_exit_code.store(fail(agent_error));
+                            agent_done.store(true);
+                            return;
+                        }
                         client.select_page(
                             first_page, std::chrono::seconds(10), nullptr,
                             agent_error);

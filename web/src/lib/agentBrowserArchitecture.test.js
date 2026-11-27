@@ -21,6 +21,14 @@ function source(relativePath) {
   return fs.readFileSync(path.join(repoRoot, relativePath), 'utf8');
 }
 
+function browserStateSerializer() {
+  const desktop = readSingleCppSource('desktop/main.cpp');
+  assert.match(desktop, /#include "agent_browser_state_json\.hpp"/);
+  assert.match(desktop, /agent_browser_state_json\(state\)\.dump\(\)/);
+  assert.match(desktop, /pages\.push_back\(agent_browser_state_json\(state\)\)/);
+  return readSingleCppSource('desktop/agent_browser_state_json.cpp');
+}
+
 function run(name, fn) {
   try {
     fn();
@@ -68,7 +76,7 @@ run('native document titles and favicons reach tabs through the page registry, n
   assert.match(host, /agent_browser_favicon_expression/);
   assert.match(host, /Runtime\.evaluate/);
   assert.match(host, /favicon_generation/);
-  assert.match(desktop, /\{"favicon", state\.favicon\}/);
+  assert.match(browserStateSerializer(), /\{"favicon", state\.favicon\}/);
   assert.match(preview, /<BrowserTabIcon favicon=\{tab\.favicon\}/);
   assert.match(preview, /onError=\{\(\) => setFailed\(true\)\}/);
   // 标题 / 图标经登记表记录进入页签同步;登记表本身不看工具活动。
@@ -126,8 +134,8 @@ run('Agent Browser pages are owned by sessions across daemon, desktop host and W
   assert.match(tools, /client\.set_owner\(agent_browser_owner_from_context\(context\)\);/);
   assert.match(cdpClient, /if \(owner\.is_object\(\)\) request\["owner"\] = owner;/);
   // Desktop → Web:状态事件带 owner,ListPages 按会话对账,CreatePage 接 owner。
-  assert.match(desktop, /\{"owner", acecode::desktop::agent_browser_page_owner_json\(state\.owner\)\}/);
-  assert.match(desktop, /\{"agent_target", state\.agent_target\}/);
+  assert.match(browserStateSerializer(), /\{"owner", agent_browser_page_owner_json\(state\.owner\)\}/);
+  assert.match(browserStateSerializer(), /\{"agent_target", state\.agent_target\}/);
   assert.match(desktop, /aceDesktop_agentBrowserListPages/);
   assert.match(desktop, /agent_browser\.create_page\(&error, owner\)/);
   assert.match(bridge, /aceDesktop_agentBrowserListPages/);
@@ -169,7 +177,8 @@ run('Agent Browser collaboration chrome mirrors the VS Code page actions', () =>
   assert.match(host, /Runtime\.consoleAPICalled/);
   assert.match(host, /kAgentBrowserMaxConsoleEntries = 1000/);
   assert.match(host, /agent_browser_element_picker_expression/);
-  assert.match(host, /OpenDevToolsWindow/);
+  assert.match(host, /agent_browser_windows::open_developer_tools\(page->webview, error\)/);
+  assert.match(source('src/apps/desktop/agent_browser_native_commands_win.cpp'), /OpenDevToolsWindow/);
   assert.match(host, /page_not_shared_with_agent/);
   assert.match(desktop, /aceDesktop_agentBrowserSetShared/);
   assert.match(desktop, /aceDesktop_agentBrowserGetConsoleLogs/);
@@ -312,8 +321,8 @@ run('Agent Browser hides WebView2 blank and failure documents behind React surfa
     host,
     /page->state\.content_state\s*==\s*kAgentBrowserContentStateLive/,
   );
-  assert.match(desktop, /\{"content_state", state\.content_state\}/);
-  assert.match(desktop, /\{"failure_kind", state\.failure_kind\}/);
+  assert.match(browserStateSerializer(), /\{"content_state", state\.content_state\}/);
+  assert.match(browserStateSerializer(), /\{"failure_kind", state\.failure_kind\}/);
   assert.match(panel, /agentBrowserShowsNativePage\(state\)/);
   assert.match(panel, /data-browser-surface=\{surface\.kind\}/);
   assert.match(panel, /无法打开此页面|agentBrowserSurfacePresentation/);
@@ -342,7 +351,7 @@ run('macOS Agent Browser exposes NSError diagnostics and keeps system authentica
   const authHandler = macHost.slice(authStart, authEnd);
 
   assert.match(header, /std::string diagnostic/);
-  assert.match(desktop, /\{"diagnostic", state\.diagnostic\}/);
+  assert.match(browserStateSerializer(), /\{"diagnostic", state\.diagnostic\}/);
   assert.match(macHost, /native_error_details\(NSError\* error/);
   assert.match(macHost, /native_error_diagnostic\(NSError\* error\)/);
   assert.match(macHost, /"domain"/);
@@ -617,7 +626,14 @@ run('local overlays use declared blocking and overlap semantics', () => {
   const panel = source('web/src/components/AgentBrowserPanel.jsx');
   const coordinator = source('web/src/lib/agentBrowserSurfaceCoordinator.js');
 
-  assert.match(modal, /data-ace-native-overlay="blocking"/);
+  assert.match(modal, /nativeOverlayMode\s*=\s*'blocking'/);
+  assert.match(modal, /nativeOverlayInteraction\s*=\s*'blocking'/);
+  assert.match(modal, /overlapsNativeSurface\s*=\s*nativeOverlayMode\s*===\s*'overlap'/);
+  assert.match(modal, /backdropNativeOverlay\s*=\s*overlapsNativeSurface\s*\?\s*undefined\s*:\s*'blocking'/);
+  assert.match(modal, /backdropInteraction\s*=\s*overlapsNativeSurface\s*\?\s*nativeOverlayInteraction\s*:\s*undefined/);
+  assert.match(modal, /dialogNativeOverlay\s*=\s*overlapsNativeSurface\s*\?\s*'overlap'\s*:\s*undefined/);
+  assert.match(modal, /data-ace-native-interaction=\{backdropInteraction\}/);
+  assert.match(modal, /data-ace-native-overlay=\{dialogNativeOverlay\}/);
   assert.match(goalStatus, /function GoalEditModal[\s\S]*<Modal/);
   assert.match(queueCards, /function QueueCardEditDialog[\s\S]*<Modal/);
   assert.match(contextMenu, /data-ace-native-overlay="overlap"/);
@@ -631,14 +647,26 @@ run('local overlays use declared blocking and overlap semantics', () => {
   assert.match(contextMenu, /notifyNativeSurfaceOverlayChange/);
   assert.match(panel, /nativeSurfaceOverlayGeometryByDocument/);
   assert.match(panel, /nativeSurfaceOcclusionRectsFromClientRects/);
+  assert.match(panel, /nativeSurfaceInteractionBlockedByDocument/);
+  assert.match(panel, /desiredLayout\.interaction_blocked\s*=/);
   assert.match(panel, /supportsLocalOcclusion/);
   assert.match(panel, /nativeSurfaceSupportsLocalOcclusion/);
   assert.match(panel, /desiredLayout\.occlusion_rects/);
   assert.match(coordinator, /os === 'windows' \|\| os === 'macos'/);
   assert.match(coordinator, /\[role="menu"\]/);
   assert.match(coordinator, /NATIVE_SURFACE_IMPLICIT_OVERLAY_SELECTOR/);
+  assert.match(coordinator, /NATIVE_SURFACE_INTERACTION_SELECTOR/);
+  assert.match(coordinator, /data-ace-native-overlay-bleed/);
+  // Implicit menus/listboxes/tooltips keep one extra CSS pixel of bleed; the
+  // hole itself is snapped onto the WebUI raster so the outline survives.
+  assert.match(coordinator, /NATIVE_SURFACE_IMPLICIT_OVERLAY_BLEED = 1/);
+  assert.match(coordinator, /HOLE_FAR_EDGE_GUARD = 1/);
+  assert.match(coordinator, /element\?\.matches\?\.\(NATIVE_SURFACE_IMPLICIT_OVERLAY_SELECTOR\)/);
+  assert.match(coordinator, /interaction_blocked \? 1 : 0/);
   assert.match(panel, /NATIVE_SURFACE_OVERLAY_EVENT/);
   assert.match(panel, /new MutationObserver\(scheduleLayout\)/);
+  assert.match(panel, /'data-ace-native-interaction'/);
+  assert.match(panel, /'data-ace-native-overlay-bleed'/);
   assert.match(panel, /new IntersectionObserver\(scheduleLayout\)/);
   assert.match(panel, /window\.visualViewport/);
   assert.doesNotMatch(panel, /modalIsOpen|\.ace-desktop-context-menu/);
@@ -715,13 +743,22 @@ run('native Agent Browser layouts reject stale revisions and unsafe windows', ()
 
   assert.match(header, /std::uint64_t layout_revision = 0/);
   assert.match(header, /std::vector<AgentBrowserOcclusionRect> occlusion_rects/);
+  assert.match(header, /int square_corners = 0/);
   assert.match(desktop, /value\.find\("layout_revision"\)/);
   assert.match(desktop, /value\.find\("occlusion_rects"\)/);
+  assert.match(desktop, /item\.value\("square_corners", 0\)/);
   assert.match(desktop, /"occlusion_rect_count"/);
   assert.match(host, /bounds\.layout_revision < page->requested_bounds\.layout_revision/);
   assert.match(host, /apply_agent_browser_widget_region/);
   assert.match(host, /::SetWindowRgn/);
   assert.match(host, /::CombineRgn\(visible_region, visible_region, hole, RGN_DIFF\)/);
+  // A rounded hole whose corner the surface cut must be squared off, otherwise
+  // the Browser paints a quarter circle of page content across the overlay.
+  assert.match(host, /const int cut_corners = radius > 0 \? \(occlusion\.square_corners & 0xF\) : 0/);
+  assert.match(host, /::CombineRgn\(hole, hole, square, RGN_OR\)/);
+  assert.match(macHost, /squareCorners:occlusion_square_corners/);
+  assert.match(macHost, /const int square_corners = radius > 0 && index < \[occlusion_square_corners_ count\]/);
+  assert.match(macHost, /add_occlusion_cornered_hole\(/);
   assert.match(host, /page->requested_bounds\.occlusion_rects/);
   assert.match(macHost, /ACECodeAgentBrowserSurfaceView/);
   assert.match(macHost, /CAShapeLayer\* mask/);

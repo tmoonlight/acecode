@@ -52,6 +52,8 @@
 #include "session/attachment_store.hpp"
 #include "session/pasted_text_attachment.hpp"
 #include "session/session_manager.hpp"
+#include "session/session_serializer.hpp"
+#include "session/request_context_record.hpp"
 #include "session/session_pin_store.hpp"
 #include "session_host/session_registry.hpp"
 #include "session_host/session_auto_title.hpp"
@@ -7256,6 +7258,66 @@ TEST(WebServerHttp, TrajectoryRouteProjectsInactiveLegacySession) {
 
 // 场景:POST /api/sessions/:id/messages 只负责把输入交给 daemon 的
 // AgentLoop 入队,不依赖当前 WebSocket 连接是否还绑定该会话。
+// 批注消息与普通消息走同一条路径:没有批次标识、没有回执、没有对账分支。
+TEST(WebServerHttp, PostMessageQueuesAnnotationTextWithClientMessageId) {
+    WebServerFixture fx;
+    auto create = cpr::Post(cpr::Url{fx.url("/api/sessions")},
+        cpr::Header{{"Content-Type", "application/json"}}, cpr::Body{R"({})"});
+    ASSERT_EQ(create.status_code, 201) << create.text;
+    const auto session_id = json::parse(create.text)["session_id"].get<std::string>();
+    auto entry = fx.registry->acquire(session_id);
+    ASSERT_NE(entry, nullptr);
+    acecode::ChatMessage context;
+    context.role = "user";
+    context.uuid = "annotation-http-context";
+    context.is_meta = true;
+    context.subtype = acecode::kRequestContextSnapshot;
+    context.content = R"(<request-context>
+<execution>
+Shell sandbox: read-only
+</execution>
+</request-context>)";
+    context.metadata = {{"request_context_version", 1},
+                        {"context_state", {{"execution", "Shell sandbox: read-only"}}}};
+    entry->loop->push_message(context);
+    entry->sm->on_message(context);
+    const auto url = fx.url("/api/sessions/" + session_id + "/messages");
+    const json payload{{"text", "annotation changes"},
+                       {"client_message_id", "annotation-client-1"}};
+    const auto queued = cpr::Post(cpr::Url{url},
+        cpr::Header{{"Content-Type", "application/json"}}, cpr::Body{payload.dump()});
+    ASSERT_EQ(queued.status_code, 202) << queued.text;
+    const auto receipt = json::parse(queued.text);
+    EXPECT_TRUE(receipt["queued"].get<bool>());
+    EXPECT_FALSE(receipt.contains("annotation_batch_id"));
+
+    int user_messages = 0;
+    bool context_seen = false;
+    const auto deadline = std::chrono::steady_clock::now() + 10s;
+    while (std::chrono::steady_clock::now() < deadline) {
+        const auto response = cpr::Get(cpr::Url{url});
+        ASSERT_EQ(response.status_code, 200) << response.text;
+        user_messages = 0;
+        const auto body = json::parse(response.text);
+        for (const auto& message : body["messages"]) {
+            const auto record = acecode::deserialize_message_json(message);
+            if (record.uuid == context.uuid) {
+                EXPECT_TRUE(acecode::is_request_context_record(record));
+                context_seen = true;
+            }
+            if (!acecode::is_real_user_message(record)) continue;
+            ++user_messages;
+            EXPECT_EQ(message.value("content", ""), "annotation changes");
+            ASSERT_TRUE(record.metadata.is_object());
+            EXPECT_EQ(record.metadata.value("client_message_id", ""), "annotation-client-1");
+        }
+        if (user_messages != 0) break;
+        std::this_thread::sleep_for(20ms);
+    }
+    EXPECT_EQ(user_messages, 1);
+    EXPECT_TRUE(context_seen);
+}
+
 TEST(WebServerHttp, PostMessageQueuesInputInDaemonSession) {
     WebServerFixture fx;
     auto post = cpr::Post(cpr::Url{fx.url("/api/sessions")},

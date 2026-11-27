@@ -24,6 +24,7 @@ import { resolveLeadingSlashCommand } from '../lib/slashCommands.js';
 import { useSlashCommands } from './SlashCommandsContext.jsx';
 import { AttachmentStrip } from './AttachmentStrip.jsx';
 import { ImageLightbox } from './ImageLightbox.jsx';
+import { PageAnnotationMessageCard } from './PageAnnotationMessageCard.jsx';
 import { attachmentsFromContentParts, isImageAttachment } from '../lib/messageAttachments.js';
 import {
   composerContentAttachments,
@@ -39,6 +40,12 @@ import { AttachmentTextLoaderContext } from './AttachmentTextLoaderContext.jsx';
 import { PastedTextCard } from './PastedTextCard.jsx';
 import { PastedTextDialog } from './PastedTextDialog.jsx';
 import { extractSessionReferences } from '../lib/sessionReference.js';
+import {
+  annotationShotsByName,
+  contentPartsWithoutAnnotationScreenshots,
+  pageAnnotationCardFromContexts,
+  pageAnnotationMessageCopyText,
+} from '../lib/pageAnnotationMessage.js';
 import { basenameForPath } from '../lib/selectionChatContext.js';
 import { DESKTOP_CONTEXT_ACTION_EVENT, DESKTOP_CONTEXT_ACTIONS } from '../lib/desktopContextMenu.js';
 
@@ -324,6 +331,12 @@ function UserBubble({
   const hasBubbleBody = composerContent
     ? composerContent.parts.some((part) => !isThumbnailPart(part))
     : !!content;
+  const annotationCard = useMemo(() => pageAnnotationCardFromContexts(contentParts), [contentParts]);
+  const annotationShots = useMemo(() => (annotationCard ? annotationShotsByName(contentParts) : null),
+    [annotationCard, contentParts]);
+  const annotationCopyText = composerContent
+    ? extractSessionReferences(composerContentClipboardText(composerContent)).displayText
+    : content;
   // f300:2400 多万字符的旧消息整段进 pre-wrap 气泡会卡死页面。气泡只渲染有界预览,
   // 截断时显示 … 与「查看全文」(只读对话框);复制仍取全文。
   const messagePreview = useMemo(() => {
@@ -341,6 +354,27 @@ function UserBubble({
       ? extractSessionReferences(composerContentText(composerContent)).displayText
       : String(content ?? '');
   }, [fullTextOpen, composerContent, content]);
+  const naturalBubble = hasBubbleBody ? (
+    <div className="ace-user-message-bubble ace-chat-message-content min-w-0 max-w-full px-3.5 py-2 rounded-[14px] rounded-br-[4px] bg-accent-bg border border-accent-soft text-fg text-[13px] leading-[1.5] whitespace-pre-wrap break-words">
+      {messagePreview.composerContent ? (
+        <OrderedUserMessageBody composerContent={messagePreview.composerContent} contentParts={contentParts}
+          onOpenFilePreview={onOpenFilePreview} onLocateInFileTree={onLocateInFileTree} />
+      ) : <UserMessageBody content={messagePreview.text} />}
+      {messagePreview.truncated ? (
+        <>
+          {'…'}
+          <button
+            type="button"
+            className="ml-1 align-baseline text-[12px] text-accent hover:underline"
+            data-user-message-view-full="true"
+            onClick={() => setFullTextOpen(true)}
+          >
+            查看全文
+          </button>
+        </>
+      ) : null}
+    </div>
+  ) : null;
   return (
     <div className="self-end min-w-0 max-w-[70%] flex flex-col items-end gap-0.5 group">
       {fromSideChat && (
@@ -350,30 +384,16 @@ function UserBubble({
         </span>
       )}
       <AttachmentStrip
-        contentParts={remainingParts}
+        contentParts={annotationCard
+          ? contentPartsWithoutAnnotationScreenshots(remainingParts)
+          : remainingParts}
         annotationPresentations={annotationPresentations}
         align="right"
       />
-      {hasBubbleBody ? (
-        <div className="ace-user-message-bubble ace-chat-message-content min-w-0 max-w-full px-3.5 py-2 rounded-[14px] rounded-br-[4px] bg-accent-bg border border-accent-soft text-fg text-[13px] leading-[1.5] whitespace-pre-wrap break-words">
-          {messagePreview.composerContent ? (
-            <OrderedUserMessageBody composerContent={messagePreview.composerContent} contentParts={contentParts}
-              onOpenFilePreview={onOpenFilePreview} onLocateInFileTree={onLocateInFileTree} />
-          ) : <UserMessageBody content={messagePreview.text} />}
-          {messagePreview.truncated ? (
-            <>
-              {'…'}
-              <button
-                type="button"
-                className="ml-1 align-baseline text-[12px] text-accent hover:underline"
-                data-user-message-view-full="true"
-                onClick={() => setFullTextOpen(true)}
-              >
-                查看全文
-              </button>
-            </>
-          ) : null}
-        </div>
+      {/* 用户正文与批注卡片同时存在：先显示说的话，再显示只读批注卡片。 */}
+      {naturalBubble}
+      {annotationCard ? (
+        <PageAnnotationMessageCard pages={annotationCard.pages} shots={annotationShots} />
       ) : null}
       {fullTextOpen ? (
         <PastedTextDialog
@@ -388,9 +408,11 @@ function UserBubble({
           {ts != null && <span className="text-[10px] text-fg-mute">{relativeTime(ts)}</span>}
           <MessageActions
             messageId={messageId}
-            getCopyText={() => composerContent
-              ? extractSessionReferences(composerContentClipboardText(composerContent)).displayText
-              : content}
+            getCopyText={() => (annotationCard
+              ? pageAnnotationMessageCopyText(annotationCard, annotationCopyText)
+              : (composerContent
+                ? extractSessionReferences(composerContentClipboardText(composerContent)).displayText
+                : content))}
             onFork={onFork}
             forkPending={forkPending}
             forkLoading={forkLoading}
@@ -644,7 +666,9 @@ export const Message = memo(function Message({
     // 轻量提示;原文存到 metadata.display_text,UI 优先显示原文,不让用户看到
     // 内部展开。
     const hasDisplayText = metadata && typeof metadata.display_text === 'string'
-      && (metadata.display_text.length > 0 || metadata.selection_context_expanded);
+      && (metadata.display_text.length > 0 ||
+          metadata.selection_context_expanded ||
+          metadata.page_annotations_expanded);
     const displayContent = hasDisplayText
       ? metadata.display_text
       : content;

@@ -63,6 +63,7 @@ const char* agent_browser_element_picker_expression();
 HWND create_agent_browser_widget(HWND parent);
 void park_agent_browser_widget(HWND widget);
 void hide_agent_browser_widget(HWND widget);
+void set_agent_browser_widget_input_enabled(HWND widget, bool enabled);
 POINT main_web_content_origin(HWND parent);
 bool apply_agent_browser_widget_region(
     HWND widget,

@@ -15,7 +15,9 @@
 
 #include "daemon_pool.hpp"
 #include "agent_browser_host.hpp"
+#include "agent_browser_state_json.hpp"
 #include "agent_browser_cookie_bridge.hpp"
+#include "page_annotation_bridge.hpp"
 #include "ios_simulator_view.hpp"
 #include "ipc/agent_browser_runtime.hpp"
 #include "context_items.hpp"
@@ -109,40 +111,6 @@ constexpr const char* kSharedDaemonSlotHash = "__shared_daemon__";
 constexpr const char* kSharedDaemonContextId = "default";
 constexpr const char* kDesktopCloseRequestEvent =
     "acecode:desktop-close-requested";
-
-nlohmann::json agent_browser_state_json(
-    const acecode::desktop::AgentBrowserState& state) {
-    nlohmann::json result{
-        {"supported", state.supported},
-        {"ready", state.ready},
-        {"loading", state.loading},
-        {"visible", state.visible},
-        {"active", state.active},
-        {"closed", state.closed},
-        {"can_go_back", state.can_go_back},
-        {"can_go_forward", state.can_go_forward},
-        {"shared_with_agent", state.shared_with_agent},
-        {"element_selection_active", state.element_selection_active},
-        {"element_selection_serial", state.element_selection_serial},
-        {"url", state.url},
-        {"title", state.title},
-        {"favicon", state.favicon},
-        {"content_state", state.content_state},
-        {"failure_kind", state.failure_kind},
-        {"error", state.error},
-        {"diagnostic", state.diagnostic},
-        {"page_id", state.page_id},
-        // 页面归属:前端按 owner.session_id 把页面归到会话页签;null = 未绑定。
-        {"owner", acecode::desktop::agent_browser_page_owner_json(state.owner)},
-        {"agent_target", state.agent_target},
-    };
-    if (!state.selected_element_json.empty()) {
-        const auto selected = nlohmann::json::parse(
-            state.selected_element_json, nullptr, false);
-        if (!selected.is_discarded()) result["selected_element"] = selected;
-    }
-    return result;
-}
 
 struct ContextPickerFolderReference {
     std::string path;
@@ -1082,6 +1050,7 @@ int main(int argc, char** argv) {
         },
         [&host](std::function<void()> task) { host.dispatch(std::move(task)); });
     acecode::desktop::install_agent_browser_cookie_bridge(host, agent_browser);
+    const auto annotation_bridge = acecode::desktop::install_page_annotation_bridge(host, agent_browser);
     const auto ios_simulator_view = install_ios_simulator_view(host);
     DesktopRestartRequest restart_request;
     // 主 WebView 失效后无法就地修复:保留 daemon、重启桌面壳(web_host_health.hpp)。
@@ -1676,6 +1645,7 @@ int main(int argc, char** argv) {
             bounds.width = value.value("width", 0);
             bounds.height = value.value("height", 0);
             bounds.visible = value.value("visible", false);
+            bounds.interaction_blocked = value.value("interaction_blocked", false);
             if (const auto occlusions = value.find("occlusion_rects");
                 occlusions != value.end()) {
                 if (!occlusions->is_array() ||
@@ -1698,6 +1668,8 @@ int main(int argc, char** argv) {
                     rect.y = item.value("y", -1);
                     rect.width = item.value("width", 0);
                     rect.height = item.value("height", 0);
+                    rect.radius = item.value("radius", 0);
+                    rect.square_corners = item.value("square_corners", 0);
                     bounds.occlusion_rects.push_back(rect);
                 }
             }

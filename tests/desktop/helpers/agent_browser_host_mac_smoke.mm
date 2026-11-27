@@ -3,6 +3,7 @@
 
 #import <AppKit/AppKit.h>
 #import <QuartzCore/QuartzCore.h>
+#include "test_support/desktop/agent_browser_capture_probe.hpp"
 
 #include <atomic>
 #include <chrono>
@@ -381,6 +382,9 @@ int main() {
                         screenshot_ok = bytes.has_value() &&
                             acecode::agent_browser::agent_browser_png_dimensions(
                                 *bytes).has_value();
+                        if (screenshot_ok && worker_error.empty()) {
+                            screenshot_ok = acecode::desktop::capture_probe::run(client, worker_error);
+                        }
                     }
                     worker_done.store(true);
                 });

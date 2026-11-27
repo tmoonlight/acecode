@@ -6,6 +6,7 @@ set(ACECODE_WINPTY_AGENT_LOCATION_SOURCE "${CMAKE_SOURCE_DIR}/src/base/pty/winpt
 set(ACECODE_DEEPIN_WINDOW_EFFECTS_SOURCE "${CMAKE_SOURCE_DIR}/src/apps/desktop/deepin_window_effects.cpp")
 set(ACECODE_DESKTOP_MAIN_SOURCE "${CMAKE_SOURCE_DIR}/src/apps/desktop/main.cpp"
     "${CMAKE_SOURCE_DIR}/src/apps/desktop/agent_browser_cookie_bridge.cpp"
+    "${CMAKE_SOURCE_DIR}/src/apps/desktop/page_annotation_bridge.cpp"
     "${CMAKE_SOURCE_DIR}/src/apps/desktop/open_in_explorer_bridge.cpp")
 set(ACECODE_MACOS_CLI_LAUNCHER_SOURCE "${CMAKE_SOURCE_DIR}/src/apps/desktop/macos_cli_launcher.cpp")
 set(ACECODE_DESKTOP_SPLASH_SOURCE "${CMAKE_SOURCE_DIR}/src/apps/desktop/splash_screen.cpp")
@@ -15,10 +16,13 @@ set(ACECODE_DESKTOP_PET_SOURCE "${CMAKE_SOURCE_DIR}/src/apps/desktop/desktop_pet
 set(ACECODE_DESKTOP_PET_MAC_SOURCE "${CMAKE_SOURCE_DIR}/src/apps/desktop/desktop_pet_mac.mm")
 set(ACECODE_DESKTOP_LINUX_SOURCE "${CMAKE_SOURCE_DIR}/src/apps/desktop/linux_desktop.cpp")
 set(ACECODE_AGENT_BROWSER_HOST_SOURCE "${CMAKE_SOURCE_DIR}/src/apps/desktop/agent_browser_host.cpp"
+    "${CMAKE_SOURCE_DIR}/src/apps/desktop/agent_browser_native_commands_win.cpp"
     "${CMAKE_SOURCE_DIR}/src/apps/desktop/agent_browser_windows_helpers.cpp"
     "${CMAKE_SOURCE_DIR}/src/apps/desktop/agent_browser_host_common.cpp")
 set(ACECODE_AGENT_BROWSER_HOST_MAC_SOURCE "${CMAKE_SOURCE_DIR}/src/apps/desktop/agent_browser_host_mac.mm"
-    "${CMAKE_SOURCE_DIR}/src/apps/desktop/agent_browser_macos_helpers.mm")
+    "${CMAKE_SOURCE_DIR}/src/apps/desktop/agent_browser_capture_mac.mm"
+    "${CMAKE_SOURCE_DIR}/src/apps/desktop/agent_browser_macos_helpers.mm"
+    "${CMAKE_SOURCE_DIR}/src/apps/desktop/agent_browser_host_common.cpp")
 set(ACECODE_IOS_SIMULATOR_VIEW_SOURCE "${CMAKE_SOURCE_DIR}/src/apps/desktop/ios_simulator_view.cpp")
 set(ACECODE_IOS_SIMULATOR_VIEW_MAC_SOURCE "${CMAKE_SOURCE_DIR}/src/apps/desktop/ios_simulator_view_mac.mm")
 set(ACECODE_IOS_SIMULATOR_VIEW_BRIDGE_SOURCE "${CMAKE_SOURCE_DIR}/src/apps/desktop/ios_simulator_view_bridge.cpp")

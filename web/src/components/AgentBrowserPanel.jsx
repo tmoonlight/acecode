@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { clsx } from '../lib/format.js';
 import {
   AGENT_BROWSER_STATE_EVENT,
@@ -27,6 +27,7 @@ import {
   failedNativeSurfaceOcclusionSignature,
   nativeSurfaceOcclusionRectsFromClientRects,
   nativeSurfaceLayoutWithOcclusionFallback,
+  nativeSurfaceInteractionBlockedByDocument,
   nativeSurfaceOverlayGeometryByDocument,
   nativeSurfaceShouldShow,
   nativeSurfaceSupportsLocalOcclusion,
@@ -35,6 +36,12 @@ import {
 } from '../lib/agentBrowserSurfaceCoordinator.js';
 import { AgentBrowserMoreMenu } from './AgentBrowserMoreMenu.jsx';
 import { AgentBrowserNewTab } from './AgentBrowserNewTab.jsx';
+import { PageAnnotationPopup, usePageAnnotations } from './PageAnnotations.jsx';
+import { PageAnnotationSendBar } from './PageAnnotationSendBar.jsx';
+import { annotationOutboxFor } from '../lib/annotationOutbox.js';
+import { capturePageAnnotationScreenshot } from '../lib/pageAnnotations.js';
+import { captureRectForRecord, cropAnnotationImages } from '../lib/annotationCapture.js';
+import { registerAnnotationEditor } from '../lib/annotationEdit.js';
 import { NavigationArrowIcon, RefreshIcon, VsIcon } from './Icon.jsx';
 import { toast } from './Toast.jsx';
 
@@ -59,6 +66,8 @@ const INITIAL_STATE = Object.freeze({
 
 export function AgentBrowserPanel({
   pageId,
+  api,
+  sessionId,
   agentActive = false,
   surfaceEnabled = true,
   onAddContext,
@@ -75,6 +84,79 @@ export function AgentBrowserPanel({
   const [address, setAddress] = useState('');
   const nativePageVisible = agentBrowserShowsNativePage(state);
   const surface = agentBrowserSurfacePresentation(state);
+  const annotations = usePageAnnotations(pageId, state.page_id === pageId ? state.annotations : null);
+  const annotationPageBackground = useMemo(() => {
+    if (!annotations.snapshot?.active) return undefined;
+    const value = String(annotations.snapshot.page_background || '').trim();
+    if (!value) return undefined;
+    const supports = globalThis.CSS?.supports;
+    if (typeof supports === 'function' && !supports.call(globalThis.CSS, 'color', value)) return undefined;
+    return value;
+  }, [annotations.snapshot?.active, annotations.snapshot?.page_background]);
+  // 记录归会话（Q33）：页签只把快照上报到会话级待发箱，关掉时降级为 orphan 而不是删除。
+  const annotationOutbox = useMemo(() => annotationOutboxFor(sessionId, api), [sessionId, api]);
+  useEffect(() => {
+    if (!annotationOutbox) return;
+    const closed = state.closed === true;
+    annotationOutbox.observe({
+      pageId,
+      url: state.url,
+      title: state.title,
+      closed,
+      snapshot: closed ? null : annotations.snapshot,
+    });
+  }, [annotationOutbox, pageId, state.url, state.title, state.closed, annotations.snapshot]);
+  // 保存后补图（#212）：记录数一涨就说明刚存了一条，截一次视口、裁两张图回填。
+  // 放在面板而不是保存命令里，是因为捕获是异步的，且失败不能阻塞保存。
+  // annotations 每次渲染都是新对象：把它放进依赖，任何一次重渲染（保存后紧跟
+  // 的页面状态事件就是一次）都会作废在途的截图，而记录数没有再涨，不会重截，
+  // 这条批注就永远没有图。所以只按「页面 + 记录数」触发，命令与快照从 ref 取，
+  // 只有换页或卸载才作废在途的截图。
+  const annotationsRef = useRef(annotations);
+  annotationsRef.current = annotations;
+  const capturePageRef = useRef('');
+  useEffect(() => {
+    capturePageRef.current = pageId;
+    return () => { capturePageRef.current = ''; };
+  }, [pageId]);
+  const captureStateRef = useRef({ pageId: '', count: 0 });
+  const annotationRecordCount = Array.isArray(annotations.snapshot?.records)
+    ? annotations.snapshot.records.length
+    : 0;
+  useEffect(() => {
+    const previous = captureStateRef.current;
+    captureStateRef.current = { pageId, count: annotationRecordCount };
+    if (previous.pageId !== pageId || annotationRecordCount <= previous.count) return;
+    const snapshot = annotationsRef.current.snapshot;
+    const record = snapshot.records[annotationRecordCount - 1];
+    const current = () => capturePageRef.current === pageId;
+    void (async () => {
+      try {
+        const result = await capturePageAnnotationScreenshot(pageId);
+        if (!current() || result?.ok !== true) return;
+        const rect = captureRectForRecord(record, snapshot.viewport);
+        const images = await cropAnnotationImages(result.data, rect, snapshot.viewport);
+        if (!current()) return;
+        await annotationsRef.current.command('attach_screenshot', {
+          record_id: record.id,
+          thumbnail: images.thumbnail,
+          page_shot: images.pageShot,
+        });
+      } catch {
+        // 捕获失败只是该条无图，卡片退化为标签 + 文本片段。
+      }
+    })();
+  }, [pageId, annotationRecordCount]);
+  // 铅笔路径（#217）：切到这一页，按图钉编号重新选中那条记录。注册表只挂一次，
+  // 命令同样从上面的 ref 取。
+  useEffect(() => {
+    if (!sessionId || !annotations.snapshot?.document_id) return undefined;
+    return registerAnnotationEditor(pageId, async (record) => {
+      const selected = await selectAgentBrowserPage(pageId);
+      if (selected?.ok === false) return selected;
+      return annotationsRef.current.command('edit_record', { record_id: record.id });
+    });
+  }, [pageId, sessionId, annotations.snapshot?.document_id]);
 
   useEffect(() => {
     let cancelled = false;
@@ -138,6 +220,8 @@ export function AgentBrowserPanel({
       scale,
       visible,
     );
+    desiredLayout.interaction_blocked = !forceHidden &&
+      nativeSurfaceInteractionBlockedByDocument(surfaceRect, document, window);
     desiredLayout.occlusion_rects = visible && supportsLocalOcclusion
       ? nativeSurfaceOcclusionRectsFromClientRects(
           surfaceRect,
@@ -263,7 +347,10 @@ export function AgentBrowserPanel({
       attributeFilter: [
         'aria-hidden',
         'class',
+        'data-ace-native-interaction',
         'data-ace-native-overlay',
+        'data-ace-native-overlay-bleed',
+        'data-ace-native-overlay-square',
         'hidden',
         'style',
       ],
@@ -452,11 +539,22 @@ export function AgentBrowserPanel({
         <div className="ace-agent-browser-toolbar-actions">
           <button
             type="button"
+            className={clsx('ace-agent-browser-annotation-toggle', annotations.snapshot.active && 'is-active')}
+            disabled={!nativePageVisible || state.element_selection_active || annotations.working}
+            aria-pressed={!!annotations.snapshot.active}
+            aria-label={annotations.snapshot.active ? '退出网页批注' : '网页批注'}
+            title={annotations.snapshot.active ? '退出网页批注' : '网页批注'}
+            onClick={() => annotations.command(annotations.snapshot.active ? 'exit' : 'start')}
+          >
+            <VsIcon name="chat" size={16} />
+            </button>
+          <button
+            type="button"
             className={clsx(
               'ace-agent-browser-toolbar-button',
               state.element_selection_active && 'is-checked',
             )}
-            disabled={!nativePageVisible}
+            disabled={!nativePageVisible || annotations.snapshot.active || annotations.working}
             aria-pressed={state.element_selection_active ? 'true' : 'false'}
             title={state.element_selection_active ? '停止选择元素 (Esc)' : '将元素添加到聊天'}
             aria-label="将元素添加到聊天"
@@ -482,7 +580,34 @@ export function AgentBrowserPanel({
         </div>
       </div>
       <div className={clsx('ace-agent-browser-frame', agentActive && 'is-agent-active')}>
-        <div ref={viewportRef} className="ace-agent-browser-native-viewport">
+        <div
+          ref={viewportRef}
+          className="ace-agent-browser-native-viewport"
+          style={annotationPageBackground
+            ? { '--ace-annotation-page-background': annotationPageBackground }
+            : undefined}
+        >
+          {nativePageVisible && annotations.snapshot.popup && (
+            <PageAnnotationPopup
+              key={`${pageId}:${annotations.snapshot.document_id}`}
+              snapshot={annotations.snapshot}
+              command={annotations.command}
+              sessionId={sessionId}
+              working={annotations.working}
+              viewportRef={viewportRef}
+              onAnnotationsSaved={(next) => {
+                annotationOutbox?.observe({
+                  pageId,
+                  url: state.url,
+                  title: state.title,
+                  snapshot: next,
+                });
+              }}
+            />
+          )}
+          <PageAnnotationSendBar pageId={pageId} snapshot={annotations.snapshot}
+            api={api} sessionId={sessionId} page={state}
+            command={annotations.command} working={annotations.working} />
           {surface.kind === 'empty' && (
             <AgentBrowserNewTab
               recentFiles={recentFiles}
@@ -494,6 +619,11 @@ export function AgentBrowserPanel({
           {!nativePageVisible && surface.kind !== 'empty' && statusSurface}
         </div>
       </div>
+      {annotations.error && (
+        <div className="flex items-center gap-3 border-t border-border px-3 py-1.5 text-[12px] text-fg-2">
+          {annotations.error && <span role="alert" className="text-err">{annotations.error}</span>}
+        </div>
+      )}
     </div>
   );
 }

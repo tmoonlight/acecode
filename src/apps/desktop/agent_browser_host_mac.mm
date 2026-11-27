@@ -1,8 +1,15 @@
 #include "agent_browser_host.hpp"
+#include "agent_browser_host_common.hpp"
+#include "page_annotation_session.hpp"
+#include "page_annotation_host_submission.hpp"
+#include "page_annotation_host_adapter.hpp"
 
 #ifdef __APPLE__
 
 #include "agent_browser_cookie_jars.hpp"
+#include "agent_browser_capture.hpp"
+#include "agent_browser_capture_mac.hpp"
+#include "agent_browser_proxy_request.hpp"
 #include "agent_browser_macos_helpers.hpp"
 #include "agent_browser_navigation_state.hpp"
 #include "ipc/agent_browser_runtime.hpp"
@@ -85,11 +92,47 @@ public:
 } // namespace
 } // namespace acecode::desktop
 
+namespace {
+
+// Adds one occlusion hole with an independent radius per DOM corner
+// (top-left, top-right, bottom-right, bottom-left). A radius of 0 draws that
+// corner square, which is what the surface edge needs: `hole` is already
+// expressed in the target layer's coordinates, so the DOM corner order maps
+// straight onto the rectangle.
+void add_occlusion_cornered_hole(CGMutablePathRef path,
+                                 CGRect hole,
+                                 CGFloat top_left,
+                                 CGFloat top_right,
+                                 CGFloat bottom_right,
+                                 CGFloat bottom_left) {
+    const CGFloat min_x = CGRectGetMinX(hole);
+    const CGFloat min_y = CGRectGetMinY(hole);
+    const CGFloat max_x = CGRectGetMaxX(hole);
+    const CGFloat max_y = CGRectGetMaxY(hole);
+    CGPathMoveToPoint(path, nullptr, min_x + bottom_left, min_y);
+    CGPathAddArcToPoint(path, nullptr, min_x, min_y, min_x, min_y + bottom_left,
+                        bottom_left);
+    CGPathAddArcToPoint(path, nullptr, min_x, max_y, min_x + top_left, max_y,
+                        top_left);
+    CGPathAddArcToPoint(path, nullptr, max_x, max_y, max_x, max_y - top_right,
+                        top_right);
+    CGPathAddArcToPoint(path, nullptr, max_x, min_y, max_x - bottom_right, min_y,
+                        bottom_right);
+    CGPathCloseSubpath(path);
+}
+
+} // namespace
+
 @interface ACECodeAgentBrowserSurfaceView : NSView {
 @private
-    NSArray<NSValue*>* occlusion_rects_;
+    NSArray<NSValue*>* occlusion_rects_; NSArray<NSNumber*>* occlusion_radii_;
+    NSArray<NSNumber*>* occlusion_square_corners_;
+    BOOL interaction_blocked_;
 }
-- (BOOL)setOcclusionRects:(NSArray<NSValue*>*)rects;
+- (BOOL)setOcclusionRects:(NSArray<NSValue*>*)rects
+                   radii:(NSArray<NSNumber*>*)radii
+           squareCorners:(NSArray<NSNumber*>*)squareCorners;
+- (void)setInteractionBlocked:(BOOL)blocked;
 @end
 
 @implementation ACECodeAgentBrowserSurfaceView
@@ -97,14 +140,17 @@ public:
 - (instancetype)initWithFrame:(NSRect)frame {
     self = [super initWithFrame:frame];
     if (self) {
-        occlusion_rects_ = [[NSArray alloc] init];
+        occlusion_rects_ = [[NSArray alloc] init]; occlusion_radii_ = [[NSArray alloc] init];
+        occlusion_square_corners_ = [[NSArray alloc] init];
+        interaction_blocked_ = NO;
         [self setWantsLayer:YES];
     }
     return self;
 }
 
 - (void)dealloc {
-    [occlusion_rects_ release];
+    [occlusion_rects_ release]; [occlusion_radii_ release];
+    [occlusion_square_corners_ release];
     [super dealloc];
 }
 
@@ -119,8 +165,11 @@ public:
     const CGFloat height = NSHeight(bounds);
     CGMutablePathRef path = CGPathCreateMutable();
     CGPathAddRect(path, nullptr, CGRectMake(0, 0, width, height));
-    for (NSValue* value in occlusion_rects_) {
-        const NSRect rect = [value rectValue];
+    for (NSUInteger index = 0; index < [occlusion_rects_ count]; index += 1) {
+        const NSRect rect = [[occlusion_rects_ objectAtIndex:index] rectValue];
+        const CGFloat radius = std::clamp(index < [occlusion_radii_ count]
+            ? [[occlusion_radii_ objectAtIndex:index] doubleValue] : 0.0, 0.0,
+            (std::min)(NSWidth(rect), NSHeight(rect)) / 2.0);
         // Occlusion rectangles use the DOM's top-left Browser contract.
         // Backing layers for flipped AppKit views already use that orientation;
         // converting them again mirrors top overlays to the bottom. Convert Y
@@ -130,8 +179,26 @@ public:
         const CGFloat y = [target_view isFlipped]
             ? top
             : height - top - NSHeight(rect);
-        CGPathAddRect(path, nullptr,
-                      CGRectMake(x, y, NSWidth(rect), NSHeight(rect)));
+        const CGRect hole = CGRectMake(x, y, NSWidth(rect), NSHeight(rect));
+        const int square_corners = radius > 0 && index < [occlusion_square_corners_ count]
+            ? [[occlusion_square_corners_ objectAtIndex:index] intValue] & 0xF
+            : 0;
+        if (radius <= 0 || square_corners == 0xF) {
+            CGPathAddRect(path, nullptr, hole);
+        } else if (square_corners == 0) {
+            CGPathAddRoundedRect(path, nullptr, hole, radius, radius);
+        } else {
+            // A corner the surface cut must stay square; rounding it would cut a
+            // quarter circle out of the overlay where the page begins. The hole
+            // rect already carries the DOM orientation, so the corner order maps
+            // straight onto the target layer.
+            add_occlusion_cornered_hole(
+                path, hole,
+                (square_corners & 1) ? 0 : radius,
+                (square_corners & 2) ? 0 : radius,
+                (square_corners & 4) ? 0 : radius,
+                (square_corners & 8) ? 0 : radius);
+        }
     }
 
     CAShapeLayer* mask = [[CAShapeLayer alloc] init];
@@ -190,14 +257,22 @@ public:
     [self updateOcclusionMask];
 }
 
-- (BOOL)setOcclusionRects:(NSArray<NSValue*>*)rects {
-    NSArray<NSValue*>* next = rects ? [rects copy] : [[NSArray alloc] init];
-    [occlusion_rects_ release];
-    occlusion_rects_ = next;
+- (BOOL)setOcclusionRects:(NSArray<NSValue*>*)rects
+                   radii:(NSArray<NSNumber*>*)radii
+           squareCorners:(NSArray<NSNumber*>*)squareCorners {
+    [occlusion_rects_ release]; occlusion_rects_ = rects ? [rects copy] : [[NSArray alloc] init];
+    [occlusion_radii_ release]; occlusion_radii_ = radii ? [radii copy] : [[NSArray alloc] init];
+    [occlusion_square_corners_ release];
+    occlusion_square_corners_ = squareCorners ? [squareCorners copy] : [[NSArray alloc] init];
     return [self updateOcclusionMask];
 }
 
+- (void)setInteractionBlocked:(BOOL)blocked {
+    interaction_blocked_ = blocked;
+}
+
 - (NSView*)hitTest:(NSPoint)point {
+    if (interaction_blocked_) return nil;
     NSView* superview = [self superview];
     const NSPoint local = superview
         ? [self convertPoint:point fromView:superview]
@@ -352,7 +427,7 @@ static void* kACECodeAgentBrowserStateObservation =
     decidePolicyForNavigationAction:(WKNavigationAction*)navigationAction
                    decisionHandler:(void (^)(WKNavigationActionPolicy))decisionHandler {
     NSURL* url = navigationAction.request.URL;
-    const bool allowed = acecode::desktop::safe_navigation_url(url);
+    bool allowed = acecode::desktop::safe_navigation_url(url);
     bool handed_off = false;
     if (!allowed && owner_ &&
         acecode::desktop::external_handoff_candidate_url(url)) {
@@ -432,16 +507,13 @@ struct AgentBrowserHost::Impl final
     : public MacAgentBrowserDelegateSink,
       public std::enable_shared_from_this<AgentBrowserHost::Impl> {
     bool parent_surface_visible = true;
-
-    struct PendingProxyCall {
-        std::mutex mutex;
-        std::condition_variable ready;
-        bool completed = false;
-        json response;
-    };
+    // 会话级批注记录（Q33）：页签销毁不带走记录。
+    SessionAnnotationStoreRegistry annotation_store_registry;
 
     struct Page {
         std::string id;
+        PageAnnotationSession annotations;
+        std::uint64_t annotation_incarnation = 0;
         AgentBrowserState state;
         AgentBrowserBounds requested_bounds;
         ACECodeAgentBrowserSurfaceView* surface = nil;
@@ -475,6 +547,7 @@ struct AgentBrowserHost::Impl final
     using StoreDone = std::function<void(bool ok, const std::string& error)>;
 
     void* parent_window = nullptr;
+    AnnotationPoller annotation_poller;
     std::int64_t desktop_pid = 0;
     std::string desktop_instance_id;
     std::string acecode_dir;
@@ -663,18 +736,6 @@ struct AgentBrowserHost::Impl final
             value.ready = false;
             value.error = message;
         });
-    }
-
-    static void finish_proxy_call(
-        const std::shared_ptr<PendingProxyCall>& pending,
-        json response) {
-        {
-            std::lock_guard<std::mutex> lock(pending->mutex);
-            if (pending->completed) return;
-            pending->completed = true;
-            pending->response = std::move(response);
-        }
-        pending->ready.notify_all();
     }
 
     void start() {
@@ -1010,7 +1071,7 @@ struct AgentBrowserHost::Impl final
     }
 
     void teardown_page(const std::shared_ptr<Page>& page) {
-        if (!page) return;
+        if (!annotation_retire(page)) return;
         clear_dialog(page, true);
         clear_history(page);
         if (page->webview) {
@@ -1128,6 +1189,8 @@ struct AgentBrowserHost::Impl final
         page->state.supported = true;
         page->state.shared_with_agent = shared_with_agent;
         page->state.owner = owner;
+        // 同会话所有页签共享一个记录容器；页签关掉后记录仍在，转 orphan 继续可发。
+        page->annotations.share_store(annotation_store_registry.for_session(owner.session_id));
         attach_webview(page);
 
         std::vector<AgentBrowserState> changed;
@@ -1177,8 +1240,9 @@ struct AgentBrowserHost::Impl final
             bounds.x, y, bounds.width, bounds.height)];
         [page->webview setFrame:[page->surface bounds]];
 
-        NSMutableArray<NSValue*>* occlusion_rects =
-            [NSMutableArray arrayWithCapacity:bounds.occlusion_rects.size()];
+        NSMutableArray<NSValue*>* occlusion_rects = [NSMutableArray arrayWithCapacity:bounds.occlusion_rects.size()];
+        NSMutableArray<NSNumber*>* occlusion_radii = [NSMutableArray arrayWithCapacity:bounds.occlusion_rects.size()];
+        NSMutableArray<NSNumber*>* occlusion_square_corners = [NSMutableArray arrayWithCapacity:bounds.occlusion_rects.size()];
         for (const auto& occlusion : bounds.occlusion_rects) {
             const int left = std::max(0, std::min(bounds.width, occlusion.x));
             const int top = std::max(0, std::min(bounds.height, occlusion.y));
@@ -1189,10 +1253,16 @@ struct AgentBrowserHost::Impl final
             if (right > left && bottom > top) {
                 [occlusion_rects addObject:[NSValue valueWithRect:NSMakeRect(
                     left, top, right - left, bottom - top)]];
+                [occlusion_radii addObject:@((std::max)(0, (std::min)(
+                    occlusion.radius, (std::min)(right - left, bottom - top) / 2)))];
+                [occlusion_square_corners addObject:@(occlusion.square_corners & 0xF)];
             }
         }
         const bool occlusion_ready =
-            [page->surface setOcclusionRects:occlusion_rects] == YES;
+            [page->surface setOcclusionRects:occlusion_rects
+                                        radii:occlusion_radii
+                                squareCorners:occlusion_square_corners] == YES;
+        [page->surface setInteractionBlocked:bounds.interaction_blocked ? YES : NO];
         const AgentBrowserState snapshot = state(page->id);
         const bool show = parent_surface_visible && bounds.visible &&
             snapshot.active &&
@@ -1263,6 +1333,7 @@ struct AgentBrowserHost::Impl final
             changed = sync_agent_target_flags_locked();
         }
         teardown_page(page);
+        page->annotations.replace_document();
         page->state.closed = true;
         page->state.ready = false;
         page->state.visible = false;
@@ -1304,12 +1375,14 @@ struct AgentBrowserHost::Impl final
             url = page->state.url;
         }
         teardown_page(page);
+        page->annotations.replace_document();
         page->navigation = AgentBrowserNavigationTracker{};
         ++page->element_selection_generation;
         page->console_logs.clear();
         page->restore_url = (url.empty() || url == "about:blank") ? std::string() : url;
         const bool restoring = !page->restore_url.empty();
-        update_page(page, [restoring](AgentBrowserState& value) {
+        update_page(page, [restoring, page](AgentBrowserState& value) {
+            value.page_annotations_json = page->annotations.snapshot().dump();
             value.ready = false;
             value.loading = restoring;
             value.visible = false;
@@ -1344,6 +1417,12 @@ struct AgentBrowserHost::Impl final
         }
         const AgentBrowserCookieModeSwitch plan =
             plan_agent_browser_cookie_mode_switch(cookie_mode, *mode);
+        std::vector<std::shared_ptr<Page>> affected;
+        if (plan.changed) {
+            for (const auto& id : agent_browser_pages_to_rebuild(page_store_bindings(), *mode)) {
+                if (const auto candidate = find_page(id)) affected.push_back(candidate);
+            }
+        }
         const bool persisted = update_agent_browser_store_state(
             [&mode, &plan](AgentBrowserStoreState& state) {
                 state.cookie_mode = agent_browser_cookie_mode_name(*mode);
@@ -1364,8 +1443,8 @@ struct AgentBrowserHost::Impl final
         const AgentBrowserCookieMode previous = cookie_mode;
         cookie_mode = *mode;
         if (plan.mark_session_stores_for_wipe) prepared_session_stores.clear();
-        const auto rebuild = agent_browser_pages_to_rebuild(page_store_bindings(), cookie_mode);
-        for (const auto& page_id : rebuild) rebuild_page_on_ui(find_page(page_id));
+        const auto rebuild = affected;
+        for (const auto& candidate : affected) rebuild_page_on_ui(candidate);
         if (plan.clear_shared_now) clear_shared_store_and_mark_done();
         if (plan.release_until_quit_store) {
             [until_quit_store release];
@@ -1389,24 +1468,20 @@ struct AgentBrowserHost::Impl final
             return false;
         }
         const AgentBrowserCookieStoreKey key = page->store;
+        const auto affected = annotation_store_pages(*this, key);
         const auto weak = weak_from_this();
         const std::string requested_page = page_id;
         clear_data_store(store_for_key(key),
-                         [weak, key, requested_page](bool ok, const std::string& clear_error) {
+                         [weak, key, requested_page, affected](bool ok, const std::string& clear_error) {
             const auto self = weak.lock();
             if (!self) return;
             if (ok) {
-                std::vector<std::shared_ptr<Page>> reload;
-                {
-                    std::lock_guard<std::mutex> lock(self->state_mutex);
-                    for (const auto& item : self->pages) {
-                        if (!item.second->closing && item.second->webview &&
-                            item.second->store == key) {
-                            reload.push_back(item.second);
-                        }
-                    }
+                for (const auto& candidate : affected) {
+                    if (!candidate->closing && self->find_page(candidate->id) == candidate &&
+                        candidate->webview && candidate->store == key) [candidate->webview reload];
                 }
-                for (const auto& candidate : reload) [candidate->webview reload];
+            }
+            if (ok) {
                 LOG_INFO("[agent-browser][macos] browsing data cleared: " + key.id());
             } else {
                 LOG_WARN("[agent-browser][macos] failed to clear browsing data for " +
@@ -1527,6 +1602,7 @@ struct AgentBrowserHost::Impl final
                             std::uint64_t navigation_id) override {
         auto page = find_page(page_id);
         if (!page || page->webview != webview) return;
+        page->annotations.suspend();
         {
             std::lock_guard<std::mutex> lock(state_mutex);
             if (page->state.content_state !=
@@ -1573,6 +1649,10 @@ struct AgentBrowserHost::Impl final
                               WKWebView* webview) override {
         auto page = find_page(page_id);
         if (!page || page->webview != webview) return;
+        page->annotations.replace_document();
+        update_page(page, [page](AgentBrowserState& value) {
+            value.page_annotations_json = page->annotations.snapshot().dump();
+        });
         LOG_INFO(("[agent-browser][macos] " + json{
             {"event", "navigation_committed"},
             {"page_id", page_id},
@@ -1909,12 +1989,14 @@ struct AgentBrowserHost::Impl final
     void process_terminated(const std::string& page_id) override {
         auto page = find_page(page_id);
         if (!page) return;
+        page->annotations.replace_document();
         LOG_ERROR(("[agent-browser][macos] " + json{
             {"event", "web_content_process_terminated"},
             {"page_id", page_id},
             {"url", page->state.url},
         }.dump()));
-        update_page(page, [](AgentBrowserState& value) {
+        update_page(page, [page](AgentBrowserState& value) {
+            value.page_annotations_json = page->annotations.snapshot().dump();
             value.loading = false;
             value.visible = false;
             value.content_state = kAgentBrowserContentStateProcessFailed;
@@ -2010,7 +2092,7 @@ struct AgentBrowserHost::Impl final
         const std::shared_ptr<PendingProxyCall>&);
     void capture_screenshot(
         const std::shared_ptr<Page>&, const json&,
-        const std::shared_ptr<PendingProxyCall>&);
+        const std::shared_ptr<PendingProxyCall>&, const std::string& = {});
     bool prepare_native_input(
         const std::shared_ptr<Page>&, std::string&);
     CGPoint native_screen_point(
@@ -2026,95 +2108,6 @@ struct AgentBrowserHost::Impl final
     void handle_proxy_connection(int);
     void proxy_loop();
 };
-
-namespace {
-
-std::string synthetic_mouse_expression(const json& parameters) {
-    json payload = parameters.is_object() ? parameters : json::object();
-    payload.erase("acecodeInputMode");
-    return "(() => {\n"
-        " const p=" + payload.dump() + ";\n"
-        " const x=Number(p.x||0),y=Number(p.y||0);\n"
-        " const target=document.elementFromPoint(x,y)||document.documentElement;\n"
-        " if(!target)return {ok:false,message:'No element at input coordinates'};\n"
-        " const key='__acecodeSyntheticPointerV1';const state=globalThis[key]||(globalThis[key]={pressed:null,dragging:false,data:null});\n"
-        " const names={mouseMoved:'mousemove',mousePressed:'mousedown',mouseReleased:'mouseup',mouseWheel:'wheel'};\n"
-        " const button={left:0,middle:1,right:2}[String(p.button||'left')]??0;\n"
-        " const buttons=Number(p.buttons==null?(p.type==='mousePressed'?1:0):p.buttons);\n"
-        " const init={bubbles:true,cancelable:true,composed:true,clientX:x,clientY:y,screenX:x,screenY:y,button,buttons,detail:Number(p.clickCount||1)};\n"
-        " if(p.type==='mouseWheel'){const event=new WheelEvent('wheel',{...init,deltaX:Number(p.deltaX||0),deltaY:Number(p.deltaY||0),deltaMode:0});target.dispatchEvent(event);if(!event.defaultPrevented)window.scrollBy({left:Number(p.deltaX||0),top:Number(p.deltaY||0),behavior:'instant'});return {ok:true};}\n"
-        " if(p.type==='mousePressed'){target.focus?.({preventScroll:true});state.pressed=target;state.dragging=false;state.data=null;target.dispatchEvent(new MouseEvent('mousedown',init));return {ok:true};}\n"
-        " if(p.type==='mouseMoved'){target.dispatchEvent(new MouseEvent('mousemove',init));if(state.pressed&&buttons){try{if(!state.dragging){state.data=new DataTransfer();state.pressed.dispatchEvent(new DragEvent('dragstart',{...init,dataTransfer:state.data}));state.dragging=true;}target.dispatchEvent(new DragEvent('dragenter',{...init,dataTransfer:state.data}));target.dispatchEvent(new DragEvent('dragover',{...init,dataTransfer:state.data}));}catch(_){}}return {ok:true};}\n"
-        " if(p.type==='mouseReleased'){target.dispatchEvent(new MouseEvent('mouseup',init));if(state.dragging){try{target.dispatchEvent(new DragEvent('drop',{...init,dataTransfer:state.data}));state.pressed?.dispatchEvent(new DragEvent('dragend',{...init,dataTransfer:state.data}));}catch(_){}}else if(state.pressed){const clickTarget=state.pressed.isConnected?state.pressed:target;if(button===0&&typeof clickTarget.click==='function')clickTarget.click();else clickTarget.dispatchEvent(new MouseEvent('contextmenu',init));if(Number(p.clickCount||1)>1)clickTarget.dispatchEvent(new MouseEvent('dblclick',init));}state.pressed=null;state.dragging=false;state.data=null;return {ok:true};}\n"
-        " target.dispatchEvent(new MouseEvent(names[p.type]||String(p.type||'mousemove'),init));return {ok:true};\n"
-        "})()";
-}
-
-std::string synthetic_text_expression(const json& parameters) {
-    json payload = parameters.is_object() ? parameters : json::object();
-    payload.erase("acecodeInputMode");
-    return "(() => {\n"
-        " const p=" + payload.dump() + ";const text=String(p.text==null?'':p.text);const el=document.activeElement;\n"
-        " if(!el||el===document.body)return {ok:false,message:'No focused editable element'};\n"
-        " const before=new InputEvent('beforeinput',{bubbles:true,cancelable:true,composed:true,inputType:'insertText',data:text});if(!el.dispatchEvent(before))return {ok:true,cancelled:true};\n"
-        " if(el instanceof HTMLInputElement||el instanceof HTMLTextAreaElement){const start=Number.isInteger(el.selectionStart)?el.selectionStart:el.value.length;const end=Number.isInteger(el.selectionEnd)?el.selectionEnd:start;el.setRangeText(text,start,end,'end');}\n"
-        " else if(el.isContentEditable){const selection=getSelection();if(selection&&selection.rangeCount){selection.deleteFromDocument();selection.getRangeAt(0).insertNode(document.createTextNode(text));selection.collapseToEnd();}else el.textContent=(el.textContent||'')+text;}\n"
-        " else if('value'in el){el.value=String(el.value||'')+text;}else return {ok:false,message:'Focused element is not editable'};\n"
-        " el.dispatchEvent(new InputEvent('input',{bubbles:true,composed:true,inputType:'insertText',data:text}));return {ok:true};\n"
-        "})()";
-}
-
-std::string synthetic_key_expression(const json& parameters) {
-    json payload = parameters.is_object() ? parameters : json::object();
-    payload.erase("acecodeInputMode");
-    return "(() => {\n"
-        " const p=" + payload.dump() + ";const el=document.activeElement||document.body;const key=String(p.key||'');const down=p.type==='keyDown'||p.type==='rawKeyDown';const mods=Number(p.modifiers||0);\n"
-        " const init={key,code:String(p.code||key),bubbles:true,cancelable:true,composed:true,altKey:!!(mods&1),ctrlKey:!!(mods&2),metaKey:!!(mods&4),shiftKey:!!(mods&8),repeat:false};\n"
-        " const event=new KeyboardEvent(down?'keydown':'keyup',init);const proceed=el.dispatchEvent(event);if(!down||!proceed)return {ok:true};\n"
-        " if((init.metaKey||init.ctrlKey)&&key.toLowerCase()==='a'&&typeof el.select==='function'){el.select();return {ok:true};}\n"
-        " if(key==='Tab'){const nodes=[...document.querySelectorAll('a[href],button,input,textarea,select,[tabindex]:not([tabindex=\"-1\"])')].filter(n=>!n.disabled&&n.getClientRects().length);const index=nodes.indexOf(el);const delta=init.shiftKey?-1:1;const next=nodes[(index+delta+nodes.length)%nodes.length];next?.focus();return {ok:true};}\n"
-        " if(key==='Enter'){if(el instanceof HTMLTextAreaElement){el.setRangeText('\\n',el.selectionStart,el.selectionEnd,'end');el.dispatchEvent(new InputEvent('input',{bubbles:true,inputType:'insertLineBreak',data:'\\n'}));}else if(el.form&&typeof el.form.requestSubmit==='function'){el.form.requestSubmit();}else if(typeof el.click==='function'){el.click();}return {ok:true};}\n"
-        " if((key==='Backspace'||key==='Delete')&&(el instanceof HTMLInputElement||el instanceof HTMLTextAreaElement)){const start=el.selectionStart??el.value.length;const end=el.selectionEnd??start;const left=key==='Backspace'&&start===end?Math.max(0,start-1):start;const right=key==='Delete'&&start===end?Math.min(el.value.length,end+1):end;el.setRangeText('',left,right,'end');el.dispatchEvent(new InputEvent('input',{bubbles:true,inputType:'deleteContentBackward',data:null}));}\n"
-        " return {ok:true};\n"
-        "})()";
-}
-
-std::string remote_type(const json& value) {
-    if (value.is_null()) return "object";
-    if (value.is_boolean()) return "boolean";
-    if (value.is_number()) return "number";
-    if (value.is_string()) return "string";
-    return "object";
-}
-
-CGMouseButton cg_mouse_button(const std::string& button) {
-    if (button == "right") return kCGMouseButtonRight;
-    if (button == "middle") return kCGMouseButtonCenter;
-    return kCGMouseButtonLeft;
-}
-
-CGEventType cg_mouse_event_type(const std::string& type,
-                                CGMouseButton button,
-                                bool dragging) {
-    if (type == "mousePressed") {
-        return button == kCGMouseButtonRight ? kCGEventRightMouseDown
-            : button == kCGMouseButtonCenter ? kCGEventOtherMouseDown
-            : kCGEventLeftMouseDown;
-    }
-    if (type == "mouseReleased") {
-        return button == kCGMouseButtonRight ? kCGEventRightMouseUp
-            : button == kCGMouseButtonCenter ? kCGEventOtherMouseUp
-            : kCGEventLeftMouseUp;
-    }
-    if (dragging) {
-        return button == kCGMouseButtonRight ? kCGEventRightMouseDragged
-            : button == kCGMouseButtonCenter ? kCGEventOtherMouseDragged
-            : kCGEventLeftMouseDragged;
-    }
-    return kCGEventMouseMoved;
-}
-
-} // namespace
 
 CGPoint AgentBrowserHost::Impl::native_screen_point(
     const std::shared_ptr<Page>& page,
@@ -2301,52 +2294,38 @@ void AgentBrowserHost::Impl::run_native_input(
 void AgentBrowserHost::Impl::capture_screenshot(
     const std::shared_ptr<Page>& page,
     const json& params,
-    const std::shared_ptr<PendingProxyCall>& pending) {
-    (void)params;
-    // Objective-C blocks retain C++ values, but a reference parameter would
-    // otherwise leave the asynchronous callback pointing at the caller's
-    // short-lived shared_ptr object.
-    const auto target_page = page;
-    const auto completion = pending;
-    WKSnapshotConfiguration* configuration =
-        [[[WKSnapshotConfiguration alloc] init] autorelease];
-    configuration.rect = [target_page->webview bounds];
-    [target_page->webview takeSnapshotWithConfiguration:configuration
-                               completionHandler:^(NSImage* image, NSError* error) {
-        if (error || !image) {
-            finish_proxy_call(completion,
-                {{"ok", false}, {"page_id", target_page->id},
-                 {"error", error
-                    ? utf8_string([error localizedDescription])
-                    : "WKWebView snapshot failed"}});
-            return;
-        }
-        CGImageRef cg_image = [image CGImageForProposedRect:nil
-                                                   context:nil
-                                                     hints:nil];
-        if (!cg_image) {
-            finish_proxy_call(completion,
-                {{"ok", false}, {"page_id", target_page->id},
-                 {"error", "WKWebView snapshot returned no image"}});
-            return;
-        }
-        NSBitmapImageRep* representation = [[[NSBitmapImageRep alloc]
-            initWithCGImage:cg_image] autorelease];
-        NSData* data = [representation
-            representationUsingType:NSBitmapImageFileTypePNG properties:@{}];
-        if (!data || [data length] == 0) {
-            finish_proxy_call(completion,
-                {{"ok", false}, {"page_id", target_page->id},
-                 {"error", "failed to encode WKWebView snapshot"}});
-            return;
-        }
-        const std::string bytes(
-            static_cast<const char*>([data bytes]), [data length]);
-        finish_proxy_call(completion,
-            {{"ok", true}, {"page_id", target_page->id},
-             {"result", {{"data", acecode::base64_encode(bytes)},
-                          {"captureBeyondViewport", false}}}});
-    }];
+    const std::shared_ptr<PendingProxyCall>& pending,
+    const std::string& annotation_validation) {
+    const auto weak = weak_from_this();
+    const auto navigation_id = page->navigation.current_navigation_id();
+    const auto view = std::shared_ptr<WKWebView>([page->webview retain],
+        [](WKWebView* value) { [value release]; });
+    const auto annotation_document = page->annotations.document_id();
+    const auto current = [weak, page, view, navigation_id, pending, annotation_document,
+                          trusted_annotation = !annotation_validation.empty()] {
+        const auto self = weak.lock();
+        if (pending->completed()) return false;
+        return self && self->find_page(page->id) == page && !page->closing &&
+            page->webview == view.get() && !page->state.loading &&
+            page->navigation.current_navigation_id() == navigation_id &&
+            page->state.content_state == kAgentBrowserContentStateLive &&
+            (!trusted_annotation || page->annotations.document_id() == annotation_document) &&
+            (trusted_annotation || self->page_shared_with_agent(page));
+    };
+    browser_capture::capture_webkit(view, page->id, params,
+        [weak, page, current](const std::string& expression, browser_capture::Evaluated done) {
+            const auto self = weak.lock();
+            if (!self || !current()) { done(false, {}, "capture_document_changed"); return; }
+            self->evaluate_value(page, expression, std::move(done));
+        }, current,
+        [pending](json response) { finish_proxy_call(pending, std::move(response)); },
+        annotation_capture_validation(annotation_validation,
+            [weak, page, current](const std::string& expression, std::function<void(bool, json)> done) {
+                const auto self = weak.lock();
+                if (!self || !current()) { done(false, {}); return; }
+                self->evaluate_value(page, expression,
+                    [done](bool ok, json value, std::string) { done(ok, std::move(value)); });
+            }));
 }
 
 bool AgentBrowserHost::Impl::handle_dialog_on_ui(
@@ -2433,7 +2412,7 @@ void AgentBrowserHost::Impl::call_command_on_ui(
                 finish_proxy_call(pending,
                     {{"ok", true}, {"page_id", page->id},
                      {"result", {{"result", {
-                         {"type", remote_type(value)}, {"value", value},
+                         {"type", remote_object_type(value)}, {"value", value},
                      }}}}});
             });
         return;
@@ -2639,38 +2618,10 @@ void AgentBrowserHost::Impl::execute_proxy_request_on_ui(
 }
 
 json AgentBrowserHost::Impl::execute_proxy_request(const json& request) {
-    if (!request.is_object()) {
-        return {{"ok", false}, {"error", "proxy request must be an object"}};
-    }
-    if (!request.contains("auth_token") ||
-        !request["auth_token"].is_string() ||
-        request["auth_token"].get_ref<const std::string&>() !=
-            proxy_auth_token) {
-        return {{"ok", false},
-                {"error", "Agent Browser proxy authentication failed"}};
-    }
-    const std::string operation = request.value("operation", "cdp");
-    if (operation != "cdp" && operation != "create_page" &&
-        operation != "claim_page" && operation != "close_page" &&
-        operation != "select_page" && operation != "drain_store_tasks") {
-        return {{"ok", false},
-                {"error", "Agent Browser proxy operation is invalid"}};
-    }
-    if (operation == "cdp") {
-        if (!request.contains("method") || !request["method"].is_string() ||
-            request["method"].get_ref<const std::string&>().empty() ||
-            request["method"].get_ref<const std::string&>().size() > 256) {
-            return {{"ok", false},
-                    {"error", "Agent Browser command method is invalid"}};
-        }
-    }
-    const int requested_timeout =
-        request.contains("timeout_ms") && request["timeout_ms"].is_number_integer()
-        ? request["timeout_ms"].get<int>() : 15000;
-    const int timeout_ms = (std::max)(
-        100, (std::min)(120000, requested_timeout));
-    const auto deadline = std::chrono::steady_clock::now() +
-                          std::chrono::milliseconds(timeout_ms);
+    const auto request_error = browser_proxy_request_error(
+        request, proxy_auth_token, "Agent Browser command method is invalid");
+    if (!request_error.empty()) return {{"ok", false}, {"error", request_error}};
+    const auto deadline = browser_proxy_deadline(request);
     auto pending = std::make_shared<PendingProxyCall>();
     const auto weak = weak_from_this();
     try {
@@ -2688,17 +2639,7 @@ json AgentBrowserHost::Impl::execute_proxy_request(const json& request) {
                               std::string(error.what())}};
     }
 
-    std::unique_lock<std::mutex> lock(pending->mutex);
-    while (!pending->completed && !proxy_stopping.load() &&
-           std::chrono::steady_clock::now() < deadline) {
-        pending->ready.wait_for(lock, std::chrono::milliseconds(50));
-    }
-    if (pending->completed) return pending->response;
-    return {{"ok", false},
-            {"page_id", request.value("page_id", "")},
-            {"error", proxy_stopping.load()
-                ? "Agent Browser stopped"
-                : "WKWebView command timed out"}};
+    return pending->wait(request, proxy_stopping, deadline, "WKWebView command timed out");
 }
 
 void AgentBrowserHost::Impl::handle_proxy_connection(int connection) {
@@ -2959,22 +2900,8 @@ bool AgentBrowserHost::set_bounds(const std::string& page_id,
         assign_error(error, "Agent Browser is unavailable on this platform");
         return false;
     }
-    if (bounds.x < 0 || bounds.y < 0 || bounds.width < 0 || bounds.height < 0 ||
-        bounds.width > 32768 || bounds.height > 32768) {
-        assign_error(error, "Agent Browser bounds are invalid");
+    if (!agent_browser_common::valid_agent_browser_bounds(bounds, error)) {
         return false;
-    }
-    if (bounds.occlusion_rects.size() > kAgentBrowserMaxOcclusionRects) {
-        assign_error(error, "Agent Browser has too many occlusion rectangles");
-        return false;
-    }
-    for (const auto& rect : bounds.occlusion_rects) {
-        if (rect.x < 0 || rect.y < 0 || rect.width <= 0 || rect.height <= 0 ||
-            rect.x > 32768 || rect.y > 32768 ||
-            rect.width > 32768 || rect.height > 32768) {
-            assign_error(error, "Agent Browser occlusion rectangle is invalid");
-            return false;
-        }
     }
     auto page = impl_->find_page(page_id);
     if (!page) {
@@ -3053,6 +2980,12 @@ bool AgentBrowserHost::set_shared_with_agent(const std::string& page_id,
 bool AgentBrowserHost::toggle_element_selection(const std::string& page_id,
                                                  std::string* error) {
     return impl_ && impl_->toggle_element_selection_on_ui(page_id, error);
+}
+
+void AgentBrowserHost::annotation_command(
+    const std::string& page_id, const std::string& command_json,
+    std::function<void(std::string)> completion) {
+    annotation_dispatch(impl_, page_id, command_json, std::move(completion));
 }
 
 std::string AgentBrowserHost::console_logs(const std::string& page_id,

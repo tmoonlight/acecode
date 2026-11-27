@@ -1,6 +1,11 @@
 #include "agent_browser_host.hpp"
+#include "page_annotation_session.hpp"
+#include "page_annotation_host_submission.hpp"
+#include "page_annotation_host_adapter.hpp"
 
 #include "agent_browser_cookie_jars.hpp"
+#include "agent_browser_capture_cdp.hpp"
+#include "agent_browser_proxy_request.hpp"
 #include "agent_browser_navigation_state.hpp"
 #include "ipc/agent_browser_runtime.hpp"
 #include "ipc/agent_browser_store_state.hpp"
@@ -16,7 +21,6 @@
 #include <algorithm>
 #include <cctype>
 #include <chrono>
-#include <condition_variable>
 #include <cstdint>
 #include <filesystem>
 #include <functional>
@@ -46,6 +50,7 @@
 #endif
 
 #include "agent_browser_windows_helpers.hpp"
+#include "agent_browser_native_commands_win.hpp"
 #include "agent_browser_host_common.hpp"
 
 namespace acecode::desktop {
@@ -55,14 +60,8 @@ using namespace agent_browser_windows;
 #endif
 struct AgentBrowserHost::Impl
     : public std::enable_shared_from_this<AgentBrowserHost::Impl> {
-    struct PendingProxyCall {
-        std::mutex mutex;
-        std::condition_variable ready;
-        bool completed = false;
-        nlohmann::json response;
-    };
-
     void* parent_window = nullptr;
+    AnnotationPoller annotation_poller;
     std::int64_t desktop_pid = 0;
     std::string desktop_instance_id;
     std::string acecode_dir;
@@ -74,6 +73,9 @@ struct AgentBrowserHost::Impl
     bool parent_surface_visible = true;
     // 「保留 Cookie」档位;启动时从状态文件读取,之后只在 UI 线程上改。
     AgentBrowserCookieMode cookie_mode = AgentBrowserCookieMode::Shared;
+    // 会话级批注记录（Q33）。页签销毁不带走记录：关页签只让记录降级为 orphan，
+    // 所以存储挂在宿主上、按 owner.session_id 分桶，由 UI 线程读写。
+    SessionAnnotationStoreRegistry annotation_store_registry;
 
 #ifdef _WIN32
     struct QueuedCdpCall {
@@ -84,6 +86,7 @@ struct AgentBrowserHost::Impl
 
     struct Page {
         std::string id;
+        PageAnnotationSession annotations;
         AgentBrowserState state;
         AgentBrowserBounds requested_bounds;
         bool creation_started = false;
@@ -373,18 +376,6 @@ struct AgentBrowserHost::Impl
 #endif
     }
 
-    static void finish_proxy_call(
-        const std::shared_ptr<PendingProxyCall>& pending,
-        nlohmann::json response) {
-        {
-            std::lock_guard<std::mutex> lock(pending->mutex);
-            if (pending->completed) return;
-            pending->completed = true;
-            pending->response = std::move(response);
-        }
-        pending->ready.notify_all();
-    }
-
 #ifdef _WIN32
     void start() {
         if (!parent_window || !::IsWindow(static_cast<HWND>(parent_window))) {
@@ -542,6 +533,8 @@ struct AgentBrowserHost::Impl
         page->state.supported = true;
         page->state.shared_with_agent = shared_with_agent;
         page->state.owner = owner;
+        // 同会话所有页签共享一个记录容器；页签关掉后记录仍在，转 orphan 继续可发。
+        page->annotations.share_store(annotation_store_registry.for_session(owner.session_id));
         std::vector<AgentBrowserState> changed;
         AgentBrowserState created;
         {
@@ -1315,17 +1308,18 @@ struct AgentBrowserHost::Impl
         install_permissive_certificate_events(page);
         page->webview->add_NavigationStarting(
             Microsoft::WRL::Callback<ICoreWebView2NavigationStartingEventHandler>(
-                [weak, page_id](ICoreWebView2*,
+                [weak, page_id](ICoreWebView2* source,
                                  ICoreWebView2NavigationStartingEventArgs* args) -> HRESULT {
                     const auto self = weak.lock();
                     const auto current = self ? self->find_page(page_id) : nullptr;
-                    if (!self || !current || !args) return S_OK;
+                    if (!current || current->closing || current->webview.Get() != source || !args) return S_OK;
                     LPWSTR raw = nullptr;
                     args->get_Uri(&raw);
                     const std::string uri = raw ? acecode::wide_to_utf8(raw) : "";
                     ::CoTaskMemFree(raw);
                     std::uint64_t navigation_id = 0;
                     args->get_NavigationId(&navigation_id);
+                    annotation_suspend_for_navigation(current, uri);
                     {
                         std::lock_guard<std::mutex> lock(self->state_mutex);
                         if (current->current_navigation_id != navigation_id &&
@@ -1374,11 +1368,11 @@ struct AgentBrowserHost::Impl
 
         page->webview->add_NavigationCompleted(
             Microsoft::WRL::Callback<ICoreWebView2NavigationCompletedEventHandler>(
-                [weak, page_id](ICoreWebView2*,
+                [weak, page_id](ICoreWebView2* sender,
                                 ICoreWebView2NavigationCompletedEventArgs* args) -> HRESULT {
                     const auto self = weak.lock();
                     const auto current = self ? self->find_page(page_id) : nullptr;
-                    if (!self || !current || !args) return S_OK;
+                    if (!current || current->closing || current->webview.Get() != sender || !args) return S_OK;
                     BOOL success = FALSE;
                     COREWEBVIEW2_WEB_ERROR_STATUS status =
                         COREWEBVIEW2_WEB_ERROR_STATUS_UNKNOWN;
@@ -1475,13 +1469,20 @@ struct AgentBrowserHost::Impl
 
         page->webview->add_SourceChanged(
             Microsoft::WRL::Callback<ICoreWebView2SourceChangedEventHandler>(
-                [weak, page_id](ICoreWebView2*,
+                [weak, page_id](ICoreWebView2* source,
                                 ICoreWebView2SourceChangedEventArgs* args) -> HRESULT {
                     if (const auto self = weak.lock()) {
-                        const auto current = self->find_page(page_id);
+                        const auto current = annotation_event_page(*self, page_id, source);
                         BOOL new_document = FALSE;
                         if (args) args->get_IsNewDocument(&new_document);
                         if (new_document) {
+                            if (current) {
+                                current->annotations.replace_document();
+                                const auto annotations = current->annotations.snapshot().dump();
+                                self->update_page(current, [annotations](AgentBrowserState& state) {
+                                    state.page_annotations_json = annotations;
+                                });
+                            }
                             self->clear_console_logs(current);
                             self->invalidate_element_selection(current);
                         }
@@ -1530,11 +1531,11 @@ struct AgentBrowserHost::Impl
             &page->new_window_token);
         page->webview->add_ProcessFailed(
             Microsoft::WRL::Callback<ICoreWebView2ProcessFailedEventHandler>(
-                [weak, page_id](ICoreWebView2*,
+                [weak, page_id](ICoreWebView2* source,
                                 ICoreWebView2ProcessFailedEventArgs* args) -> HRESULT {
                     const auto self = weak.lock();
                     const auto current = self ? self->find_page(page_id) : nullptr;
-                    if (!self || !current || !args) return S_OK;
+                    if (!current || current->closing || current->webview.Get() != source || !args) return S_OK;
 
                     COREWEBVIEW2_PROCESS_FAILED_KIND kind =
                         COREWEBVIEW2_PROCESS_FAILED_KIND_UNKNOWN_PROCESS_EXITED;
@@ -1560,8 +1561,10 @@ struct AgentBrowserHost::Impl
                         current, "[browser] " + technical);
                     if (failure_kind.empty()) return S_OK;
 
+                    current->annotations.replace_document();
                     self->invalidate_element_selection(current);
                     self->update_page(current, [&](AgentBrowserState& state) {
+                        state.page_annotations_json = current->annotations.snapshot().dump();
                         state.loading = false;
                         state.content_state =
                             kAgentBrowserContentStateProcessFailed;
@@ -1639,7 +1642,7 @@ struct AgentBrowserHost::Impl
     }
 
     void teardown_page(const std::shared_ptr<Page>& page) {
-        if (!page) return;
+        if (!annotation_retire(page)) return;
         remove_events(page);
         if (page->controller) {
             page->controller->put_IsVisible(FALSE);
@@ -1688,6 +1691,7 @@ struct AgentBrowserHost::Impl
         // 页面关闭后仍会有在途导航回调,标记之后一律忽略。
         page->navigation.close();
         teardown_page(page);
+        page->annotations.replace_document();
         std::vector<QueuedCdpCall> queued;
         queued.swap(page->queued_cdp);
         std::string next_active;
@@ -1738,6 +1742,7 @@ struct AgentBrowserHost::Impl
             url = page->state.url;
         }
         teardown_page(page);
+        page->annotations.replace_document();
         page->creation_started = false;
         page->store_prepared = false;
         page->navigation = AgentBrowserNavigationTracker{};
@@ -1747,7 +1752,8 @@ struct AgentBrowserHost::Impl
         ++page->favicon_generation;
         page->restore_url = (url.empty() || url == "about:blank") ? std::string() : url;
         const bool restoring = !page->restore_url.empty();
-        update_page(page, [restoring](AgentBrowserState& state) {
+        update_page(page, [restoring, page](AgentBrowserState& state) {
+            state.page_annotations_json = page->annotations.snapshot().dump();
             state.ready = false;
             state.loading = restoring;
             state.visible = false;
@@ -1772,6 +1778,12 @@ struct AgentBrowserHost::Impl
         }
         const AgentBrowserCookieModeSwitch plan =
             plan_agent_browser_cookie_mode_switch(cookie_mode, *mode);
+        std::vector<std::shared_ptr<Page>> affected;
+        if (plan.changed) {
+            for (const auto& id : agent_browser_pages_to_rebuild(page_store_bindings(), *mode)) {
+                if (const auto candidate = find_page(id)) affected.push_back(candidate);
+            }
+        }
         // 档位相同也写一次:状态里可能是空(从未选过)或别的版本写入的未知值。
         const bool persisted = update_agent_browser_store_state(
             [&mode, &plan](AgentBrowserStoreState& state) {
@@ -1794,9 +1806,9 @@ struct AgentBrowserHost::Impl
         cookie_mode = *mode;
         if (plan.mark_session_stores_for_wipe) prepared_session_stores.clear();
         // 先把页面搬进新存储;清空走临时 controller,与页面互不影响。
-        const auto rebuild = agent_browser_pages_to_rebuild(page_store_bindings(), cookie_mode);
-        for (const auto& page_id : rebuild) {
-            rebuild_page_on_ui(find_page(page_id));
+        const auto rebuild = affected;
+        for (const auto& candidate : affected) {
+            rebuild_page_on_ui(candidate);
         }
         if (plan.clear_shared_now) clear_shared_store_and_mark_done();
         if (plan.release_until_quit_store) release_until_quit_keepalive();
@@ -1823,22 +1835,18 @@ struct AgentBrowserHost::Impl
         }
         const AgentBrowserCookieStoreKey key = page->creation_started
             ? page->store : agent_browser_cookie_store_key(cookie_mode, page->state.owner);
+        const auto affected = annotation_store_pages(*this, key);
         const auto weak = weak_from_this();
-        clear_store(key, [weak, key, page_id](bool ok, const std::string& clear_error) {
+        clear_store(key, [weak, key, page_id, affected](bool ok, const std::string& clear_error) {
             const auto self = weak.lock();
             if (!self) return;
             if (ok) {
-                std::vector<std::shared_ptr<Page>> reload;
-                {
-                    std::lock_guard<std::mutex> lock(self->state_mutex);
-                    for (const auto& [id, candidate] : self->pages) {
-                        if (!candidate->closing && candidate->webview &&
-                            candidate->store == key) {
-                            reload.push_back(candidate);
-                        }
-                    }
+                for (const auto& candidate : affected) {
+                    if (!candidate->closing && self->find_page(candidate->id) == candidate &&
+                        candidate->webview && candidate->store == key) candidate->webview->Reload();
                 }
-                for (const auto& candidate : reload) candidate->webview->Reload();
+            }
+            if (ok) {
                 LOG_INFO("[agent-browser] browsing data cleared: " + key.id());
             } else {
                 LOG_WARN("[agent-browser] failed to clear browsing data for " + key.id() +
@@ -1983,6 +1991,8 @@ struct AgentBrowserHost::Impl
                 const HRESULT visible_result =
                     page->controller->put_IsVisible(TRUE);
                 show = SUCCEEDED(bounds_result) && SUCCEEDED(visible_result);
+                set_agent_browser_widget_input_enabled(
+                    browser_widget, !page->requested_bounds.interaction_blocked);
                 if (!show) {
                     LOG_WARN("[agent-browser] failed to show native page " +
                              page->id + " (bounds=" +
@@ -1998,6 +2008,7 @@ struct AgentBrowserHost::Impl
             }
         }
         if (page->state.active && !show) {
+            set_agent_browser_widget_input_enabled(browser_widget, true);
             hide_agent_browser_widget(browser_widget);
         }
         if (page->state.visible != show) {
@@ -2051,24 +2062,7 @@ struct AgentBrowserHost::Impl
                                   LPCWSTR raw) {
         const auto page = find_page(page_id);
         if (!page) return;
-        nlohmann::json selected;
-        if (SUCCEEDED(result) && raw) {
-            auto response = nlohmann::json::parse(
-                acecode::wide_to_utf8(raw), nullptr, false);
-            if (!response.is_discarded() && response.is_object()) {
-                const auto remote = response.value(
-                    "result", nlohmann::json::object());
-                if (remote.is_object() && remote.contains("value") &&
-                    remote["value"].is_object()) {
-                    const auto& value = remote["value"];
-                    if (!value.value("cancelled", true) &&
-                        value.contains("element") &&
-                        value["element"].is_object()) {
-                        selected = value["element"];
-                    }
-                }
-            }
-        }
+        const auto selected = selected_element(result, raw);
 
         AgentBrowserState snapshot;
         {
@@ -2164,6 +2158,25 @@ struct AgentBrowserHost::Impl
         return true;
     }
 
+    using AnnotationResult = std::function<void(bool, nlohmann::json)>;
+
+    void evaluate_annotation(const std::shared_ptr<Page>& page,
+                             std::uint64_t sequence, std::string expression,
+                             AnnotationResult completion, browser_capture::Current active = {}) {
+        const auto weak = weak_from_this();
+        const std::weak_ptr<Page> weak_page = page;
+        const auto incarnation = page->controller_generation;
+        agent_browser_windows::evaluate_annotation(page->webview,
+            [weak, weak_page, incarnation, sequence, active] {
+                const auto self = weak.lock();
+                const auto current = weak_page.lock();
+                return self && current && !current->closing &&
+                    self->find_page(current->id) == current &&
+                    current->controller_generation == incarnation &&
+                    current->annotations.sequence() == sequence && (!active || active());
+            }, std::move(expression), std::move(completion));
+    }
+
     bool open_developer_tools_on_ui(const std::string& page_id,
                                     std::string* error) {
         auto page = find_page(page_id);
@@ -2171,13 +2184,57 @@ struct AgentBrowserHost::Impl
             assign_error(error, "Agent Browser page is still starting");
             return false;
         }
-        const HRESULT result = page->webview->OpenDevToolsWindow();
-        if (FAILED(result)) {
-            assign_error(error, "failed to open WebView2 developer tools (" +
-                                    hresult_text(result) + ")");
-            return false;
+        return agent_browser_windows::open_developer_tools(page->webview, error);
+    }
+
+    void capture_screenshot(
+        const std::shared_ptr<Page>& page, const nlohmann::json& params,
+        const std::shared_ptr<PendingProxyCall>& pending,
+        const std::string& annotation_validation = {}) {
+        bool full_page = false;
+        const auto mode_error = browser_capture::request_mode(params, full_page);
+        if (!mode_error.empty()) {
+            finish_proxy_call(pending, {{"ok", false}, {"page_id", page->id},
+                {"error", mode_error}});
+            return;
         }
-        return true;
+        // 视口截图直接交给 CDP：整页管线会把视口图换成整页图，批注按视口坐标
+        // 裁剪时会错位。整页请求继续走下面的测量与分段捕获。
+        if (!full_page) {
+            proxy_command(page->webview, page->id, "Page.captureScreenshot", params,
+                [pending](nlohmann::json response) { finish_proxy_call(pending, std::move(response)); });
+            return;
+        }
+        const auto weak = weak_from_this();
+        const auto webview = page->webview;
+        const auto navigation_id = page->navigation.current_navigation_id();
+        const auto controller_generation = page->controller_generation;
+        const auto annotation_document = page->annotations.document_id();
+        const auto current = [weak, page, webview, navigation_id, controller_generation, pending,
+                              annotation_document,
+                              trusted_annotation = !annotation_validation.empty()] {
+            const auto self = weak.lock();
+            if (pending->completed()) return false;
+            return self && self->find_page(page->id) == page && !page->closing &&
+                page->webview == webview && page->controller_generation == controller_generation &&
+                page->navigation.current_navigation_id() == navigation_id &&
+                !page->state.loading &&
+                page->state.content_state == kAgentBrowserContentStateLive &&
+                (!trusted_annotation || page->annotations.document_id() == annotation_document) &&
+                (trusted_annotation || self->page_shared_with_agent(page));
+        };
+        browser_capture::capture_cdp(page->id, params,
+            [webview](const std::string& method, const nlohmann::json& arguments,
+                      browser_capture::CommandResult done) {
+                agent_browser_windows::capture_command(webview, method, arguments, std::move(done));
+            }, current,
+            [pending](nlohmann::json response) { finish_proxy_call(pending, std::move(response)); },
+            annotation_capture_validation(annotation_validation,
+                [weak, page, current](const std::string& expression, AnnotationResult done) {
+                    const auto self = weak.lock();
+                    if (!self || !current()) { done(false, {}); return; }
+                    agent_browser_windows::evaluate_annotation(page->webview, current, expression, std::move(done));
+                }), page->annotations.requests.cleanup(pending));
     }
 
     void call_cdp_on_ui(
@@ -2214,49 +2271,21 @@ struct AgentBrowserHost::Impl
             if (environment) begin_create_controller(page);
             return;
         }
-        const std::wstring wide_method = acecode::utf8_to_wide(method);
-        const std::wstring wide_params = acecode::utf8_to_wide(
-            (params.is_object() ? params : nlohmann::json::object()).dump());
-        auto completed = Microsoft::WRL::Callback<
-            ICoreWebView2CallDevToolsProtocolMethodCompletedHandler>(
-            [pending, page_id](HRESULT result, LPCWSTR raw) -> HRESULT {
-                if (FAILED(result)) {
-                    finish_proxy_call(
-                        pending,
-                        {{"ok", false},
-                         {"page_id", page_id},
-                         {"error", "WebView2 CDP call failed (" +
-                                       hresult_text(result) + ")"}});
-                    return S_OK;
-                }
-                const std::string text = raw
-                    ? acecode::wide_to_utf8(raw) : std::string("{}");
-                auto value = nlohmann::json::parse(text, nullptr, false);
-                if (value.is_discarded()) {
-                    finish_proxy_call(
-                        pending,
-                        {{"ok", false},
-                         {"page_id", page_id},
-                         {"error", "WebView2 returned malformed CDP JSON"}});
-                    return S_OK;
-                }
-                finish_proxy_call(
-                    pending,
-                    {{"ok", true},
-                     {"page_id", page_id},
-                     {"result", std::move(value)}});
-                return S_OK;
-            });
-        const HRESULT started = page->webview->CallDevToolsProtocolMethod(
-            wide_method.c_str(), wide_params.c_str(), completed.Get());
-        if (FAILED(started)) {
-            finish_proxy_call(
-                pending,
-                {{"ok", false},
-                 {"page_id", page_id},
-                 {"error", "failed to dispatch WebView2 CDP call (" +
-                               hresult_text(started) + ")"}});
+        if (method == "Page.captureScreenshot") {
+            bool full_page = false;
+            const auto error = browser_capture::request_mode(params, full_page);
+            if (!error.empty()) {
+                finish_proxy_call(pending, {{"ok", false}, {"page_id", page_id},
+                    {"error", error}, {"recoverable", true}});
+                return;
+            }
+            if (full_page) {
+                capture_screenshot(page, params, pending);
+                return;
+            }
         }
+        proxy_command(page->webview, page_id, method, params,
+            [pending](nlohmann::json response) { finish_proxy_call(pending, std::move(response)); });
     }
 
     void execute_proxy_request_on_ui(
@@ -2365,42 +2394,10 @@ struct AgentBrowserHost::Impl
     }
 
     nlohmann::json execute_proxy_request(const nlohmann::json& request) {
-        if (!request.is_object()) {
-            return {{"ok", false}, {"error", "proxy request must be an object"}};
-        }
-        if (!request.contains("auth_token") ||
-            !request["auth_token"].is_string() ||
-            request["auth_token"].get_ref<const std::string&>() !=
-                proxy_auth_token) {
-            return {{"ok", false},
-                    {"error", "Agent Browser proxy authentication failed"}};
-        }
-        const std::string operation = request.value("operation", "cdp");
-        if (operation != "cdp" && operation != "create_page" &&
-            operation != "claim_page" &&
-            operation != "close_page" && operation != "select_page" &&
-            operation != "drain_store_tasks") {
-            return {{"ok", false},
-                    {"error", "Agent Browser proxy operation is invalid"}};
-        }
-        if (operation == "cdp") {
-            if (!request.contains("method") || !request["method"].is_string()) {
-                return {{"ok", false},
-                        {"error", "Agent Browser CDP method is invalid"}};
-            }
-            const std::string method = request["method"].get<std::string>();
-            if (method.empty() || method.size() > 256) {
-                return {{"ok", false},
-                        {"error", "Agent Browser CDP method is invalid"}};
-            }
-        }
-        const int requested_timeout = request.contains("timeout_ms") &&
-                request["timeout_ms"].is_number_integer()
-            ? request["timeout_ms"].get<int>() : 15000;
-        const int timeout_ms = (std::max)(
-            100, (std::min)(120000, requested_timeout));
-        const auto deadline = std::chrono::steady_clock::now() +
-                              std::chrono::milliseconds(timeout_ms);
+        const auto request_error = browser_proxy_request_error(
+            request, proxy_auth_token, "Agent Browser CDP method is invalid");
+        if (!request_error.empty()) return {{"ok", false}, {"error", request_error}};
+        const auto deadline = browser_proxy_deadline(request);
         auto pending = std::make_shared<PendingProxyCall>();
         const auto weak = weak_from_this();
         try {
@@ -2419,17 +2416,7 @@ struct AgentBrowserHost::Impl
                                   error.what()}};
         }
 
-        std::unique_lock<std::mutex> lock(pending->mutex);
-        while (!pending->completed && !proxy_stopping.load() &&
-               std::chrono::steady_clock::now() < deadline) {
-            pending->ready.wait_for(lock, std::chrono::milliseconds(50));
-        }
-        if (pending->completed) return pending->response;
-        return {{"ok", false},
-                {"page_id", request.value("page_id", "")},
-                {"error", proxy_stopping.load()
-                    ? "Agent Browser stopped"
-                    : "WebView2 CDP call timed out"}};
+        return pending->wait(request, proxy_stopping, deadline, "WebView2 CDP call timed out");
     }
 
     void handle_proxy_connection(HANDLE pipe) {
@@ -2602,23 +2589,7 @@ bool AgentBrowserHost::set_bounds(const std::string& page_id,
         assign_error(error, "Agent Browser is unavailable on this platform");
         return false;
     }
-    if (bounds.x < 0 || bounds.y < 0 || bounds.width < 0 || bounds.height < 0 ||
-        bounds.width > 32768 || bounds.height > 32768) {
-        assign_error(error, "Agent Browser bounds are invalid");
-        return false;
-    }
-    if (bounds.occlusion_rects.size() > kAgentBrowserMaxOcclusionRects) {
-        assign_error(error, "Agent Browser has too many occlusion rectangles");
-        return false;
-    }
-    for (const auto& rect : bounds.occlusion_rects) {
-        if (rect.x < 0 || rect.y < 0 || rect.width <= 0 || rect.height <= 0 ||
-            rect.x > 32768 || rect.y > 32768 ||
-            rect.width > 32768 || rect.height > 32768) {
-            assign_error(error, "Agent Browser occlusion rectangle is invalid");
-            return false;
-        }
-    }
+    if (!valid_agent_browser_bounds(bounds, error)) return false;
 #ifdef _WIN32
     auto page = impl_->find_page(page_id);
     if (!page) {
@@ -2653,8 +2624,9 @@ bool AgentBrowserHost::go_back(const std::string& page_id,
                                std::string* error) {
 #ifdef _WIN32
     auto page = impl_ ? impl_->find_page(page_id) : nullptr;
-    if (page && page->webview && page->state.can_go_back &&
-        SUCCEEDED(page->webview->GoBack())) return true;
+    if (page && page->webview && page->state.can_go_back) {
+        if (SUCCEEDED(page->webview->GoBack())) return true;
+    }
     assign_error(error, "Agent Browser cannot go back");
 #else
     (void)page_id;
@@ -2667,8 +2639,9 @@ bool AgentBrowserHost::go_forward(const std::string& page_id,
                                   std::string* error) {
 #ifdef _WIN32
     auto page = impl_ ? impl_->find_page(page_id) : nullptr;
-    if (page && page->webview && page->state.can_go_forward &&
-        SUCCEEDED(page->webview->GoForward())) return true;
+    if (page && page->webview && page->state.can_go_forward) {
+        if (SUCCEEDED(page->webview->GoForward())) return true;
+    }
     assign_error(error, "Agent Browser cannot go forward");
 #else
     (void)page_id;
@@ -2681,7 +2654,9 @@ bool AgentBrowserHost::reload(const std::string& page_id,
                               std::string* error) {
 #ifdef _WIN32
     auto page = impl_ ? impl_->find_page(page_id) : nullptr;
-    if (page && page->webview && SUCCEEDED(page->webview->Reload())) return true;
+    if (page && page->webview) {
+        if (SUCCEEDED(page->webview->Reload())) return true;
+    }
     assign_error(error, "Agent Browser page is still starting");
 #else
     (void)page_id;
@@ -2726,6 +2701,18 @@ bool AgentBrowserHost::toggle_element_selection(const std::string& page_id,
     (void)page_id;
     assign_error(error, "Agent Browser is unavailable on this platform");
     return false;
+#endif
+}
+
+void AgentBrowserHost::annotation_command(
+    const std::string& page_id, const std::string& command_json,
+    std::function<void(std::string)> completion) {
+#ifdef _WIN32
+    annotation_dispatch(impl_, page_id, command_json, std::move(completion));
+#else
+    (void)page_id;
+    (void)command_json;
+    completion("{\"ok\":false,\"error\":\"Annotations unavailable\"}");
 #endif
 }
 

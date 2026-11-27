@@ -8,6 +8,16 @@ from check_ownership import scan, apply_allowances
 
 
 class OwnershipLifetimesTest(unittest.TestCase):
+    def test_include_headers_are_not_allocations_and_keep_source_offsets(self):
+        source = b'#include <new>\n # include  <vendor/new.hpp>\n#include "new.hpp"\n#define MAKE new Widget\nauto value = new Widget;\n'
+        found = scan(source, "x.cpp")
+        self.assertEqual([("raw_new", 4), ("raw_new", 5)],
+                         [(item["metric"], item["line"]) for item in found])
+
+    def test_non_include_preprocessor_allocations_are_still_detected(self):
+        self.assertIn("raw_new", self.metrics("#define ALLOCATE new Widget"))
+        self.assertIn("raw_new", self.metrics("#if FEATURE\nauto value = new Widget;\n#endif"))
+
     def metrics(self, source, path="x.cpp"):
         return [item["metric"] for item in scan(source.encode(), path)]
 

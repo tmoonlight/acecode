@@ -141,7 +141,7 @@ run('架构: 只在主页首发接入临时行并在 session 提升前记录', (
   const createEnd = chat.indexOf('const stageMediaFiles = useStableCallback', createStart);
   const createFlow = chat.slice(createStart, createEnd);
   const homeStart = chat.indexOf('if (!sid) {', chat.indexOf('const isBuiltin ='));
-  const activeStart = chat.indexOf('if (composerSubmitting) return;', homeStart);
+  const activeStart = chat.indexOf('if (composerSubmitting) return fail();', homeStart);
   const homeFlow = chat.slice(homeStart, activeStart);
   const activeFlow = chat.slice(activeStart, chat.indexOf('const drainQueuedInput', activeStart));
 

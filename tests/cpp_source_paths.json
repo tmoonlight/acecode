@@ -10,6 +10,7 @@
   "desktop/agent_browser_runtime.hpp": "src/base/ipc/agent_browser_runtime.hpp",
   "desktop/context_picker.cpp": "src/base/platform/native_ui/context_picker.cpp",
   "desktop/main.cpp": "src/apps/desktop/main.cpp",
+  "desktop/agent_browser_state_json.cpp": "src/apps/desktop/agent_browser_state_json.cpp",
   "desktop/splash_screen.cpp": "src/apps/desktop/splash_screen.cpp",
   "desktop/startup_progress.hpp": "src/apps/desktop/startup_progress.hpp",
   "desktop/web_host.cpp": "src/apps/desktop/web_host.cpp",

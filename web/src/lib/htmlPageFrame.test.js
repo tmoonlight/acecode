@@ -26,7 +26,7 @@ import { htmlPageRuntime } from './htmlPageRuntime.js';
 import { indexHtmlSource } from './htmlSourceMap.js';
 
 function source(path) {
-  return fs.readFileSync(new URL(path, import.meta.url), 'utf8');
+  return fs.readFileSync(new URL(path, import.meta.url), 'utf8').replace(/\r\n?/g, '\n');
 }
 
 function withoutComments(text) {

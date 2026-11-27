@@ -40,6 +40,15 @@ NSString* safari_compatible_application_name();
 const char* favicon_expression();
 const char* console_capture_script();
 const char* element_picker_expression();
+// 原生输入合成：把 WebView2 风格的 mouse/text/key 参数翻成页面内执行的 JS。
+std::string synthetic_mouse_expression(const json& parameters);
+std::string synthetic_text_expression(const json& parameters);
+std::string synthetic_key_expression(const json& parameters);
+std::string remote_object_type(const json& value);
+CGMouseButton cg_mouse_button(const std::string& button);
+CGEventType cg_mouse_event_type(const std::string& type,
+                                CGMouseButton button,
+                                bool dragging);
 std::string navigation_failure_kind(NSError* error,
                                     bool proxy_authentication_challenge);
 const char* navigation_type_name(WKNavigationType type);
