@@ -625,6 +625,10 @@ export const ENGLISH_SOURCE_OVERRIDES = Object.freeze({
   '模型服务返回错误，请检查密钥和模型配置': 'The model service returned an error. Check the key and model settings',
   '未能获取模型回复，请检查配置后重试': 'Could not get a model reply. Check the settings and retry',
   '模型检测失败{{p0}}：{{p1}}{{p2}}': 'Model test failed{{p0}}: {{p1}}{{p2}}',
+  // 自定义 Anthropic 兼容 API
+  '接口或模型不存在，请确认 Base URL 以 /v1 结尾、模型 ID 正确': 'Endpoint or model not found. Make sure the Base URL ends with /v1 and the model ID is correct',
+  '直接输入模型 ID，或从当前 Anthropic 兼容接口探测后选择。': 'Enter a model ID, or detect and choose one from the current Anthropic-compatible endpoint.',
+  '例如：claude-sonnet-4-5': 'For example: claude-sonnet-4-5',
   // 主题工坊与本地导入
   '本地导入': 'Import locally',
   '主题工坊': 'Theme workshop',

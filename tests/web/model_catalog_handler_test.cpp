@@ -160,6 +160,22 @@ TEST(ModelCatalogHandler, SummaryUsesCanonicalShapeAndProviderPolicies) {
     EXPECT_EQ((*custom)["auth_mode"], "required");
     EXPECT_EQ((*custom)["endpoint_modes"],
               nlohmann::json::array({"base_url", "full_url"}));
+    // 自定义 Anthropic 兼容 API:运行时走 anthropic、端点可编辑、模型 ID 手填;
+    // Anthropic provider 只按 base_url + "/messages" 拼接,所以不给完整端点模式。
+    const auto* custom_anthropic =
+        provider_by_id(summary["providers"], "custom-anthropic");
+    ASSERT_NE(custom_anthropic, nullptr);
+    EXPECT_EQ((*custom_anthropic)["runtime_provider"], "anthropic");
+    EXPECT_TRUE((*custom_anthropic)["endpoint_editable"].get<bool>());
+    EXPECT_EQ((*custom_anthropic)["model_input"], "manual");
+    EXPECT_EQ((*custom_anthropic)["auth_mode"], "required");
+    EXPECT_EQ((*custom_anthropic)["group"], "custom");
+    EXPECT_TRUE((*custom_anthropic)["base_url"].get<std::string>().empty());
+    EXPECT_TRUE((*custom_anthropic)["models_dev_provider_id"].is_null());
+    EXPECT_EQ((*custom_anthropic)["endpoint_modes"],
+              nlohmann::json::array({"base_url"}));
+    // 官方 Anthropic 条目保持只读端点,自定义端点只走上面的新条目。
+    EXPECT_FALSE((*anthropic)["endpoint_editable"].get<bool>());
     EXPECT_EQ((*local)["auth_mode"], "none");
     EXPECT_EQ((*openrouter)["runtime_provider"], "openai");
     EXPECT_EQ((*openrouter)["auth_mode"], "required");
@@ -229,6 +245,19 @@ TEST(ModelCatalogHandler, NativeAliasesRemainUsable) {
     EXPECT_EQ((*grok)["models"][0]["id"], "grok-test");
     EXPECT_EQ((*grok)["models"][0]["context_window"], 100000);
     EXPECT_TRUE((*grok)["models"][0]["max_output_tokens"].is_null());
+}
+
+// 触发场景:Web 选中「Custom Anthropic-compatible API」后照常按 Provider id 查目录。
+// 期望行为:与 custom-openai 一样返回空模型列表(模型 ID 手填),而不是 404,
+// 也不能落到官方 anthropic 的目录模型上。
+TEST(ModelCatalogHandler, CustomAnthropicQueryReturnsEmptyManualList) {
+    const auto providers = acecode::build_catalog(catalog_fixture());
+    auto custom = acecode::web::query_model_catalog_to_json(
+        providers, "custom-anthropic", "claude", 10);
+    ASSERT_TRUE(custom.has_value());
+    EXPECT_EQ((*custom)["provider_id"], "custom-anthropic");
+    EXPECT_TRUE((*custom)["models"].empty());
+    EXPECT_EQ((*custom)["limit"], 10);
 }
 
 TEST(ModelCatalogHandler, AceModelUsesBuiltinCatalogEvenWithoutRegistryEntry) {

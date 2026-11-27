@@ -45,16 +45,23 @@ function modelMetadataSummary(model) {
   return parts.join(' · ');
 }
 
+// OpenAI 兼容与 Anthropic(含自定义兼容网关)都按 Base URL + /models 探测,要带连接参数;
+// 受管 Provider 由 daemon 自己认证。
+function isHttpProbeProvider(runtimeProvider) {
+  return runtimeProvider === 'openai' || runtimeProvider === 'anthropic';
+}
+
 function modelProbeRequest(provider, draft) {
   const headers = parseRequestHeadersJson(draft.request_headers_json, draft.provider);
   if (!headers.ok) return { ok: false, code: headers.code };
+  const http = isHttpProbeProvider(draft.provider);
   return {
     ok: true,
     value: {
       catalog_provider_id: provider?.id || '',
       provider: draft.provider,
-      base_url: draft.provider === 'openai' ? draft.base_url : '',
-      api_key: draft.provider === 'openai' ? draft.api_key : '',
+      base_url: http ? draft.base_url : '',
+      api_key: http ? draft.api_key : '',
       request_headers: headers.headers,
     },
   };
@@ -96,12 +103,19 @@ export function ProviderCatalogPicker({
   const directModelIdInput = provider?.model_input === 'manual';
   const managedProvider = provider?.runtime_provider === 'copilot'
     || provider?.runtime_provider === 'grok';
-  const supportsProbe = provider?.runtime_provider === 'openai' || managedProvider;
+  const httpProbeProvider = isHttpProbeProvider(provider?.runtime_provider);
+  const supportsProbe = httpProbeProvider || managedProvider;
   const canReadProbeCache = supportsProbe
     && (managedProvider || !!draft.base_url);
   const canProbe = managedProvider
     ? !!managedAuthenticated
-    : provider?.runtime_provider === 'openai' && !!draft.base_url;
+    : httpProbeProvider && !!draft.base_url;
+  const anthropicModelInput = provider?.runtime_provider === 'anthropic';
+  const directModelIdHelp = allowMultiple
+    ? '可直接输入一个或多个模型 ID（使用逗号分隔），也可探测后多选。'
+    : (anthropicModelInput
+      ? '直接输入模型 ID，或从当前 Anthropic 兼容接口探测后选择。'
+      : '直接输入模型 ID，或从当前 OpenAI 兼容接口探测后选择。');
 
   const groupedProviders = useMemo(
     () => groupCatalogProviders(providers, providerQuery),
@@ -413,7 +427,7 @@ export function ProviderCatalogPicker({
                     Provider 文档
                   </button>
                 )}
-                {!directModelIdInput && (provider.runtime_provider === 'openai' || managedProvider) && (
+                {!directModelIdInput && supportsProbe && (
                   <button
                     type="button"
                     onClick={probeModels}
@@ -448,7 +462,7 @@ export function ProviderCatalogPicker({
                     >
                       Model ID
                     </label>
-                    {provider.runtime_provider === 'openai' && (
+                    {httpProbeProvider && (
                       <button
                         type="button"
                         onClick={openProbeDialog}
@@ -475,16 +489,14 @@ export function ProviderCatalogPicker({
                     type="text"
                     value={draft.model}
                     onChange={(event) => onDraftChange({ ...draft, model: event.target.value })}
-                    placeholder="例如：gpt-4.1"
+                    placeholder={anthropicModelInput ? '例如：claude-sonnet-4-5' : '例如：gpt-4.1'}
                     autoComplete="off"
                     spellCheck={false}
                     aria-describedby="custom-openai-model-id-help"
                     className="h-9 w-full rounded-md border border-border bg-surface px-3 text-[12px] text-fg outline-none transition placeholder:text-fg-mute focus:border-accent focus:ring-1 focus:ring-accent-soft"
                   />
                   <p id="custom-openai-model-id-help" className="mt-1.5 text-[10px] text-fg-mute">
-                    {allowMultiple
-                      ? '可直接输入一个或多个模型 ID（使用逗号分隔），也可探测后多选。'
-                      : '直接输入模型 ID，或从当前 OpenAI 兼容接口探测后选择。'}
+                    {directModelIdHelp}
                   </p>
                 </div>
                 {directModelDetails}

@@ -79,6 +79,7 @@ void install_runtime_with_mocks(const WebSearchConfig& cfg,
     web_search::init(cfg);
     auto& rt = web_search::runtime();
     rt.router().register_backend(std::make_unique<MockBackend>("rss"));
+    rt.router().register_backend(std::make_unique<MockBackend>("domestic"));
     rt.router().register_backend(std::make_unique<MockBackend>("duckduckgo"));
     rt.router().register_backend(std::make_unique<MockBackend>("bing_cn"));
     auto idx = std::make_shared<std::size_t>(0);
@@ -166,6 +167,16 @@ TEST_F(WebSearchCommandTest, UseValidBackendSucceeds) {
     auto out = dispatch_websearch_subcommand("use duckduckgo");
     EXPECT_NE(out.find("switched to duckduckgo"), std::string::npos);
     EXPECT_EQ(rt.router().active_name(), "duckduckgo");
+}
+
+TEST_F(WebSearchCommandTest, SelectDomesticFromGlobalNetwork) {
+    WebSearchConfig cfg;
+    install_runtime_with_mocks(cfg, {});
+    auto& router = web_search::runtime().router();
+    router.resolve_active(Region::Global);
+    EXPECT_NE(dispatch_websearch_subcommand("use domestic").find("switched to domestic"),
+              std::string::npos);
+    EXPECT_EQ(router.active_name(), "domestic");
 }
 
 TEST_F(WebSearchCommandTest, UseBingCnRejectedForResultQuality) {

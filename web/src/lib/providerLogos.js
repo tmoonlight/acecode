@@ -7,6 +7,7 @@ const PROVIDER_LOGO_ID_OVERRIDES = Object.freeze({
   copilot: 'github-copilot',
   grok: 'xai',
   'custom-openai': 'openai',
+  'custom-anthropic': 'anthropic',
 });
 
 const FIRST_PARTY_LOGO_PATHS = Object.freeze({

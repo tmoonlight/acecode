@@ -773,6 +773,9 @@ export function createApi(base = null) {
     getUiLocale: ()                  => request('GET',    '/api/config/ui-locale', undefined, base),
     setUiLocale: (locale)            => request('PUT',    '/api/config/ui-locale', { locale }, base),
     getDesktopOnboarding: ()         => request('GET',    '/api/ui/onboarding/desktop', undefined, base),
+    getSidebarExtensions: () => request('GET', '/api/ui/desktop/sidebar-extensions', undefined, base),
+    setSidebarExtensions: (prefs, { ifAbsent = false } = {}) => request(
+      'PUT', '/api/ui/desktop/sidebar-extensions' + (ifAbsent ? '?if_absent=1' : ''), prefs, base, { keepalive: true }),
     dismissDesktopOnboarding: ()     => request('POST',   '/api/ui/onboarding/desktop/dismiss', undefined, base),
     getConfigRecoveryNotice: ()      => request('GET',    '/api/config/recovery-notice', undefined, base),
     acknowledgeConfigRecoveryNotice: () => request(

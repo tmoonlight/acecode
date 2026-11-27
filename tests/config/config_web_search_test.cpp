@@ -8,7 +8,7 @@
 //   - WebSearchConfig 默认值(enabled=true / backend="parallel" / max_results=5 /
 //     timeout_ms=8000 / api_key="" / hosted rss_base_url)
 //   - 缺失段 → 默认值
-//   - 7 个合法 backend 字符串都被接受
+//   - 所有合法 backend 字符串都被接受
 //   - 非法 backend 名报错并列出可选值
 //   - max_results 越界(0 / 11)报错
 //   - timeout_ms 越界(999 / 30001)报错
@@ -43,10 +43,10 @@ std::string apply_web_search_section(const nlohmann::json& j_with_web_search,
     if (wsj.contains("backend") && wsj["backend"].is_string()) {
         std::string b = wsj["backend"].get<std::string>();
         if (b != "parallel" && b != "rss" && b != "auto" &&
-            b != "duckduckgo" && b != "bing_cn" &&
+            b != "duckduckgo" && b != "domestic" && b != "bing_cn" &&
             b != "bochaai" && b != "tavily") {
             return "web_search.backend='" + b +
-                   "' invalid; expected one of: parallel, rss, auto, duckduckgo, bing_cn, bochaai, tavily";
+                   "' invalid; expected one of: parallel, rss, auto, duckduckgo, domestic, bing_cn, bochaai, tavily";
         }
         out.backend = std::move(b);
     }
@@ -107,10 +107,10 @@ TEST(ConfigWebSearchLoader, MissingBlockKeepsDefault) {
     EXPECT_EQ(c.backend, "parallel");
 }
 
-// 场景:7 个合法 backend 名都被原样接受
+// 场景:合法 backend 名都被原样接受
 TEST(ConfigWebSearchLoader, AcceptsAllValidBackends) {
     for (const std::string& v : {"parallel", "rss", "auto", "duckduckgo",
-                                 "bing_cn", "bochaai", "tavily"}) {
+                                 "domestic", "bing_cn", "bochaai", "tavily"}) {
         WebSearchConfig c;
         nlohmann::json j = {{"web_search", {{"backend", v}}}};
         EXPECT_EQ(apply_web_search_section(j, c), "") << "backend=" << v;
@@ -128,6 +128,7 @@ TEST(ConfigWebSearchLoader, InvalidBackendRejected) {
     EXPECT_NE(err.find("rss"), std::string::npos);
     EXPECT_NE(err.find("auto"), std::string::npos);
     EXPECT_NE(err.find("duckduckgo"), std::string::npos);
+    EXPECT_NE(err.find("domestic"), std::string::npos);
     EXPECT_NE(err.find("bing_cn"), std::string::npos);
     EXPECT_NE(err.find("bochaai"), std::string::npos);
     EXPECT_NE(err.find("tavily"), std::string::npos);
@@ -244,6 +245,10 @@ TEST(ConfigWebSearchProduction, RssBaseUrlSaveLoadRoundTrip) {
     const auto loaded = load_config_from_path(path);
     EXPECT_EQ(loaded.web_search.backend, "rss");
     EXPECT_EQ(loaded.web_search.rss_base_url, "https://search.example/custom");
+
+    cfg.web_search.backend = "domestic";
+    save_config(cfg, path);
+    EXPECT_EQ(load_config_from_path(path).web_search.backend, "domestic");
 
     std::error_code ec;
     fs::remove_all(dir, ec);

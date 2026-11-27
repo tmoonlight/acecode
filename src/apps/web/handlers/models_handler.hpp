@@ -104,6 +104,17 @@ OpenAiModelsProbeResult probe_openai_models(
     const ModelProbeRequest& request,
     const std::atomic<bool>* cancel = nullptr);
 
+// Anthropic Models API(GET <base_url>/models,x-api-key + anthropic-version,
+// 按 has_more / last_id 翻页)。结果与 OpenAI 探测同形。
+OpenAiModelsProbeResult probe_anthropic_models(
+    const ModelProbeRequest& request,
+    const std::atomic<bool>* cancel = nullptr);
+
+// 按 request.provider 选择 OpenAI 或 Anthropic 探测;/api/models/probe 的唯一入口。
+OpenAiModelsProbeResult probe_connection_models(
+    const ModelProbeRequest& request,
+    const std::atomic<bool>* cancel = nullptr);
+
 ParsedOpenAiModels parse_openai_models(const nlohmann::json& body);
 std::vector<std::string> parse_openai_model_ids(const nlohmann::json& body);
 

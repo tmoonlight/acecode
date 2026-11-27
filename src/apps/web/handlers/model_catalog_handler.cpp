@@ -40,6 +40,11 @@ std::string first_env(const ProviderEntry* provider) {
     return provider && !provider->env.empty() ? provider->env.front() : "";
 }
 
+// 自定义兼容 API 只有连接描述、没有目录模型:模型 ID 由用户手填。
+bool is_custom_api_provider_id(const std::string& normalized_id) {
+    return normalized_id == "custom-openai" || normalized_id == "custom-anthropic";
+}
+
 const ProviderEntry* by_id(const std::vector<ProviderEntry>& providers,
                            const std::string& id) {
     const std::string needle = lower_ascii(id);
@@ -136,6 +141,12 @@ std::vector<nlohmann::json> provider_descriptors(
         "custom-openai", "Custom OpenAI-compatible API", "openai", "", "",
         "required", true, "manual", "", std::nullopt, "custom",
         {"base_url", "full_url"}));
+    // Anthropic Messages 协议的自定义端点(第三方兼容网关)。运行时按
+    // base_url + "/messages" 拼接,没有完整端点模式。
+    result.push_back(provider_to_json(
+        "custom-anthropic", "Custom Anthropic-compatible API", "anthropic", "", "",
+        "required", true, "manual", "", std::nullopt, "custom",
+        {"base_url"}));
     result.push_back(provider_to_json(
         "openai",
         openai ? openai->name : "OpenAI",
@@ -237,7 +248,7 @@ nlohmann::json model_to_json(const ModelEntry& model) {
 const ProviderEntry* query_provider(const std::vector<ProviderEntry>& providers,
                                     const std::string& id) {
     const std::string normalized = lower_ascii(id);
-    if (normalized == "custom-openai" || is_acemodel_provider_id(normalized)) {
+    if (is_custom_api_provider_id(normalized) || is_acemodel_provider_id(normalized)) {
         return nullptr;
     }
     if (normalized == "copilot") return by_id(providers, "github-copilot");
@@ -284,7 +295,7 @@ std::optional<nlohmann::json> query_model_catalog_to_json(
     const std::string& query,
     int limit) {
     const std::string normalized_provider = lower_ascii(provider_id);
-    if (normalized_provider == "custom-openai") {
+    if (is_custom_api_provider_id(normalized_provider)) {
         return nlohmann::json{
             {"provider_id", provider_id},
             {"models", nlohmann::json::array()},

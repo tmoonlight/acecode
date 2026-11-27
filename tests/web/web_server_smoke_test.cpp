@@ -9296,6 +9296,25 @@ TEST(WebServerHttp, UnknownRouteReturns404) {
     EXPECT_EQ(r.status_code, 404);
 }
 
+TEST(WebServerHttp, DesktopSidebarExtensionsPersistPinsOrderAndImportOnlyOnce) {
+    WebServerFixture fx;
+    const std::string url = fx.url("/api/ui/desktop/sidebar-extensions");
+    const cpr::Header headers{{"Content-Type", "application/json"}};
+    const json prefs = {{"order", {"skills", "experts", "models", "mcp"}}, {"pinned", {"skills", "models"}}};
+    auto unpinned = prefs;
+    unpinned["pinned"] = json::array();
+    acecode::write_state_flag("another_flag", true);
+    EXPECT_EQ(cpr::Get(cpr::Url{url}).text, "null");
+    ASSERT_EQ(cpr::Put(cpr::Url{url + "?if_absent=1"}, headers, cpr::Body{prefs.dump()}).status_code, 200);
+    ASSERT_EQ(cpr::Put(cpr::Url{url}, headers, cpr::Body{unpinned.dump()}).status_code, 200);
+    auto migrate = cpr::Put(cpr::Url{url + "?if_absent=1"}, headers, cpr::Body{prefs.dump()});
+    ASSERT_EQ(migrate.status_code, 200);
+    EXPECT_EQ(json::parse(migrate.text), unpinned);
+    EXPECT_EQ(cpr::Put(cpr::Url{url}, headers, cpr::Body{R"({"order":[],"pinned":false})"}).status_code, 400);
+    EXPECT_EQ(json::parse(cpr::Get(cpr::Url{url}).text), unpinned);
+    EXPECT_TRUE(acecode::read_state_flag("another_flag"));
+}
+
 // 场景:首次进入 Desktop 时,当前 guide version 尚未 dismiss。
 TEST(WebServerHttp, GetDesktopOnboardingReturnsUnseenVersion) {
     WebServerFixture fx;
@@ -13327,12 +13346,12 @@ TEST(WebServerHttp, PostModelsTestAuthenticatesAndDoesNotSaveDraft) {
     EXPECT_EQ(malformed.text.find("secret"), std::string::npos);
 }
 
-// 场景:POST /api/models/probe 只接受 OpenAI-compatible 探测参数。这里走
+// 场景:POST /api/models/probe 不支持没有模型列表接口的 provider(codex)。这里走
 // 400 分支,不发真实网络请求,用于固定 route wiring + 错误码。
 TEST(WebServerHttp, PostModelsProbeRejectsUnsupportedProvider) {
     WebServerFixture fx;
     json req = {
-        {"provider", "anthropic"},
+        {"provider", "codex"},
         {"base_url", "http://localhost:1234/v1"},
     };
     auto r = cpr::Post(cpr::Url{fx.url("/api/models/probe")},
@@ -13341,6 +13360,65 @@ TEST(WebServerHttp, PostModelsProbeRejectsUnsupportedProvider) {
     ASSERT_EQ(r.status_code, 400) << r.text;
     auto j = json::parse(r.text);
     EXPECT_EQ(j["error"], "UNKNOWN_PROVIDER");
+}
+
+// 触发场景:自定义 Anthropic 兼容网关点「探测模型」,Base URL 写到 /v1。
+// 期望行为:请求 GET <base_url>/models,带 x-api-key、anthropic-version 和自定义请求头,
+// 不带 OpenAI 的 Authorization;按 has_more / last_id → after_id 翻页把两页合并,
+// 并读出 max_input_tokens 作为上下文窗口。
+TEST(WebServerHttp, PostModelsProbeUsesAnthropicModelsApiWithPagination) {
+    std::mutex mu;
+    std::vector<std::string> seen_after_ids;
+    std::string seen_api_key;
+    std::string seen_version;
+    std::string seen_authorization;
+    std::string seen_probe_header;
+    LocalUpdateServer upstream([&](httplib::Server& s) {
+        s.Get("/anthropic/v1/models", [&](const httplib::Request& req, httplib::Response& res) {
+            const std::string after = req.get_param_value("after_id");
+            {
+                std::lock_guard<std::mutex> lk(mu);
+                seen_after_ids.push_back(after);
+                seen_api_key = req.get_header_value("x-api-key");
+                seen_version = req.get_header_value("anthropic-version");
+                seen_authorization = req.get_header_value("Authorization");
+                seen_probe_header = req.get_header_value("X-Probe");
+            }
+            if (after.empty()) {
+                res.set_content(R"({"data":[{"type":"model","id":"claude-a","display_name":"A",
+                    "max_input_tokens":200000}],"has_more":true,"first_id":"claude-a",
+                    "last_id":"claude-a"})", "application/json");
+            } else {
+                res.set_content(R"({"data":[{"type":"model","id":"claude-b","display_name":"B"}],
+                    "has_more":false,"first_id":"claude-b","last_id":"claude-b"})",
+                    "application/json");
+            }
+        });
+    });
+
+    WebServerFixture fx;
+    json req = {
+        {"catalog_provider_id", "custom-anthropic"},
+        {"provider", "anthropic"},
+        // base_url() 自带结尾的 "/";再带一个尾斜杠验证探测会裁掉它。
+        {"base_url", upstream.base_url() + "anthropic/v1/"},
+        {"api_key", "sk-ant-probe"},
+        {"request_headers", {{"X-Probe", "acecode"}}},
+    };
+    auto r = cpr::Post(cpr::Url{fx.url("/api/models/probe")},
+                       cpr::Header{{"Content-Type", "application/json"}},
+                       cpr::Body{req.dump()});
+    ASSERT_EQ(r.status_code, 200) << r.text;
+    auto j = json::parse(r.text);
+    EXPECT_EQ(j["models"], json::array({"claude-a", "claude-b"}));
+    EXPECT_EQ(j["model_context_windows"]["claude-a"], 200000);
+
+    std::lock_guard<std::mutex> lk(mu);
+    EXPECT_EQ(seen_after_ids, (std::vector<std::string>{"", "claude-a"}));
+    EXPECT_EQ(seen_api_key, "sk-ant-probe");
+    EXPECT_EQ(seen_version, "2023-06-01");
+    EXPECT_TRUE(seen_authorization.empty());
+    EXPECT_EQ(seen_probe_header, "acecode");
 }
 
 // 场景:POST /api/models/probe 对 OpenAI-compatible /models 请求发送自定义 header。

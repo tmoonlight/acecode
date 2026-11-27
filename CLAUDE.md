@@ -124,7 +124,7 @@ The Superpowers plugin is disabled for this repository. Do not invoke or follow 
 ## 网络、搜索、LSP、模型
 
 - **代理**:`proxy_resolver` 统一注入 cpr;`network.proxy_mode` auto / off / manual;启动 TCP probe 不通则进程级回退直连(`/proxy refresh` 清),session override 永远胜过 fallback;不暴露 TLS 校验开关。
-- **Web Search**:默认 `parallel`(RSS + DuckDuckGo + Bing CN 并发合并);`enabled=false` 不注册工具;查询限 200 码点;`/websearch` 只改会话级。
+- **Web Search** 默认并发查询 RSS 和区域网页来源。国内或地区未知时优先 AnySearch 匿名接口，结果不足时用 360 搜索补齐。DuckDuckGo 可达时使用原海外线路。`/websearch use domestic` 在当前会话指定国内线路，配置 `web_search.backend = "domestic"` 可持久选择。查询限 200 码点，`enabled=false` 关闭工具。
 - **LSP**(`src/adapters/lsp/`,仿 opencode,零新三方库):只探测已安装 server、绝不下载、server 不进安装包;编辑后只注入 ERROR 级诊断;**两条铁律**:所有入口按调用传入的 `session_cwd` 判 workspace 边界,比较 / root / slot key / URI 全部先 `weakly_canonical`(用户目录是 junction 时两形态不匹配)。Windows 上 .cmd/.bat 经 `cmd.exe /d /c`。归档:LSP。
 - **模型解析**:`default_model_name` → `<cwd_hash>/model_override.json` → 恢复会话的 provider/model 元组 → 兜底;没有 saved model 时启动失败而不是合成。上下文窗口经 `resolve_model_context_window_nonblocking`,规则见 [docs/model-context-resolution.md](docs/model-context-resolution.md)。`saved_models` 重名修复、悬空默认回退、`config-backups/last-good` 快照与 `invalid` 归档见归档:Config Schema、Model profile resolution、`/model` command。
 

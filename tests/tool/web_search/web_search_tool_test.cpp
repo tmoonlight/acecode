@@ -130,7 +130,7 @@ TEST_F(WebSearchToolTest, DefaultParallelOutputNeverContainsRegisteredBing) {
     auto bing = std::make_unique<MockBackend>("bing_cn", std::move(bing_response));
     auto* bing_raw = bing.get();
     router.register_backend(std::move(bing));
-    router.resolve_active(Region::Cn);
+    router.resolve_active(Region::Global);
 
     auto tool = create_web_search_tool(router, cfg);
     ToolContext ctx;
@@ -141,6 +141,35 @@ TEST_F(WebSearchToolTest, DefaultParallelOutputNeverContainsRegisteredBing) {
     EXPECT_EQ(result.output.find("bing_cn"), std::string::npos);
     EXPECT_EQ(result.output.find("bing.example"), std::string::npos);
     EXPECT_EQ(bing_raw->last_limit, -1);
+}
+
+TEST_F(WebSearchToolTest, DefaultDomesticSearchKeepsProvenanceAndPartialWarnings) {
+    for (const auto region : {Region::Unknown, Region::Cn}) {
+        WebSearchConfig cfg;
+        BackendRouter router(cfg);
+        auto domestic = make_resp("domestic", 2);
+        domestic.hits[0].backend_name = "anysearch";
+        domestic.hits[1].backend_name = "so360";
+        domestic.warnings.push_back("fixture warning");
+        auto rss = make_resp("rss", 1);
+        rss.hits[0].url = "https://feed.example/item";
+        router.register_backend(std::make_unique<MockBackend>("domestic", std::move(domestic)));
+        router.register_backend(std::make_unique<MockBackend>("rss", std::move(rss)));
+        router.resolve_active(region);
+
+        ToolContext ctx;
+        auto tool = create_web_search_tool(router, cfg);
+        const auto result = tool.execute(R"({"query":"新闻","limit":3})", ctx);
+        ASSERT_TRUE(result.success);
+        const auto primary = result.output.find("Backend: anysearch");
+        const auto feed = result.output.find("Backend: rss");
+        const auto secondary = result.output.find("Backend: so360");
+        EXPECT_LT(primary, feed);
+        EXPECT_LT(feed, secondary);
+        EXPECT_NE(secondary, std::string::npos);
+        EXPECT_NE(result.output.find("fixture warning"), std::string::npos);
+        EXPECT_EQ(result.output.find("duckduckgo"), std::string::npos);
+    }
 }
 
 // 场景:query 缺失 / 空串 → Disabled 错误,router 不被调用

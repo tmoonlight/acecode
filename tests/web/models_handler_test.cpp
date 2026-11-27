@@ -609,12 +609,39 @@ TEST(ModelsHandler, AceModelProbeCapabilitiesComeFromBuiltinCatalog) {
 TEST(ModelsHandler, ParseProbeRequestValidatesProviderAndBaseUrl) {
     std::string code;
     std::string err;
+    // codex 没有可探测的模型列表接口,仍然拒绝。
     auto unsupported = parse_model_probe_request(
-        nlohmann::json{{"provider", "anthropic"}, {"base_url", "http://x"}},
+        nlohmann::json{{"provider", "codex"}, {"base_url", "http://x"}},
         code,
         err);
     EXPECT_FALSE(unsupported.has_value());
     EXPECT_EQ(code, "UNKNOWN_PROVIDER");
+
+    // Anthropic(含自定义兼容网关)走 /models 探测:与 OpenAI 一样必须带 base_url,
+    // 允许自定义请求头。
+    code.clear();
+    err.clear();
+    auto anthropic_missing_url = parse_model_probe_request(
+        nlohmann::json{{"provider", "anthropic"}}, code, err);
+    EXPECT_FALSE(anthropic_missing_url.has_value());
+    EXPECT_EQ(code, "MISSING_BASE_URL");
+
+    code.clear();
+    err.clear();
+    auto anthropic = parse_model_probe_request(
+        nlohmann::json{
+            {"catalog_provider_id", "custom-anthropic"},
+            {"provider", "anthropic"},
+            {"base_url", "http://localhost/anthropic/v1"},
+            {"api_key", "sk-ant"},
+            {"request_headers", {{"X-Probe", "acecode"}}}
+        },
+        code,
+        err);
+    ASSERT_TRUE(anthropic.has_value()) << code << ": " << err;
+    EXPECT_EQ(anthropic->provider, "anthropic");
+    EXPECT_EQ(anthropic->catalog_provider_id, "custom-anthropic");
+    EXPECT_EQ(anthropic->request_headers.at("X-Probe"), "acecode");
 
     code.clear();
     err.clear();

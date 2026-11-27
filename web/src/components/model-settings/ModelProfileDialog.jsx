@@ -3,14 +3,17 @@ import { clsx } from '../../lib/format.js';
 import { lookupErrorMessage } from '../../lib/errors.js';
 import {
   applyCatalogProviderToDraft,
+  applyModelApiProtocolToDraft,
   buildModelMutationPayloads,
   hasAdvancedModelValues,
-  isCustomOpenAiCompatibilityProvider,
+  isCustomCompatibilityProvider,
   isCustomReasoningDraft,
   MODEL_REASONING_EFFORTS,
   updateModelReasoningEfforts,
   markModelMetadataOverrides,
   modelAliasProviderName,
+  modelApiProtocolOptions,
+  modelApiProtocolValue,
   modelFieldPolicy,
   modelNameSuggestion,
   modelSamplingFieldSupport,
@@ -94,19 +97,20 @@ function ModelSamplingFields({ draft, provider, support, onPatchDraft }) {
   );
 }
 
-function ModelApiProtocolField({ draft, onPatchDraft }) {
+function ModelApiProtocolField({ value, options, onChange }) {
   return (
     <div className="md:col-span-2">
       {fieldLabel('model-api-protocol', 'API 协议')}
       <select
         id="model-api-protocol"
-        value={draft.api_protocol || 'chat_completions'}
-        onChange={(event) => onPatchDraft({ api_protocol: event.target.value })}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
         aria-describedby="model-api-protocol-help"
         className={inputClass()}
       >
-        <option value="chat_completions">Chat Completions</option>
-        <option value="responses">Responses</option>
+        {options.map((option) => (
+          <option key={option.value} value={option.value}>{option.label}</option>
+        ))}
       </select>
       <p id="model-api-protocol-help" className="mt-1.5 text-[11px] leading-5 text-fg-mute">
         按服务商支持的接口选择；需要 Responses 的模型请在此切换。
@@ -221,6 +225,7 @@ function CustomCompatibilityApiFields({
   policy,
   editing,
   existingNames,
+  apiProtocolField,
   apiKeyVisible,
   onPatchDraft,
   onToggleApiKey,
@@ -238,17 +243,17 @@ function CustomCompatibilityApiFields({
           onPatchDraft={onPatchDraft}
         />
       </div>
-      {policy?.show_api_protocol && (
-        <ModelApiProtocolField draft={draft} onPatchDraft={onPatchDraft} />
-      )}
+      {apiProtocolField}
       {policy?.show_base_url && (
         <div className={policy.show_api_key ? '' : 'md:col-span-2'}>
           {fieldLabel('model-base-url', draft.endpoint_mode === 'full_url' ? '完整端点 URL' : 'Base URL')}
+          {/* Anthropic 协议按 Base URL + /messages 拼接,示例给出带 /v1 的写法。 */}
           <input
             id="model-base-url"
             type="url"
             value={draft.base_url}
             onChange={(event) => onPatchDraft({ base_url: event.target.value })}
+            placeholder={draft.provider === 'anthropic' ? 'https://example.com/anthropic/v1' : undefined}
             readOnly={!policy.edit_base_url}
             className={inputClass(!policy.edit_base_url && 'bg-surface-alt text-fg-mute')}
             spellCheck={false}
@@ -321,7 +326,7 @@ export function ModelProfileDialog({
   const advancedSectionRef = useRef(null);
   const provider = useMemo(() => providerForDraft(providers, draft), [draft, providers]);
   const policy = provider ? modelFieldPolicy(provider) : null;
-  const customCompatibilityApi = isCustomOpenAiCompatibilityProvider(provider);
+  const customCompatibilityApi = isCustomCompatibilityProvider(provider);
   const managedConnection = managedConnections?.[provider?.runtime_provider] || null;
   const managedAuthenticated = !!managedConnection?.auth?.authenticated;
   const existingNames = useMemo(
@@ -375,6 +380,21 @@ export function ModelProfileDialog({
     setFormError('');
     setConflict(null);
   };
+  // 自定义兼容 API 选 Anthropic Messages 会换到 custom-anthropic 条目,已填字段保留。
+  const changeApiProtocol = (protocol) => {
+    setDraft((current) => applyModelApiProtocolToDraft(
+      current, providerForDraft(providers, current), providers, protocol,
+    ));
+    setFormError('');
+  };
+  const apiProtocolOptions = modelApiProtocolOptions(provider, providers);
+  const apiProtocolField = apiProtocolOptions.length > 0 ? (
+    <ModelApiProtocolField
+      value={modelApiProtocolValue(draft)}
+      options={apiProtocolOptions}
+      onChange={changeApiProtocol}
+    />
+  ) : null;
 
   const submit = async () => {
     if (!provider || submitting) return;
@@ -542,6 +562,7 @@ export function ModelProfileDialog({
                 policy={policy}
                 editing={editing}
                 existingNames={existingNames}
+                apiProtocolField={apiProtocolField}
                 apiKeyVisible={apiKeyVisible}
                 onPatchDraft={patchDraft}
                 onToggleApiKey={() => setApiKeyVisible((visible) => !visible)}
@@ -574,9 +595,7 @@ export function ModelProfileDialog({
 
           {!policy?.managed && !customCompatibilityApi && (
             <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-              {policy?.show_api_protocol && (
-                <ModelApiProtocolField draft={draft} onPatchDraft={patchDraft} />
-              )}
+              {policy?.show_api_protocol && apiProtocolField}
               {policy?.show_base_url && (
                 <div className={policy.show_api_key ? '' : 'md:col-span-2'}>
                   {fieldLabel('model-base-url', draft.endpoint_mode === 'full_url' ? '完整端点 URL' : 'Base URL')}

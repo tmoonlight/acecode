@@ -1216,7 +1216,7 @@ static AppConfig load_config_from_path_once(
                         "network.proxy_url");
                 }
             }
-            // 联网搜索段。缺省 → RSS + DuckDuckGo 并行搜索。
+            // 默认并发查询 RSS 和区域网页后端。
             // 参见 openspec/changes/integrate-rss-web-search/。
             if (j.contains("web_search") && j["web_search"].is_object()) {
                 const auto& wsj = j["web_search"];
@@ -1225,11 +1225,11 @@ static AppConfig load_config_from_path_once(
                 if (wsj.contains("backend") && wsj["backend"].is_string()) {
                     std::string b = wsj["backend"].get<std::string>();
                     if (b != "parallel" && b != "rss" && b != "auto" &&
-                        b != "duckduckgo" && b != "bing_cn" &&
+                        b != "duckduckgo" && b != "domestic" && b != "bing_cn" &&
                         b != "bochaai" && b != "tavily") {
                         fatal_config_value(
                             "web_search.backend is invalid; expected one of: "
-                            "parallel, rss, auto, duckduckgo, bing_cn, "
+                            "parallel, rss, auto, duckduckgo, domestic, bing_cn, "
                             "bochaai, tavily");
                     }
                     cfg.web_search.backend = std::move(b);

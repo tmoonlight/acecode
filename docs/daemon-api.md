@@ -406,6 +406,7 @@ download when nothing changed.
 | POST | `/api/grok/auth/device` | start xAI device flow |
 | POST | `/api/grok/auth/device/poll` | poll one xAI device-flow tick |
 | GET | `/api/ui/onboarding/desktop` | read Desktop guided-tour status |
+| GET / PUT | `/api/ui/desktop/sidebar-extensions` | read or update Desktop sidebar extension order and pins |
 | POST | `/api/ui/onboarding/desktop/dismiss` | dismiss the current Desktop guided-tour version |
 | GET | `/api/config/ui-preferences` | read UI preferences |
 | GET | `/api/config/desktop-multi-instance` | read global desktop multi-instance preference |
@@ -3710,7 +3711,13 @@ are never included in this endpoint's response.
 Probes provider model ids. OpenAI-compatible providers call upstream
 `GET /models`; Copilot uses saved GitHub auth; `provider:"grok"` uses the
 daemon-managed xAI OAuth credentials and the fixed Grok Build `/v1/models`
-endpoint. Anthropic model ids are entered manually and are not probed. Grok
+endpoint. `provider:"anthropic"` (the official entry and `custom-anthropic`)
+calls the Anthropic Models API `GET <base_url>/models` with `x-api-key`,
+`anthropic-version: 2023-06-01` and any custom request headers, follows
+`has_more` / `last_id` → `after_id` pagination (at most 10 pages of 1000), and
+reads `max_input_tokens` into `model_context_windows`; `base_url` is required,
+the same as for OpenAI-compatible probes. Gateways that only implement
+`/messages` return an upstream error and the model id is entered manually. Grok
 catalog parsing accepts the official `id`、`model`、`modelId` and `_meta`
 fallback shapes, ignores hidden entries, preserves first-seen order, and
 deduplicates model ids.
@@ -3806,7 +3813,13 @@ Errors include `COPILOT_AUTH_REQUIRED`, `GROK_AUTH_REQUIRED`,
 `catalog.version` 是非负整数。`auth_mode` 只会是 `required`、`optional`、
 `none` 或 `managed`。Custom OpenAI-compatible Provider 明确支持
 `endpoint_modes:["base_url","full_url"]`，并要求 API Key 或兼容的
-`credential_source_name`。一等自营 Provider `acemodel`（展示名 ACEModel）
+`credential_source_name`。Custom Anthropic-compatible Provider（`custom-anthropic`）的
+`runtime_provider` 为 `anthropic`、`model_input` 为 `manual`、`endpoint_editable` 为 true，只支持
+`endpoint_modes:["base_url"]`，保存为 `provider:"anthropic"` 加自定义 `base_url`，不带
+`api_protocol`；请求地址是 `base_url + "/messages"`，所以 Base URL 要写到 `/v1`。
+`GET /api/models/catalog/custom-anthropic` 与 `custom-openai` 一样返回空模型列表。Web 把它作为
+自定义兼容 API「API 协议」下拉的第三项 Anthropic Messages，Base URL 不是官方地址的 Anthropic
+预设编辑时回到这个条目。一等自营 Provider `acemodel`（展示名 ACEModel）
 返回 `default_api_protocol:"responses"`，模型设置新增和批量新增时采用该默认值，
 用户可在 **API 协议** 中修改；已有明确协议选择在加载及安装器升级时保持。
 ACEModel 使用与 OpenAI 相同的 OpenAI-compatible 字段，固定 Base URL 为
@@ -4061,6 +4074,13 @@ failure states return `status`, `error`, `message`, and
 ---
 
 ## 10. Config, MCP, Update, and Feedback
+
+### `GET /api/ui/desktop/sidebar-extensions` 和 `PUT /api/ui/desktop/sidebar-extensions`
+
+两个请求均需认证。GET 从当前用户的 `state.json` 读取扩展布局，无有效记录时返回 JSON `null`。
+PUT 接收完整布局，例如 `{"order":["skills","models","mcp","experts"],"pinned":["skills"]}`。
+两个数组各允许最多 64 个 ID，每个 ID 为 1–64 字节的字符串。`pinned: []` 表示取消全部固定项。
+首次导入旧缓存时使用 `?if_absent=1`，已有有效布局优先。PUT 返回最终保存的布局，数据格式错误返回 400，写入失败返回 500。
 
 ### `GET /api/ui/onboarding/desktop`
 

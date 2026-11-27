@@ -3,25 +3,37 @@ import { isDismissShortcut } from '../lib/shortcutBindings.js';
 // 「自定义」打开对话框,勾选的条目直接固定到侧栏主导航,拖动行调整顺序。
 // 顺序与勾选状态的纯逻辑在 lib/sidebarNavigation.js,这里只负责交互与渲染。
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { api } from '../lib/api.js';
 import { clsx } from '../lib/format.js';
-import { usePreference } from '../lib/usePreference.js';
+import { desktopUiMode } from '../lib/desktopShellMode.js';
+import { createSidebarExtensionPreferences } from '../lib/sidebarExtensionPreferences.js';
 import {
-  DEFAULT_SIDEBAR_EXTENSION_PREFS,
   moveSidebarExtension,
   normalizeSidebarExtensionPrefs,
   sidebarExtensionDropIndex,
   sidebarExtensionLayout,
   toggleSidebarExtensionPinned,
-  validateSidebarExtensionPrefs,
 } from '../lib/sidebarNavigation.js';
 import { AnchoredMenu } from './AnchoredMenu.jsx';
 import { Modal } from './Modal.jsx';
 import { VsIcon } from './Icon.jsx';
+import { toast } from './Toast.jsx';
 
-const SIDEBAR_EXTENSION_PREFS_STORAGE_KEY = 'acecode.sidebarExtensions.v1';
 const DRAG_START_PX = 4;
+
+let preferenceStore;
+function sidebarPreferences() {
+  if (!preferenceStore) {
+    let storage = null;
+    try { storage = window.localStorage; } catch { /* Storage can be disabled. */ }
+    preferenceStore = createSidebarExtensionPreferences({
+      storage,
+      desktopApi: desktopUiMode() === 'browser' ? null : api,
+    });
+  }
+  return preferenceStore;
+}
 
 function countObjectKeys(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return 0;
@@ -286,14 +298,30 @@ export function SidebarExtensions({ workspaceHash = '', onOpenSettingsSection, o
   const anchorRef = useRef(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [customizing, setCustomizing] = useState(false);
-  const [storedPrefs, setStoredPrefs] = usePreference(
-    SIDEBAR_EXTENSION_PREFS_STORAGE_KEY,
-    DEFAULT_SIDEBAR_EXTENSION_PREFS,
-    validateSidebarExtensionPrefs,
-  );
-  const prefs = normalizeSidebarExtensionPrefs(storedPrefs);
+  const store = sidebarPreferences();
+  const prefs = useSyncExternalStore(store.subscribe, store.getSnapshot);
+  useEffect(() => { void store.restore().catch(() => {}); }, [store]);
   const layout = sidebarExtensionLayout(prefs);
   const counts = useSidebarExtensionCounts(workspaceHash);
+
+  const openCustomizer = async () => {
+    setMenuOpen(false);
+    try {
+      await store.restore();
+      setCustomizing(true);
+    } catch {
+      toast({ kind: 'err', text: '读取失败' });
+    }
+  };
+
+  const closeCustomizer = async () => {
+    try {
+      await store.flush();
+      setCustomizing(false);
+    } catch {
+      toast({ kind: 'err', text: '保存失败，请重试' });
+    }
+  };
 
   const openItem = (item) => {
     setMenuOpen(false);
@@ -362,10 +390,7 @@ export function SidebarExtensions({ workspaceHash = '', onOpenSettingsSection, o
             type="button"
             role="menuitem"
             data-sidebar-extension-customize="true"
-            onClick={() => {
-              setMenuOpen(false);
-              setCustomizing(true);
-            }}
+            onClick={openCustomizer}
             className="w-full h-8 px-2 rounded-md flex items-center gap-2 text-[13px] text-fg-2 hover:bg-surface-hi hover:text-fg transition text-left"
           >
             <span className="w-5 shrink-0 flex items-center justify-center">
@@ -378,8 +403,8 @@ export function SidebarExtensions({ workspaceHash = '', onOpenSettingsSection, o
       {customizing && (
         <SidebarExtensionCustomizer
           prefs={prefs}
-          onChange={setStoredPrefs}
-          onClose={() => setCustomizing(false)}
+          onChange={store.change}
+          onClose={closeCustomizer}
         />
       )}
     </>
